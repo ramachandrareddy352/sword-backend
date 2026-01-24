@@ -1,0 +1,285 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model AdminConfig {
+  id BigInt @id @default(1)
+
+  // ================= USER LIMITS =================
+  maxDailyAds        Int @default(10)
+  maxDailyMissions   Int @default(20)
+  defaultTrustPoints Int @default(0)
+
+  // ================= SWORD RULES =================
+  allowSwordTrade Boolean @default(true)
+
+  // ================= MATERIAL RULES =================
+  allowMaterialTrade Boolean @default(true)
+
+  // ================= VOUCHER RULES =================
+  minVoucherGold     BigInt  @default(1000)
+  maxVoucherGold     BigInt  @default(100000)
+  voucherExpiryDays  Int     @default(7)
+  allowVoucherCancel Boolean @default(true)
+
+  // ================= MARKETPLACE =================
+  marketplaceFeePercent Int     @default(500) // 100 = 1%
+  allowMarketplace      Boolean @default(true)
+
+  // ================= SECURITY =================
+  maxClaimAttempts Int @default(3)
+  cooldownSeconds  Int @default(5)
+
+  // ================= META =================
+  xAdminId  BigInt
+  updatedAt DateTime @default(now())
+}
+
+model User {
+  id                BigInt    @id @default(autoincrement())
+  xUserId           BigInt    @unique
+  gold              BigInt    @default(0)
+  trustPoints       Int       @default(100)
+  shieldLevel       Int       @default(1)
+  createdAt         DateTime  @default(now())
+  lastReviewed      DateTime // the last time the account is reviewed, weather the account follows us or not
+  lastLoginAt       DateTime?
+  oneDayAdsViewed   BigInt    @default(0) // maxiumum fetch from the admin config (make level wise views, like some people have 10 ads, some people having badges have some more ads to view)
+  totalAdsViewed    BigInt    @default(0)
+  totalMissionsDone BigInt    @default(0)
+  isBanned          Boolean   @default(false) // admin can block or unblock the user
+  anvilSwordId      Int? // atleast sword should be in anvil(main), if sword is lost during upgrade, so we use optional here
+  soundOn           Boolean   @default(true)
+
+  swords           UserSword[] // user owned swords
+  materials        UserMaterial[] // materails can be buy from market or from gifts or as by-products
+  Gifts            UserGift[] // admin will send gifts to users for active participating or others(Gift may be a material, sword, gold, trust points, shield. only 1 gift at a time)
+  customerSupports CustomerSupport[] // complaints given by the user
+  // missions         UserMission[] // missions done or on hold, have to set daily, and normal missions
+  vouchers         UserVoucher[] // vouchers created by user to use them in shopping app
+}
+
+// ========================== START VOUCHER ========================= //
+model UserVoucher {
+  id BigInt @id @default(autoincrement())
+
+  code   String @unique // secure random voucher code
+  userId BigInt
+
+  goldAmount BigInt // locked gold amount
+  status     VoucherStatus @default(PENDING)
+
+  redeemedAt  DateTime?
+  cancelledAt DateTime?
+  expiresAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+enum VoucherStatus {
+  PENDING // created, not used
+  REDEEMED // used on shopping website
+  CANCELLED // user cancelled, gold refunded
+  EXPIRED // expired, gold refunded
+}
+
+// ========================== END VOUCHER ========================= //
+
+// ========================== START SWORD ========================= //
+model SwordLevelDefinition {
+  id          BigInt @id @default(autoincrement())
+  level       Int    @unique // 1, 2, 3 ... 100
+  name        String // sword name at this level
+  image       String // sword image at this level
+  description String
+  upgradeCost BigInt
+  successRate Float // probability of upgrade success
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userSwords UserSword[]
+}
+
+model UserSword {
+  id     BigInt     @id @default(autoincrement())
+  code   String     @unique // unique 12-digit sword code
+  userId BigInt
+  level  Int        @default(0) // current sword level
+  state  SwordState @default(BAG)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user                   User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  swordLevelDefinition   SwordLevelDefinition? @relation(fields: [swordLevelDefinitionId], references: [id])
+  swordLevelDefinitionId BigInt?
+
+  @@index([userId])
+  @@index([state])
+}
+
+enum SwordState {
+  BAG // Sword is in user's inventory
+  ANVIL // Sword is currently being upgraded
+  MARKETPLACE // Sword is listed for sale
+}
+
+// ========================= END SWORD ============================ //
+
+// ======================== START MATERIAL ======================== //
+model MaterialType {
+  id          BigInt         @id @default(autoincrement())
+  code        String         @unique // admin-defined unique code
+  name        String
+  description String?
+  image       String
+  cost        BigInt // gold cost to buy
+  power       Int // used in sword synthesis
+  rarity      MaterialRarity @default(COMMON)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userMaterials UserMaterial[]
+}
+
+enum MaterialRarity {
+  COMMON
+  RARE
+  EPIC
+  LEGENDARY
+  MYTHIC
+}
+
+model UserMaterial {
+  userId     BigInt
+  materialId BigInt
+  quantity   Int     @default(0)
+  isInMarket Boolean @default(false)
+
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  material MaterialType @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  updatedAt DateTime @updatedAt
+
+  @@id([userId, materialId])
+  @@index([materialId])
+}
+
+// ========================= END MATERIAL ========================= //
+
+// ========================== STRAT GIFTS ========================== //
+model UserGift {
+  id BigInt @id @default(autoincrement())
+
+  receiverXId BigInt // X user id of receiver
+  status      GiftStatus @default(PENDING)
+
+  note String? // optional admin note
+
+  claimedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  items  UserGiftItem[]
+  user   User?          @relation(fields: [userId], references: [id])
+  userId BigInt?
+
+  @@index([receiverXId])
+  @@index([status])
+}
+
+model UserGiftItem {
+  id     BigInt @id @default(autoincrement())
+  giftId BigInt
+
+  type GiftItemType
+
+  // GOLD / TRUST / SHIELD
+  amount BigInt?
+
+  // MATERIAL
+  materialId BigInt?
+  rarity     MaterialRarity?
+
+  // SWORD
+  swordLevel Int?
+
+  gift UserGift @relation(fields: [giftId], references: [id], onDelete: Cascade)
+
+  @@index([giftId])
+}
+
+enum GiftStatus {
+  PENDING // sent but not opened
+  CLAIMED
+  CANCELLED
+}
+
+enum GiftItemType {
+  GOLD
+  TRUST_POINTS
+  MATERIAL
+  SWORD
+}
+
+// ========================== END GIFTS ========================== //
+
+// ==================== START CUSTOMER SUPPORT ==================== //
+model CustomerSupport {
+  id      BigInt @id @default(autoincrement())
+  xUserId BigInt
+
+  // Support classification
+  category SupportCategory
+  priority SupportPriority @default(NORMAL)
+
+  // Content
+  title      String
+  content    String
+  message    String
+  adminReply String?
+
+  // this is updated by admin
+  isReviewed Boolean @default(false)
+
+  // Timestamps
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  reviewedAt DateTime? // when isReviewd is changed then we set that time
+
+  // Relations
+  user User @relation(fields: [xUserId], references: [xUserId], onDelete: Cascade)
+
+  // Indexes
+  @@index([xUserId])
+  @@index([createdAt])
+}
+
+enum SupportCategory {
+  GAME_BUG
+  PAYMENT
+  ACCOUNT
+  BAN_APPEAL
+  SUGGESTION
+  OTHER
+}
+
+enum SupportPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+// ===================== END CUSTOMER SUPPORT ===================== //
