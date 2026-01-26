@@ -5,8 +5,15 @@ import bodyParser from "body-parser";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 
-import UserRouter from "../routes/userRoutes.ts";
-import authRoutes from "../routes/authRoutes.ts";
+import AdminActionRouters from "../routes/adminActionRoutes.ts";
+import AdminAuthRouters from "../routes/adminAuthRoutes.ts";
+import AdminGetterRouters from "../routes/adminGetterRoutes.ts";
+
+// import PublicGetterRouters from "../routes/publicGetterRoutes.ts"
+
+// import UserActionRouters from "../routes/userActionRoutes.ts"
+import UserAuthRouters from "../routes/userAuthRoutes.ts";
+// import UserGetterRouters from "../routes/userGetterRoutes.ts"
 
 export const app = express();
 
@@ -15,9 +22,9 @@ app.use(cookieParser());
 app.use(express.json());
 
 const corsOptions = {
-    origin: (_origin: any, callback: (arg0: null, arg1: boolean) => void) => {
-        // Check if the origin is in the list of allowed origins
-        /**
+  origin: (_origin: any, callback: (arg0: null, arg1: boolean) => void) => {
+    // Check if the origin is in the list of allowed origins
+    /**
          * write all logic/conditions to allow the origins
         if (true) {
             callback(null, true);
@@ -26,23 +33,29 @@ const corsOptions = {
             callback(null, false); // Don't throw error, just don't allow
         }
          */
-        callback(null, true);
-    },
-    //   origin: "http://localhost:3000",
-    methods: "GET,PUT,POST,OPTIONS,DELETE", // Specify allowed methods
-    // credentials: true,
-    allowedHeaders: "*",
+    callback(null, true);
+  },
+  //   origin: "http://localhost:3000",
+  methods: "GET,PUT,POST,OPTIONS,DELETE,PATCH", // Specify allowed methods
+  // credentials: true,
+  allowedHeaders: "*",
 };
 
 app.use(cors(corsOptions));
 
 app.get("/", (req: Request, res: Response) => {
-    res.send("Sword Backend");
+  res.send("Sword Backend");
 });
 
-// app.use("/api/admin", adminRouter);
-app.use("/api/user", UserRouter);
-app.use("/api/auth", authRoutes);
+app.use("/api/adminActions", AdminActionRouters);
+app.use("/api/adminAuth", AdminAuthRouters);
+app.use("/api/adminGetters", AdminGetterRouters);
+
+// app.use("/api/publicGetters", authRoutes);
+
+// app.use("/api/userActions", adminRouter);
+app.use("/api/userAuth", UserAuthRouters);
+// app.use("/api/userGetters", authRoutes);
 
 const server = createServer(app);
 export default server;
