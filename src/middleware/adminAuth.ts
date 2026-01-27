@@ -17,7 +17,7 @@ export default async function adminAuth(
   }
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET!) as any;
-    if (payload.role !== "ADMIN") {
+    if (!payload || payload.role !== "ADMIN") {
       return res.status(403).json({ error: "Not an admin token" });
     }
 

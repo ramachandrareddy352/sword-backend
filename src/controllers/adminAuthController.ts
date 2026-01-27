@@ -30,7 +30,7 @@ export async function sendAdminOtp(req: Request, res: Response) {
 
     await sendEmail(
       email,
-      "Password Reset Code",
+      "Admin login OTP",
       `Admin login OTP code is: ${otp}. It expires in 15 minutes. Please make it confidential.`,
     );
 

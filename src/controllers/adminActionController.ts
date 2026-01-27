@@ -7,6 +7,7 @@ import {
 } from "@prisma/client";
 import type { AdminAuthRequest } from "../middleware/adminAuth.ts";
 import { generateSecureCode } from "../services/generateCode.ts";
+import { serializeBigInt } from "../services/serializeBigInt.ts";
 
 async function ensureNotPurchased(itemId: bigint) {
   const purchase = await prisma.marketplacePurchase.findFirst({
@@ -131,6 +132,7 @@ export async function upsertSwordLevel(req: AdminAuthRequest, res: Response) {
       sellingCost,
       successRate,
       power,
+      createnew,
     } = req.body;
 
     // ---------- Validation ----------
@@ -138,10 +140,8 @@ export async function upsertSwordLevel(req: AdminAuthRequest, res: Response) {
       !name ||
       !image ||
       upgradeCost === undefined ||
-      typeof successRate !== "number" ||
       successRate <= 0 ||
       successRate > 100 ||
-      typeof power !== "number" ||
       power <= 0
     ) {
       return res
@@ -158,6 +158,13 @@ export async function upsertSwordLevel(req: AdminAuthRequest, res: Response) {
       const existing = await tx.swordLevelDefinition.findUnique({
         where: { name },
       });
+
+      if (createnew === "yes" && existing) {
+        return res.status(400).json({
+          success: false,
+          error: "Sword is already existed with that name",
+        });
+      }
 
       // update the existing Sword
       if (existing) {
@@ -206,7 +213,7 @@ export async function upsertSwordLevel(req: AdminAuthRequest, res: Response) {
     return res.json({
       success: true,
       message: "Sword level upserted successfully",
-      data: result,
+      data: serializeBigInt(result),
     });
   } catch (err: any) {
     console.error(err);

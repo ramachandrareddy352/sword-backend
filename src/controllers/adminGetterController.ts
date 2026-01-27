@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import type { AdminAuthRequest } from "../middleware/adminAuth.ts";
 import { resolveUser, getPagination } from "../services/queryHelpers.ts";
+import { serializeBigInt } from "../services/serializeBigInt.ts";
 
 // 1) Get the basic information of all users using pagination
 export const getAllUsers = async (req: AdminAuthRequest, res: Response) => {
@@ -798,6 +799,7 @@ export const getAllUsersSwords = async (
     if (!pagination) {
       return res.status(200).json({
         success: true,
+        message: "No users data found",
         swords: [],
         totalItems: 0,
         page: Number(req.query.page || 0),
@@ -851,7 +853,8 @@ export const getAllUsersSwords = async (
 
     return res.status(200).json({
       success: true,
-      swords,
+      message: "Users data fetched successfully",
+      swords: serializeBigInt(swords),
       totalItems,
       page: pagination.page,
       limit: pagination.limit,
@@ -1343,5 +1346,46 @@ export const getAllUsersVouchers = async (
     return res
       .status(500)
       .json({ success: false, error: "Internal server error" });
+  }
+};
+
+export const getAdminConfig = async (req: AdminAuthRequest, res: Response) => {
+  try {
+    // Fetch the single AdminConfig row (id is fixed to 1 as per your schema)
+    const config = await prisma.adminConfig.findUnique({
+      where: { id: 1 }, // BigInt literal (1n)
+      select: {
+        id: true,
+        maxDailyAds: true,
+        maxDailyMissions: true,
+        defaultTrustPoints: true,
+        minVoucherGold: true,
+        maxVoucherGold: true,
+        voucherExpiryDays: true,
+        expiryallowVoucherCancel: true,
+        adminEmailId: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!config) {
+      return res.status(404).json({
+        success: false,
+        error: "Admin configuration not found",
+      });
+    }
+
+    // Return the config data (convert BigInt to string for safe JSON)
+    return res.status(200).json({
+      success: true,
+      message: "Admin configuration retrieved successfully",
+      config: serializeBigInt(config),
+    });
+  } catch (error) {
+    console.error("getAdminConfig error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to fetch admin configuration",
+    });
   }
 };

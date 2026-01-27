@@ -9,7 +9,7 @@ import AdminActionRouters from "../routes/adminActionRoutes.ts";
 import AdminAuthRouters from "../routes/adminAuthRoutes.ts";
 import AdminGetterRouters from "../routes/adminGetterRoutes.ts";
 
-// import PublicGetterRouters from "../routes/publicGetterRoutes.ts"
+import PublicGetterRouters from "../routes/publicGetterRoutes.ts";
 
 // import UserActionRouters from "../routes/userActionRoutes.ts"
 import UserAuthRouters from "../routes/userAuthRoutes.ts";
@@ -51,7 +51,7 @@ app.use("/api/adminActions", AdminActionRouters);
 app.use("/api/adminAuth", AdminAuthRouters);
 app.use("/api/adminGetters", AdminGetterRouters);
 
-// app.use("/api/publicGetters", authRoutes);
+app.use("/api/publicGetters", PublicGetterRouters);
 
 // app.use("/api/userActions", adminRouter);
 app.use("/api/userAuth", UserAuthRouters);

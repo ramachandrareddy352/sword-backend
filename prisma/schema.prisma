@@ -7,6 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 192.168.43.2
 // ======================= ADMIN CONFIG =======================
 model AdminConfig {
   id BigInt @id @default(1)
