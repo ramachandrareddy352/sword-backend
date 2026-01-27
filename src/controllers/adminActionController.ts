@@ -111,7 +111,7 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
     return res.json({
       success: true,
       message: "Admin configuration updated",
-      data: config,
+      data: serializeBigInt(config),
     });
   } catch (err) {
     console.error(err);
@@ -278,7 +278,7 @@ export async function upsertMaterial(req: AdminAuthRequest, res: Response) {
       return res.json({
         success: true,
         message: "Material updated successfully",
-        data: updated,
+        data: serializeBigInt(updated),
       });
     }
 
@@ -317,7 +317,7 @@ export async function upsertMaterial(req: AdminAuthRequest, res: Response) {
     return res.json({
       success: true,
       message: "Material created successfully",
-      data: created,
+      data: serializeBigInt(created),
     });
   } catch (err: any) {
     console.error(err);
@@ -389,7 +389,7 @@ export async function upsertShield(req: AdminAuthRequest, res: Response) {
       return res.json({
         success: true,
         message: "Shield updated successfully",
-        data: updated,
+        data: serializeBigInt(updated),
       });
     }
 
@@ -427,7 +427,7 @@ export async function upsertShield(req: AdminAuthRequest, res: Response) {
     return res.json({
       success: true,
       message: "Shield created successfully",
-      data: createdShield,
+      data: serializeBigInt(createdShield),
     });
   } catch (err: any) {
     console.error(err);

@@ -179,7 +179,7 @@ export const getAllMaterials = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Materials fetched successfully",
-      materials,
+      materials: serializeBigInt(materials),
       total,
       page: pagination.page,
       limit: pagination.limit,
@@ -267,7 +267,7 @@ export const getAllShields = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Shields fetched successfully",
-      shields,
+      shields: serializeBigInt(shields),
       total,
       page: pagination.page,
       limit: pagination.limit,
@@ -420,7 +420,7 @@ export const getMaterial = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Material fetched successfully",
-      material,
+      material: serializeBigInt(material),
     });
   } catch (error) {
     console.error("getMaterial error:", error);
@@ -502,7 +502,7 @@ export const getShield = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Shield fetched successfully",
-      shield,
+      shield: serializeBigInt(shield),
     });
   } catch (error) {
     console.error("getShield error:", error);

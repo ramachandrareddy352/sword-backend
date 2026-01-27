@@ -509,7 +509,7 @@ export const getUserShields = async (req: AdminAuthRequest, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Fetched User shields details successfully",
-      shields,
+      shields: serializeBigInt(shields),
       total: shields.length,
     });
   } catch (err: any) {
@@ -771,7 +771,7 @@ export const getAllUsersMaterials = async (
 
     return res.status(200).json({
       success: true,
-      materials,
+      materials: serializeBigInt(materials),
       totalItems,
       page: pagination.page,
       limit: pagination.limit,
@@ -957,7 +957,7 @@ export const getAllUsersShields = async (
     return res.status(200).json({
       success: true,
       message: "info",
-      shields,
+      shields: serializeBigInt(shields),
       totalItems,
       page: pagination.page,
       limit: pagination.limit,
