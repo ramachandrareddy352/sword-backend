@@ -11,9 +11,9 @@ import AdminGetterRouters from "../routes/adminGetterRoutes.ts";
 
 import PublicGetterRouters from "../routes/publicGetterRoutes.ts";
 
-// import UserActionRouters from "../routes/userActionRoutes.ts"
+import UserActionRouters from "../routes/userActionRoutes.ts";
 import UserAuthRouters from "../routes/userAuthRoutes.ts";
-// import UserGetterRouters from "../routes/userGetterRoutes.ts"
+import UserGetterRouters from "../routes/userGetterRoutes.ts";
 
 export const app = express();
 
@@ -53,9 +53,9 @@ app.use("/api/adminGetters", AdminGetterRouters);
 
 app.use("/api/publicGetters", PublicGetterRouters);
 
-// app.use("/api/userActions", adminRouter);
+app.use("/api/userActions", UserActionRouters);
 app.use("/api/userAuth", UserAuthRouters);
-// app.use("/api/userGetters", authRoutes);
+app.use("/api/userGetters", UserGetterRouters);
 
 const server = createServer(app);
 export default server;

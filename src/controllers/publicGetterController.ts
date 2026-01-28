@@ -16,13 +16,9 @@ export const getAllSwords = async (req: Request, res: Response) => {
 
     const pagination = getPagination(req.query);
     if (!pagination) {
-      return res.status(200).json({
-        success: true,
-        message: "No swords found for in the game",
-        swords: [],
-        total: 0,
-        page: Number(req.query.page || 0),
-        limit: Number(req.query.limit || 20),
+      return res.status(400).json({
+        success: false,
+        error: "No swords found for in the game",
       });
     }
 
@@ -81,7 +77,7 @@ export const getAllSwords = async (req: Request, res: Response) => {
       return res.status(200).json({
         success: true,
         message: "No swords found in the game",
-        swords: [],
+        data: [],
         total,
         page: pagination.page,
         limit: pagination.limit,
@@ -91,7 +87,7 @@ export const getAllSwords = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Swords fetched successfully",
-      swords: serializeBigInt(swords),
+      data: serializeBigInt(swords),
       total,
       page: pagination.page,
       limit: pagination.limit,
@@ -116,13 +112,9 @@ export const getAllMaterials = async (req: Request, res: Response) => {
 
     const pagination = getPagination(req.query);
     if (!pagination) {
-      return res.status(200).json({
-        success: true,
-        message: "No materials found for  in the game",
-        materials: [],
-        total: 0,
-        page: Number(req.query.page || 0),
-        limit: Number(req.query.limit || 20),
+      return res.status(400).json({
+        success: false,
+        error: "No materials found for  in the game",
       });
     }
 
@@ -169,7 +161,7 @@ export const getAllMaterials = async (req: Request, res: Response) => {
       return res.status(200).json({
         success: true,
         message: "No materials found in the game",
-        materials: [],
+        data: [],
         total,
         page: pagination.page,
         limit: pagination.limit,
@@ -179,7 +171,7 @@ export const getAllMaterials = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Materials fetched successfully",
-      materials: serializeBigInt(materials),
+      data: serializeBigInt(materials),
       total,
       page: pagination.page,
       limit: pagination.limit,
@@ -204,13 +196,9 @@ export const getAllShields = async (req: Request, res: Response) => {
 
     const pagination = getPagination(req.query);
     if (!pagination) {
-      return res.status(200).json({
-        success: true,
-        message: "No shields found for in the game",
-        shields: [],
-        total: 0,
-        page: Number(req.query.page || 0),
-        limit: Number(req.query.limit || 20),
+      return res.status(400).json({
+        success: false,
+        error: "No shields found for in the game",
       });
     }
 
@@ -257,7 +245,7 @@ export const getAllShields = async (req: Request, res: Response) => {
       return res.status(200).json({
         success: true,
         message: "No shields found in the game",
-        shields: [],
+        data: [],
         total,
         page: pagination.page,
         limit: pagination.limit,
@@ -267,7 +255,7 @@ export const getAllShields = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Shields fetched successfully",
-      shields: serializeBigInt(shields),
+      data: serializeBigInt(shields),
       total,
       page: pagination.page,
       limit: pagination.limit,
@@ -338,7 +326,7 @@ export const getSword = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Sword fetched successfully",
-      sword: serializeBigInt(sword),
+      data: serializeBigInt(sword),
     });
   } catch (error) {
     console.error("getSword error:", error);
@@ -420,7 +408,7 @@ export const getMaterial = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Material fetched successfully",
-      material: serializeBigInt(material),
+      data: serializeBigInt(material),
     });
   } catch (error) {
     console.error("getMaterial error:", error);
@@ -502,7 +490,7 @@ export const getShield = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Shield fetched successfully",
-      shield: serializeBigInt(shield),
+      data: serializeBigInt(shield),
     });
   } catch (error) {
     console.error("getShield error:", error);

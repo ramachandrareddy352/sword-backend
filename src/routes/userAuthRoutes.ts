@@ -11,15 +11,15 @@ import {
 
 const router = express.Router();
 
-router.get("/me", userAuth, (req, res) => {
+router.get("/me", userAuth, (_req, res) => {
   res.json({ success: true });
 });
 
 router.post("/register/send-code", sendVerification);
 router.post("/register/verify", verifyRegistration);
 router.post("/login", login);
-router.post("/forgot-password", forgotPassword);
-router.post("/reset-password", resetPassword);
+router.post("/forgot/send-code", forgotPassword);
+router.post("/forgot/verify", resetPassword);
 router.post("/logout", userAuth, logout);
 
 export default router;

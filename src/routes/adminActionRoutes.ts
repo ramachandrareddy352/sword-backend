@@ -3,9 +3,12 @@ import adminAuth from "../middleware/adminAuth.ts";
 
 import {
   updateAdminConfig,
-  upsertSwordLevel,
-  upsertMaterial,
-  upsertShield,
+  createSwordLevel,
+  createMaterial,
+  createShield,
+  updateSwordLevel,
+  updateMaterial,
+  updateShield,
   createGift,
   cancelGift,
   deleteGift,
@@ -19,30 +22,34 @@ import {
 
 const router = express.Router();
 
-router.put("/update-config", adminAuth, updateAdminConfig);
+router.put("/update/config", adminAuth, updateAdminConfig);
 
-router.put("/upsert-swords", adminAuth, upsertSwordLevel);
-router.put("/upsert-materials", adminAuth, upsertMaterial);
-router.put("/upsert-shields", adminAuth, upsertShield);
+router.put("/create/sword", adminAuth, createSwordLevel);
+router.put("/create/material", adminAuth, createMaterial);
+router.put("/create/shield", adminAuth, createShield);
 
-router.post("/create-gift", adminAuth, createGift);
-router.post("/cancel-gift", adminAuth, cancelGift);
-router.delete("/delete-gift", adminAuth, deleteGift);
+router.put("/update/sword", adminAuth, updateSwordLevel);
+router.put("/update/material", adminAuth, updateMaterial);
+router.put("/update/shield", adminAuth, updateShield);
 
-router.post("/marketplace/create-item", adminAuth, createMarketplaceItem);
+router.post("/create/gift", adminAuth, createGift);
+router.post("/cancel/gift", adminAuth, cancelGift);
+router.delete("/delete/gift", adminAuth, deleteGift);
+
+router.post("/create/marketplace-item", adminAuth, createMarketplaceItem);
 router.patch(
-  "/marketplace/activate-item",
+  "/update/marketplace-activate",
   adminAuth,
   toggleMarketplaceItemActive,
 );
 router.patch(
-  "/marketplace/update-item-price",
+  "/update/marketplace-price",
   adminAuth,
   updateMarketplaceItemPrice,
 );
-router.delete("/marketplace/delete-item", adminAuth, deleteMarketplaceItem);
+router.delete("/delete/marketplace-item", adminAuth, deleteMarketplaceItem);
 
-router.patch("/users/ban", adminAuth, toggleUserBan);
-router.post("/support/reply", adminAuth, replyToSupportTicket);
+router.patch("/update/users-ban", adminAuth, toggleUserBan);
+router.post("/reply/support", adminAuth, replyToSupportTicket);
 
 export default router;

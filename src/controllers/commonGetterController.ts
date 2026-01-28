@@ -3,7 +3,7 @@ import prisma from "../database/client.ts";
 import { resolveUser } from "../services/queryHelpers.ts";
 import { serializeBigInt } from "../services/serializeBigInt.ts";
 
-// =============== Access by admin or self user ===============
+// =============== Access by admin or self owner ===============
 
 // 1) get complete information about the user using his id or email
 export const getUserFullDetails = async (req: Request, res: Response) => {
@@ -27,6 +27,7 @@ export const getUserFullDetails = async (req: Request, res: Response) => {
     const safeUser = {
       id: user.id,
       email: user.email,
+      name: user.name,
       gold: user.gold,
       trustPoints: user.trustPoints,
       createdAt: user.createdAt,
@@ -241,6 +242,7 @@ export const getUserBasicInfo = async (req: Request, res: Response) => {
     const safeUser = {
       id: user.id,
       email: user.email,
+      name: user.name,
       gold: user.gold,
       trustPoints: user.trustPoints,
       createdAt: user.createdAt,
@@ -259,7 +261,7 @@ export const getUserBasicInfo = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Fetched user basic details successfully",
-      user: serializeBigInt(safeUser),
+      data: serializeBigInt(safeUser),
     });
   } catch (err: any) {
     if (err.message === "USER_NOT_FOUND") {
@@ -359,7 +361,7 @@ export const getUserSwords = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Fetched User swords details successfully",
-      swords: serializeBigInt(swords),
+      data: serializeBigInt(swords),
       total: swords.length,
     });
   } catch (err: any) {
@@ -457,7 +459,7 @@ export const getUserMaterials = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Fetched User materials details successfully",
-      materials: serializeBigInt(materials),
+      data: serializeBigInt(materials),
       total: materials.length,
     });
   } catch (err: any) {
@@ -555,7 +557,7 @@ export const getUserShields = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Fetched User shields details successfully",
-      shields: serializeBigInt(shields),
+      data: serializeBigInt(shields),
       total: shields.length,
     });
   } catch (err: any) {
@@ -661,7 +663,7 @@ export const getUserGifts = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Fetched User gifts details successfully",
-      gifts: serializeBigInt(gifts),
+      data: serializeBigInt(gifts),
       total: gifts.length,
     });
   } catch (err: any) {
@@ -739,7 +741,7 @@ export const getUserVouchers = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Fetched User voucher details successfully",
-      vouchers: serializeBigInt(vouchers),
+      data: serializeBigInt(vouchers),
       total: vouchers.length,
     });
   } catch (err: any) {
@@ -851,7 +853,7 @@ export const getUserCustomerSupports = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Fetched User complaints details successfully",
-      complaints: serializeBigInt(complaints),
+      data: serializeBigInt(complaints),
       total: complaints.length,
     });
   } catch (err: any) {
@@ -955,7 +957,7 @@ export const getUserMarketplacePurchases = async (
     return res.status(200).json({
       success: true,
       message: "Fetched User marketplace details successfully",
-      purchases: serializeBigInt(purchases),
+      data: serializeBigInt(purchases),
       total: purchases.length,
     });
   } catch (err: any) {
@@ -970,5 +972,77 @@ export const getUserMarketplacePurchases = async (
       success: false,
       error: "Internal server error",
     });
+  }
+};
+
+// 10) all marketplace items
+export const getAllMarketplaceItems = async (req: Request, res: Response) => {
+  try {
+    const { itemType, isActive, isPurchased, sortPriceGold, sortCreatedAt } =
+      req.query;
+
+    /* ---------------- WHERE CLAUSE ---------------- */
+    const where: any = {};
+
+    if (itemType) {
+      const allowedTypes = ["SWORD", "MATERIAL", "SHIELD"];
+      if (!allowedTypes.includes(String(itemType))) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid itemType. Allowed: ${allowedTypes.join(", ")}`,
+        });
+      }
+      where.itemType = itemType;
+    }
+    if (isActive !== undefined) {
+      where.isActive = isActive === "true";
+    }
+    if (isPurchased !== undefined) {
+      where.isPurchased = isPurchased === "true";
+    }
+
+    /* ---------------- ORDER BY ---------------- */
+    const orderBy: any[] = [];
+
+    if (sortCreatedAt && ["asc", "desc"].includes(String(sortCreatedAt))) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+    if (sortPriceGold && ["asc", "desc"].includes(String(sortPriceGold))) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+
+    // Default sort → latest first
+    if (orderBy.length === 0) {
+      orderBy.push({ createdAt: "desc" });
+    }
+
+    /* ---------------- QUERY ---------------- */
+    const items = await prisma.marketplaceItem.findMany({
+      where,
+      orderBy,
+      include: {
+        swordLevelDefinition: {
+          select: { id: true, level: true, name: true },
+        },
+        material: {
+          select: { id: true, name: true, rarity: true },
+        },
+        shieldType: {
+          select: { id: true, name: true, rarity: true },
+        },
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Marketplace items fetched successfully",
+      data: serializeBigInt(items),
+      total: items.length,
+    });
+  } catch (error) {
+    console.error("getAllMarketplaceItems error:", error);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
   }
 };

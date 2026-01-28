@@ -19,7 +19,6 @@ async function ensureNotPurchased(itemId: bigint) {
   }
 }
 
-// 1) Admin can update the config data
 export async function updateAdminConfig(req: Request, res: Response) {
   try {
     const data = req.body;
@@ -121,8 +120,7 @@ export async function updateAdminConfig(req: Request, res: Response) {
   }
 }
 
-// 2) CREATE (or) UPDATE Sword Level Definition
-export async function upsertSwordLevel(req: AdminAuthRequest, res: Response) {
+export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
   try {
     const {
       name,
@@ -132,14 +130,13 @@ export async function upsertSwordLevel(req: AdminAuthRequest, res: Response) {
       sellingCost,
       successRate,
       power,
-      createnew,
     } = req.body;
 
-    // ---------- Validation ----------
     if (
       !name ||
       !image ||
       upgradeCost === undefined ||
+      sellingCost === undefined ||
       successRate <= 0 ||
       successRate > 100 ||
       power <= 0
@@ -149,154 +146,205 @@ export async function upsertSwordLevel(req: AdminAuthRequest, res: Response) {
         .json({ success: false, error: "Invalid or missing fields" });
     }
 
-    const upgradeCostBigInt = BigInt(upgradeCost);
-    const sellingCostBigInt = BigInt(sellingCost);
+    if (power <= 0 || BigInt(upgradeCost) <= 0 || BigInt(sellingCost) <= 0) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid power or cost" });
+    }
 
-    // ---------- Transaction ----------
-    const result = await prisma.$transaction(async (tx) => {
-      // Check if sword already exists by name
-      const existing = await tx.swordLevelDefinition.findUnique({
-        where: { name },
+    const existing = await prisma.swordLevelDefinition.findUnique({
+      where: { name },
+    });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: "Sword name already exists",
       });
+    }
 
-      if (createnew === "yes" && existing) {
-        return res.status(400).json({
-          success: false,
-          error: "Sword is already existed with that name",
-        });
-      }
+    const agg = await prisma.swordLevelDefinition.aggregate({
+      _max: { level: true },
+    });
+    const nextLevel = (agg._max.level ?? -1) + 1;
 
-      // update the existing Sword
-      if (existing) {
-        return tx.swordLevelDefinition.update({
-          where: { id: existing.id },
-          data: {
-            image,
-            description,
-            upgradeCost: upgradeCostBigInt,
-            sellingCost: sellingCostBigInt,
-            successRate,
-            power,
-          },
-        });
-      }
-
-      // CREATE NEW LEVEL (auto increment)
-      const agg = await tx.swordLevelDefinition.aggregate({
-        _max: { level: true },
+    if (nextLevel > 100) {
+      return res.status(400).json({
+        success: false,
+        error: "Maximum sword level (100) reached",
       });
-      const currentMax = agg._max.level ?? -1;
-      const nextLevel = currentMax + 1;
+    }
 
-      // Enforce 0 → 100
-      if (nextLevel > 100) {
-        return res.status(400).json({
-          success: false,
-          error: "Maximum sword level (100) already reached.",
-        });
-      }
-
-      return tx.swordLevelDefinition.create({
-        data: {
-          level: nextLevel,
-          name,
-          image,
-          description: description || null,
-          upgradeCost: upgradeCostBigInt,
-          sellingCost: sellingCostBigInt,
-          successRate,
-          power,
-        },
-      });
+    const created = await prisma.swordLevelDefinition.create({
+      data: {
+        level: nextLevel,
+        name,
+        image,
+        description: description || null,
+        upgradeCost: BigInt(upgradeCost),
+        sellingCost: BigInt(sellingCost),
+        successRate,
+        power,
+      },
     });
 
     return res.json({
       success: true,
-      message: "Sword level upserted successfully",
-      data: serializeBigInt(result),
+      message: "Sword level created successfully",
+      data: serializeBigInt(created),
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error(err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      error: "Failed to create sword level",
+    });
   }
 }
 
-// 3) CREATE (or) UPDATE Material Data
-export async function upsertMaterial(req: AdminAuthRequest, res: Response) {
+export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
   try {
-    const { code, name, description, image, cost, power, rarity } = req.body;
+    const {
+      level,
+      name,
+      image,
+      description,
+      upgradeCost,
+      sellingCost,
+      successRate,
+      power,
+    } = req.body;
 
     // ---------- Validation ----------
+    if (level === undefined && !name) {
+      return res.status(400).json({
+        success: false,
+        error: "Either sword level or name is required",
+      });
+    }
+
+    // ---------- Find Existing Sword ----------
+    const existing = await prisma.swordLevelDefinition.findFirst({
+      where: {
+        OR: [
+          level !== undefined ? { level: Number(level) } : undefined,
+          name ? { name } : undefined,
+        ].filter(Boolean) as any,
+      },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: "Sword is not founded",
+      });
+    }
+
+    // ---------- Field Validation ----------
+    if (successRate !== undefined) {
+      if (successRate <= 0 || successRate > 100) {
+        return res.status(400).json({
+          success: false,
+          error: "Success rate must be between 1 and 100",
+        });
+      }
+    }
+
+    if (power !== undefined && power <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Power must be greater than 0",
+      });
+    }
+
+    if (upgradeCost !== undefined && BigInt(upgradeCost) <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Upgrade cost must be greater than 0",
+      });
+    }
+
+    if (sellingCost !== undefined && BigInt(sellingCost) <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Selling cost must be greater than 0",
+      });
+    }
+
+    // ---------- Update ----------
+    const updated = await prisma.swordLevelDefinition.update({
+      where: { id: existing.id },
+      data: {
+        image: image ?? existing.image,
+        description: description ?? existing.description,
+        upgradeCost:
+          upgradeCost !== undefined
+            ? BigInt(upgradeCost)
+            : existing.upgradeCost,
+        sellingCost:
+          sellingCost !== undefined
+            ? BigInt(sellingCost)
+            : existing.sellingCost,
+        successRate: successRate ?? existing.successRate,
+        power: power ?? existing.power,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Sword level updated successfully",
+      data: serializeBigInt(updated),
+    });
+  } catch (err) {
+    console.error("updateSwordLevel error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to update sword level",
+    });
+  }
+}
+
+export async function createMaterial(req: AdminAuthRequest, res: Response) {
+  try {
+    const { name, description, image, cost, power, rarity } = req.body;
+
     if (!name || !image || cost === undefined || power === undefined) {
       return res
         .status(400)
         .json({ success: false, error: "Missing required fields" });
     }
-    if (typeof power !== "number" || power <= 0) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid power value < 0" });
+
+    const existing = await prisma.materialType.findUnique({
+      where: { name },
+    });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: "Material name already exists",
+      });
     }
 
-    const costBigInt = BigInt(cost);
-    if (costBigInt <= 0) {
+    if (power <= 0 || BigInt(cost) <= 0) {
       return res
         .status(400)
-        .json({ success: false, error: "Invalid cost value < 0" });
+        .json({ success: false, error: "Invalid power or cost" });
     }
+
     if (rarity && !Object.values(MaterialRarity).includes(rarity)) {
       return res
         .status(400)
         .json({ success: false, error: "Invalid material rarity" });
     }
 
-    // ---------- CASE 1: CODE PROVIDED → UPDATE ----------
-    if (code) {
-      const existing = await prisma.materialType.findUnique({
-        where: { code },
-      });
-      if (!existing) {
-        return res
-          .status(404)
-          .json({ success: false, error: "Material not found" });
-      }
-
-      const updated = await prisma.materialType.update({
-        where: { code },
-        data: {
-          name,
-          description: description || null,
-          image,
-          cost: costBigInt,
-          power,
-          rarity: rarity || existing.rarity,
-        },
-      });
-
-      return res.json({
-        success: true,
-        message: "Material updated successfully",
-        data: serializeBigInt(updated),
-      });
-    }
-
-    // ---------- CASE 2: NO CODE → CREATE ----------
-    let generatedCode: string;
     let created;
-
-    // Avoid rare collision
     for (let i = 0; i < 5; i++) {
-      generatedCode = generateSecureCode(12);
       try {
         created = await prisma.materialType.create({
           data: {
-            code: generatedCode,
+            code: generateSecureCode(12),
             name,
             description: description || null,
             image,
-            cost: costBigInt,
+            cost: BigInt(cost),
             power,
             rarity: rarity || "COMMON",
           },
@@ -319,105 +367,131 @@ export async function upsertMaterial(req: AdminAuthRequest, res: Response) {
       message: "Material created successfully",
       data: serializeBigInt(created),
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error(err);
-    if (err.code === "P2002") {
-      return res
-        .status(409)
-        .json({ success: false, error: "Material code already exists" });
-    }
-    return res
-      .status(500)
-      .json({ success: false, error: "Failed to upsert material" });
+    return res.status(500).json({
+      success: false,
+      error: "Failed to create material",
+    });
   }
 }
 
-// 4) CREATE (or) UPDATE Shield Data
-export async function upsertShield(req: AdminAuthRequest, res: Response) {
+export async function updateMaterial(req: AdminAuthRequest, res: Response) {
   try {
     const { code, name, description, image, cost, power, rarity } = req.body;
 
-    // ---------- Basic Validation ----------
-    if (!name || !image || cost === undefined || power === undefined) {
+    if (!code) {
       return res
         .status(400)
-        .json({ success: false, error: "Missing required fields" });
-    }
-    if (typeof power !== "number" || power <= 0) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid power value" });
+        .json({ success: false, error: "Material code is required" });
     }
 
-    let costBigInt: bigint;
-    try {
-      costBigInt = BigInt(cost);
-      if (costBigInt <= 0) throw new Error();
-    } catch {
+    const existing = await prisma.materialType.findUnique({ where: { code } });
+    if (!existing) {
       return res
-        .status(400)
-        .json({ success: false, error: "Invalid cost value" });
+        .status(404)
+        .json({ success: false, error: "Material not found" });
+    }
+
+    if (power !== undefined && power <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Power must be greater than 0",
+      });
+    }
+    if (cost !== undefined && cost <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Cost must be greater than 0",
+      });
     }
 
     if (rarity && !Object.values(MaterialRarity).includes(rarity)) {
       return res
         .status(400)
-        .json({ success: false, error: "Invalid shield rarity" });
+        .json({ success: false, error: "Invalid material rarity" });
     }
 
-    // ---------- CASE 1: CODE PROVIDED → UPDATE ----------
-    if (code) {
-      const existing = await prisma.shieldType.findUnique({ where: { code } });
-      if (!existing) {
-        return res
-          .status(404)
-          .json({ success: false, error: "Shield not found" });
-      }
+    const updated = await prisma.materialType.update({
+      where: { code },
+      data: {
+        name: name ?? existing.name,
+        description: description ?? existing.description,
+        image: image ?? existing.image,
+        cost: cost !== undefined ? BigInt(cost) : existing.cost,
+        power: power ?? existing.power,
+        rarity: rarity ?? existing.rarity,
+      },
+    });
 
-      const updated = await prisma.shieldType.update({
-        where: { code },
-        data: {
-          name,
-          description: description || existing.description,
-          image,
-          cost: costBigInt,
-          power,
-          rarity: rarity || existing.rarity,
-        },
-      });
+    return res.json({
+      success: true,
+      message: "Material updated successfully",
+      data: serializeBigInt(updated),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to update material",
+    });
+  }
+}
 
-      return res.json({
-        success: true,
-        message: "Shield updated successfully",
-        data: serializeBigInt(updated),
+export async function createShield(req: AdminAuthRequest, res: Response) {
+  try {
+    const { name, description, image, cost, power, rarity } = req.body;
+
+    if (!name || !image || cost === undefined || power === undefined) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Missing required fields" });
+    }
+
+    const existing = await prisma.shieldType.findUnique({
+      where: { name },
+    });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: "Shield name already exists",
       });
     }
 
-    // ---------- CASE 2: NO CODE → CREATE ----------
-    let createdShield: any = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const generatedCode = generateSecureCode(12);
+    if (power !== undefined && power <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Power must be greater than 0",
+      });
+    }
+    if (cost !== undefined && cost <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Cost must be greater than 0",
+      });
+    }
+
+    let created;
+    for (let i = 0; i < 5; i++) {
       try {
-        createdShield = await prisma.shieldType.create({
+        created = await prisma.shieldType.create({
           data: {
-            code: generatedCode,
+            code: generateSecureCode(12),
             name,
             description: description || null,
             image,
-            cost: costBigInt,
+            cost: BigInt(cost),
             power,
             rarity: rarity || "COMMON",
           },
         });
         break;
       } catch (err: any) {
-        if (err.code !== "P2002") {
-          throw err;
-        }
+        if (err.code !== "P2002") throw err;
       }
     }
 
-    if (!createdShield) {
+    if (!created) {
       return res.status(500).json({
         success: false,
         error: "Failed to generate unique shield code",
@@ -427,22 +501,73 @@ export async function upsertShield(req: AdminAuthRequest, res: Response) {
     return res.json({
       success: true,
       message: "Shield created successfully",
-      data: serializeBigInt(createdShield),
+      data: serializeBigInt(created),
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error(err);
-    if (err.code === "P2002") {
-      return res
-        .status(409)
-        .json({ success: false, error: "Shield code already exists" });
-    }
-    return res
-      .status(500)
-      .json({ success: false, error: "Failed to upsert shield" });
+    return res.status(500).json({
+      success: false,
+      error: "Failed to create shield",
+    });
   }
 }
 
-// 5) Create Gift for user (by email or id)
+export async function updateShield(req: AdminAuthRequest, res: Response) {
+  try {
+    const { code, name, description, image, cost, power, rarity } = req.body;
+
+    if (!code) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Shield code is required" });
+    }
+
+    const existing = await prisma.shieldType.findUnique({ where: { code } });
+    if (!existing) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Shield not found" });
+    }
+
+    if (power !== undefined && power <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Power must be greater than 0",
+      });
+    }
+    if (cost !== undefined && cost <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Cost must be greater than 0",
+      });
+    }
+
+    const updated = await prisma.shieldType.update({
+      where: { code },
+      data: {
+        name: name ?? existing.name,
+        description: description ?? existing.description,
+        image: image ?? existing.image,
+        cost: cost !== undefined ? BigInt(cost) : existing.cost,
+        power: power ?? existing.power,
+        rarity: rarity ?? existing.rarity,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Shield updated successfully",
+      data: serializeBigInt(updated),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to update shield",
+    });
+  }
+}
+
 export async function createGift(req: AdminAuthRequest, res: Response) {
   try {
     const { email, userId, items, note } = req.body;
@@ -592,7 +717,7 @@ export async function createGift(req: AdminAuthRequest, res: Response) {
     return res.json({
       success: true,
       message: "Gift created successfully",
-      data: gift,
+      data: serializeBigInt(gift),
     });
   } catch (err) {
     console.error(err);
@@ -602,7 +727,6 @@ export async function createGift(req: AdminAuthRequest, res: Response) {
   }
 }
 
-// 6) Cancel gift if not claimed
 export async function cancelGift(req: AdminAuthRequest, res: Response) {
   try {
     const giftId = BigInt(req.body.giftId);
@@ -620,12 +744,16 @@ export async function cancelGift(req: AdminAuthRequest, res: Response) {
         .json({ success: false, error: "Only pending gifts can be cancelled" });
     }
 
-    await prisma.userGift.update({
+    const updated = await prisma.userGift.update({
       where: { id: giftId },
       data: { status: "CANCELLED" },
     });
 
-    return res.json({ success: true, message: "Gift cancelled successfully" });
+    return res.json({
+      success: true,
+      message: "Gift cancelled successfully",
+      data: serializeBigInt(updated),
+    });
   } catch (err) {
     console.error(err);
     return res
@@ -634,7 +762,6 @@ export async function cancelGift(req: AdminAuthRequest, res: Response) {
   }
 }
 
-// 7) Delete gift if not claimed
 export async function deleteGift(req: AdminAuthRequest, res: Response) {
   try {
     const giftId = BigInt(req.body.giftId);
@@ -666,7 +793,6 @@ export async function deleteGift(req: AdminAuthRequest, res: Response) {
   }
 }
 
-// 8) Create a item in marketplace for sale
 export async function createMarketplaceItem(
   req: AdminAuthRequest,
   res: Response,
@@ -795,7 +921,7 @@ export async function createMarketplaceItem(
     return res.json({
       success: true,
       message: "Marketplace item created successfully",
-      data: item,
+      data: serializeBigInt(item),
     });
   } catch (err) {
     console.error(err);
@@ -805,7 +931,6 @@ export async function createMarketplaceItem(
   }
 }
 
-// 9) Toggle Deactivate a item in marketplace for sale before purchase
 export async function toggleMarketplaceItemActive(
   req: AdminAuthRequest,
   res: Response,
@@ -847,7 +972,7 @@ export async function toggleMarketplaceItemActive(
       });
     }
 
-    await prisma.marketplaceItem.update({
+    const updated = await prisma.marketplaceItem.update({
       where: { id: itemId },
       data: { isActive },
     });
@@ -855,6 +980,7 @@ export async function toggleMarketplaceItemActive(
     return res.json({
       success: true,
       message: `Marketplace item ${isActive ? "activated" : "deactivated"} successfully`,
+      data: serializeBigInt(updated),
     });
   } catch (err: any) {
     console.error(err);
@@ -871,7 +997,6 @@ export async function toggleMarketplaceItemActive(
   }
 }
 
-// 10) Delete a item in marketplace for sale before purchase
 export async function deleteMarketplaceItem(
   req: AdminAuthRequest,
   res: Response,
@@ -898,7 +1023,6 @@ export async function deleteMarketplaceItem(
   }
 }
 
-// 11) update gold price for item in marketplace for sale before purchase
 export async function updateMarketplaceItemPrice(
   req: AdminAuthRequest,
   res: Response,
@@ -924,7 +1048,7 @@ export async function updateMarketplaceItemPrice(
 
     await ensureNotPurchased(itemId);
 
-    await prisma.marketplaceItem.update({
+    const updated = await prisma.marketplaceItem.update({
       where: { id: itemId },
       data: { priceGold: price },
     });
@@ -932,6 +1056,7 @@ export async function updateMarketplaceItemPrice(
     return res.json({
       success: true,
       message: "Marketplace item price updated",
+      data: serializeBigInt(updated),
     });
   } catch (err: any) {
     console.error(err);
@@ -948,65 +1073,74 @@ export async function updateMarketplaceItemPrice(
   }
 }
 
-// 12) Ban or unBan the user
 export async function toggleUserBan(req: AdminAuthRequest, res: Response) {
   try {
-    const { id, ban } = req.body;
-    if (!id) {
-      return res
-        .status(400)
-        .json({ success: false, error: "User id is required" });
-    }
-    if (typeof ban !== "boolean") {
-      return res
-        .status(400)
-        .json({ success: false, error: "ban must be a boolean" });
+    const { id, email, ban } = req.body;
+
+    // ---------- Validation ----------
+    if (!id && !email) {
+      return res.status(400).json({
+        success: false,
+        error: "Either user id or email is required",
+      });
     }
 
-    let userId: bigint;
-    try {
-      userId = BigInt(id);
-    } catch {
-      return res.status(400).json({ success: false, error: "Invalid user id" });
+    let whereClause: any = {};
+
+    if (id) {
+      try {
+        whereClause.id = BigInt(id);
+      } catch {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid user id",
+        });
+      }
+    } else if (email) {
+      whereClause.email = email;
     }
 
+    // ---------- Fetch User ----------
     const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, isBanned: true, email: true },
+      where: whereClause,
     });
 
     if (!user) {
-      return res.status(404).json({ success: false, error: "User not found" });
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
     }
-    // Idempotent
+
+    // ---------- Idempotent Check ----------
     if (user.isBanned === ban) {
       return res.json({
         success: true,
         message: ban ? "User already banned" : "User already unbanned",
-        data: user,
+        data: serializeBigInt(user),
       });
     }
 
+    // ---------- Update ----------
     const updated = await prisma.user.update({
-      where: { id: userId },
+      where: { id: user.id },
       data: { isBanned: ban },
-      select: { id: true, email: true, isBanned: true },
     });
 
     return res.json({
       success: true,
       message: ban ? "User banned successfully" : "User unbanned successfully",
-      data: updated,
+      data: serializeBigInt(updated),
     });
   } catch (err) {
-    console.error(err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Failed to update user ban status" });
+    console.error("toggleUserBan error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to update user ban status",
+    });
   }
 }
 
-// 13) Reply to / Mark as reviewed support ticket
 export async function replyToSupportTicket(
   req: AdminAuthRequest,
   res: Response,
@@ -1047,7 +1181,7 @@ export async function replyToSupportTicket(
     return res.json({
       success: true,
       message: "Reply sent and ticket marked as reviewed",
-      data: updated,
+      data: serializeBigInt(updated),
     });
   } catch (err) {
     console.error(err);

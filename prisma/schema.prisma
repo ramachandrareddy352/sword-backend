@@ -31,6 +31,7 @@ model AdminConfig {
 model User {
   id       BigInt @id @default(autoincrement())
   email    String @unique
+  name     String
   password String // Hashed password (use bcrypt or argon2 in application logic)
 
   gold        BigInt @default(0)

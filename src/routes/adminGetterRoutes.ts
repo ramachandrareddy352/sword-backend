@@ -3,15 +3,6 @@ import adminAuth from "../middleware/adminAuth.ts";
 
 import {
   getAllUsers,
-  getUserFullDetails,
-  getUserBasicInfo,
-  getUserSwords,
-  getUserMaterials,
-  getUserShields,
-  getUserGifts,
-  getUserVouchers,
-  getUserCustomerSupports,
-  getUserMarketplacePurchases,
   getAllUsersMaterials,
   getAllUsersSwords,
   getAllUsersShields,
@@ -22,10 +13,23 @@ import {
   getAdminConfig,
 } from "../controllers/adminGetterController.ts";
 
+import {
+  getUserFullDetails,
+  getUserBasicInfo,
+  getUserSwords,
+  getUserMaterials,
+  getUserShields,
+  getUserGifts,
+  getUserVouchers,
+  getUserCustomerSupports,
+  getUserMarketplacePurchases,
+  getAllMarketplaceItems,
+} from "../controllers/commonGetterController.ts";
+
 const router = express.Router();
 
 // 1) Get all users with sorting + pagination
-router.get("/allusers", adminAuth, getAllUsers);
+router.get("/data/allusers", adminAuth, getAllUsers);
 
 // 2) Get full details of a single user (ALL relations)
 router.get("/user/full-details", adminAuth, getUserFullDetails);
@@ -70,12 +74,15 @@ router.get("/all/users/shields", adminAuth, getAllUsersShields);
 // 14) All users gifts (sorting + filters + pagination)
 router.get("/all/users/gifts", adminAuth, getAllUsersGifts);
 
-// 15) All marketplace purchases
+// 15) All users marketplace purchases
 router.get(
   "/all/users/marketplace-purchases",
   adminAuth,
   getAllMarketplacePurchases,
 );
+
+// 16) All marketplace purchases
+router.get("/all/marketplace-items", adminAuth, getAllMarketplaceItems);
 
 // 16) All customer support tickets
 router.get("/all/users/customer-supports", adminAuth, getAllCustomerSupports);
@@ -84,6 +91,6 @@ router.get("/all/users/customer-supports", adminAuth, getAllCustomerSupports);
 router.get("/all/users/vouchers", adminAuth, getAllUsersVouchers);
 
 // 18) return the amdin config data
-router.get("/adminConfig", adminAuth, getAdminConfig);
+router.get("/data/adminConfig", adminAuth, getAdminConfig);
 
 export default router;
