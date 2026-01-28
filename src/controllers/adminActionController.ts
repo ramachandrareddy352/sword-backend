@@ -1,4 +1,4 @@
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import prisma from "../database/client.ts";
 import {
   MaterialRarity,
@@ -20,7 +20,7 @@ async function ensureNotPurchased(itemId: bigint) {
 }
 
 // 1) Admin can update the config data
-export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
+export async function updateAdminConfig(req: Request, res: Response) {
   try {
     const data = req.body;
     const updateData: any = {};

@@ -1,4 +1,4 @@
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import prisma from "../database/client.ts";
 import {
   MaterialRarity,
@@ -116,10 +116,7 @@ export const getAllUsers = async (req: AdminAuthRequest, res: Response) => {
 };
 
 // 2) get complete information about the user using his id or email
-export const getUserFullDetails = async (
-  req: AdminAuthRequest,
-  res: Response,
-) => {
+export const getUserFullDetails = async (req: Request, res: Response) => {
   try {
     const { email, userId } = req.query;
 
@@ -335,10 +332,7 @@ export const getUserFullDetails = async (
 };
 
 // 3) Returns only core user table fields (no relations)
-export const getUserBasicInfo = async (
-  req: AdminAuthRequest,
-  res: Response,
-) => {
+export const getUserBasicInfo = async (req: Request, res: Response) => {
   try {
     const { email, userId } = req.query;
 
@@ -418,7 +412,7 @@ export const getUserSwords = async (req: AdminAuthRequest, res: Response) => {
     return res.status(200).json({
       success: true,
       message: "Fetched User swords details successfully",
-      swords,
+      swords: serializeBigInt(swords),
       total: swords.length,
     });
   } catch (err: any) {
@@ -1349,7 +1343,7 @@ export const getAllUsersVouchers = async (
   }
 };
 
-export const getAdminConfig = async (req: AdminAuthRequest, res: Response) => {
+export const getAdminConfig = async (req: Request, res: Response) => {
   try {
     // Fetch the single AdminConfig row (id is fixed to 1 as per your schema)
     const config = await prisma.adminConfig.findUnique({

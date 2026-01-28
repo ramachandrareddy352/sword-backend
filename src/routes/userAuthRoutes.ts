@@ -11,6 +11,10 @@ import {
 
 const router = express.Router();
 
+router.get("/me", userAuth, (req, res) => {
+  res.json({ success: true });
+});
+
 router.post("/register/send-code", sendVerification);
 router.post("/register/verify", verifyRegistration);
 router.post("/login", login);
