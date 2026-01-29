@@ -2,13 +2,9 @@ import type { Response } from "express";
 import prisma from "../database/client.ts";
 import { generateSecureCode } from "../services/generateCode.ts";
 import { handleUserError, userGuard } from "../services/queryHelpers.ts";
-import { UserAuthRequest } from "../middleware/userAuth.ts";
-import {
-  MarketplaceItemType,
-  MaterialType,
-  ShieldType,
-  VoucherStatus,
-} from "@prisma/client";
+import type { UserAuthRequest } from "../middleware/userAuth.ts";
+import { VoucherStatus, MarketplaceItemType } from "@prisma/client";
+import type { MaterialType, ShieldType } from "@prisma/client";
 import { serializeBigInt } from "../services/serializeBigInt.ts";
 
 // 1) Toggle Sound On/Off

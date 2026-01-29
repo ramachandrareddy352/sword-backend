@@ -8,6 +8,7 @@ import {
 import type { AdminAuthRequest } from "../middleware/adminAuth.ts";
 import { generateSecureCode } from "../services/generateCode.ts";
 import { serializeBigInt } from "../services/serializeBigInt.ts";
+import { uploadToCloudinary } from "../services/uploadToCloudinary.ts";
 
 async function ensureNotPurchased(itemId: bigint) {
   const purchase = await prisma.marketplacePurchase.findFirst({
@@ -122,19 +123,11 @@ export async function updateAdminConfig(req: Request, res: Response) {
 
 export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
   try {
-    const {
-      name,
-      image,
-      description,
-      upgradeCost,
-      sellingCost,
-      successRate,
-      power,
-    } = req.body;
+    const { name, description, upgradeCost, sellingCost, successRate, power } =
+      req.body;
 
     if (
       !name ||
-      !image ||
       upgradeCost === undefined ||
       sellingCost === undefined ||
       successRate <= 0 ||
@@ -174,6 +167,26 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
       });
     }
 
+    const file = (req as any).file;
+
+    if (!file) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Missing sword file" });
+    }
+
+    const uploaded: any = await uploadToCloudinary(
+      file.buffer,
+      "sword-game/swords",
+    );
+
+    const image = uploaded.secure_url;
+    if (!image || image === "") {
+      return res
+        .status(400)
+        .json({ success: false, error: "Image is failed to upload" });
+    }
+
     const created = await prisma.swordLevelDefinition.create({
       data: {
         level: nextLevel,
@@ -206,7 +219,7 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
     const {
       level,
       name,
-      image,
+      isImageChanged,
       description,
       upgradeCost,
       sellingCost,
@@ -270,6 +283,23 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
       });
     }
 
+    let image = undefined;
+    const file = (req as any).file;
+
+    if (isImageChanged === "yes" && file) {
+      const uploaded: any = await uploadToCloudinary(
+        file.buffer,
+        "sword-game/swords",
+      );
+      image = uploaded.secure_url;
+      if (!image || image === "") {
+        return res.status(400).json({
+          success: false,
+          error: "Image is failed to upload",
+        });
+      }
+    }
+
     // ---------- Update ----------
     const updated = await prisma.swordLevelDefinition.update({
       where: { id: existing.id },
@@ -305,9 +335,9 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
 
 export async function createMaterial(req: AdminAuthRequest, res: Response) {
   try {
-    const { name, description, image, cost, power, rarity } = req.body;
+    const { name, description, cost, power, rarity } = req.body;
 
-    if (!name || !image || cost === undefined || power === undefined) {
+    if (!name || cost === undefined || power === undefined) {
       return res
         .status(400)
         .json({ success: false, error: "Missing required fields" });
@@ -333,6 +363,26 @@ export async function createMaterial(req: AdminAuthRequest, res: Response) {
       return res
         .status(400)
         .json({ success: false, error: "Invalid material rarity" });
+    }
+
+    const file = (req as any).file;
+
+    if (!file) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Missing sword file" });
+    }
+
+    const uploaded: any = await uploadToCloudinary(
+      file.buffer,
+      "sword-game/materials",
+    );
+
+    const image = uploaded.secure_url;
+    if (!image || image === "") {
+      return res
+        .status(400)
+        .json({ success: false, error: "Image is failed to upload" });
     }
 
     let created;
@@ -378,7 +428,8 @@ export async function createMaterial(req: AdminAuthRequest, res: Response) {
 
 export async function updateMaterial(req: AdminAuthRequest, res: Response) {
   try {
-    const { code, name, description, image, cost, power, rarity } = req.body;
+    const { code, name, isImageChanged, description, cost, power, rarity } =
+      req.body;
 
     if (!code) {
       return res
@@ -412,6 +463,23 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
         .json({ success: false, error: "Invalid material rarity" });
     }
 
+    let image = undefined;
+    const file = (req as any).file;
+
+    if (isImageChanged === "yes" && file) {
+      const uploaded: any = await uploadToCloudinary(
+        file.buffer,
+        "sword-game/materials",
+      );
+      image = uploaded.secure_url;
+      if (!image || image === "") {
+        return res.status(400).json({
+          success: false,
+          error: "Image is failed to upload",
+        });
+      }
+    }
+
     const updated = await prisma.materialType.update({
       where: { code },
       data: {
@@ -440,9 +508,9 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
 
 export async function createShield(req: AdminAuthRequest, res: Response) {
   try {
-    const { name, description, image, cost, power, rarity } = req.body;
+    const { name, description, cost, power, rarity } = req.body;
 
-    if (!name || !image || cost === undefined || power === undefined) {
+    if (!name || cost === undefined || power === undefined) {
       return res
         .status(400)
         .json({ success: false, error: "Missing required fields" });
@@ -469,6 +537,25 @@ export async function createShield(req: AdminAuthRequest, res: Response) {
         success: false,
         error: "Cost must be greater than 0",
       });
+    }
+
+    const file = (req as any).file;
+    if (!file) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Missing sword file" });
+    }
+
+    const uploaded: any = await uploadToCloudinary(
+      file.buffer,
+      "sword-game/shields",
+    );
+
+    const image = uploaded.secure_url;
+    if (!image || image === "") {
+      return res
+        .status(400)
+        .json({ success: false, error: "Image is failed to upload" });
     }
 
     let created;
@@ -514,7 +601,8 @@ export async function createShield(req: AdminAuthRequest, res: Response) {
 
 export async function updateShield(req: AdminAuthRequest, res: Response) {
   try {
-    const { code, name, description, image, cost, power, rarity } = req.body;
+    const { code, name, isImageChanged, description, cost, power, rarity } =
+      req.body;
 
     if (!code) {
       return res
@@ -540,6 +628,23 @@ export async function updateShield(req: AdminAuthRequest, res: Response) {
         success: false,
         error: "Cost must be greater than 0",
       });
+    }
+
+    let image = undefined;
+    const file = (req as any).file;
+
+    if (isImageChanged === "yes" && file) {
+      const uploaded: any = await uploadToCloudinary(
+        file.buffer,
+        "sword-game/shields",
+      );
+      image = uploaded.secure_url;
+      if (!image || image === "") {
+        return res.status(400).json({
+          success: false,
+          error: "Image is failed to upload",
+        });
+      }
     }
 
     const updated = await prisma.shieldType.update({

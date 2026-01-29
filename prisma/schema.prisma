@@ -7,7 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 192.168.43.2
 // ======================= ADMIN CONFIG =======================
 model AdminConfig {
   id BigInt @id @default(1)
@@ -29,10 +28,11 @@ model AdminConfig {
 
 // ======================= USER =======================
 model User {
-  id       BigInt @id @default(autoincrement())
-  email    String @unique
-  name     String
-  password String // Hashed password (use bcrypt or argon2 in application logic)
+  id          BigInt  @id @default(autoincrement())
+  email       String  @unique
+  name        String
+  profileLogo String?
+  password    String // Hashed password (use bcrypt or argon2 in application logic)
 
   gold        BigInt @default(0)
   trustPoints Int    @default(100)

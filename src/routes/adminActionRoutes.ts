@@ -1,5 +1,6 @@
 import express from "express";
 import adminAuth from "../middleware/adminAuth.ts";
+import { upload } from "../middleware/upload.ts";
 
 import {
   updateAdminConfig,
@@ -24,13 +25,33 @@ const router = express.Router();
 
 router.put("/update/config", adminAuth, updateAdminConfig);
 
-router.put("/create/sword", adminAuth, createSwordLevel);
-router.put("/create/material", adminAuth, createMaterial);
-router.put("/create/shield", adminAuth, createShield);
+router.put(
+  "/create/sword",
+  adminAuth,
+  upload.single("image"),
+  createSwordLevel,
+);
+router.put(
+  "/create/material",
+  adminAuth,
+  upload.single("image"),
+  createMaterial,
+);
+router.put("/create/shield", adminAuth, upload.single("image"), createShield);
 
-router.put("/update/sword", adminAuth, updateSwordLevel);
-router.put("/update/material", adminAuth, updateMaterial);
-router.put("/update/shield", adminAuth, updateShield);
+router.put(
+  "/update/sword",
+  adminAuth,
+  upload.single("image"),
+  updateSwordLevel,
+);
+router.put(
+  "/update/material",
+  adminAuth,
+  upload.single("image"),
+  updateMaterial,
+);
+router.put("/update/shield", adminAuth, upload.single("image"), updateShield);
 
 router.post("/create/gift", adminAuth, createGift);
 router.post("/cancel/gift", adminAuth, cancelGift);
