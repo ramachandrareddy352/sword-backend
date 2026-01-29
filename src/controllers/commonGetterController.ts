@@ -1,31 +1,30 @@
-import type { Request, Response } from "express";
+import type { Response } from "express";
 import prisma from "../database/client.ts";
 import { resolveUser } from "../services/queryHelpers.ts";
 import { serializeBigInt } from "../services/serializeBigInt.ts";
 
-// =============== Access by admin or self owner ===============
-
+// =================== COMMON ROUTES =================== //
 // 1) get complete information about the user using his id or email
-export const getUserFullDetails = async (req: Request, res: Response) => {
+export const getUserFullDetails = async (req: any, res: Response) => {
   try {
-    const { email, userId } = req.query;
+    const userId = BigInt(req.user.userId);
 
-    if (!email && !userId) {
+    if (!userId) {
       return res.status(400).json({
         success: false,
-        error: "Either 'email' or 'userId' query parameter is required",
+        error: "UserId is required",
       });
     }
 
     // Use helper to find user (throws USER_NOT_FOUND if missing)
     const user = await resolveUser({
       id: userId ? String(userId) : undefined,
-      email: email ? String(email) : undefined,
+      email: undefined,
     });
 
     // Core user data (safe fields only)
     const safeUser = {
-      id: user.id,
+      id: userId,
       email: user.email,
       name: user.name,
       gold: user.gold,
@@ -45,13 +44,13 @@ export const getUserFullDetails = async (req: Request, res: Response) => {
 
     // Vouchers
     const vouchers = await prisma.userVoucher.findMany({
-      where: { userId: user.id },
+      where: { userId: userId },
       orderBy: { createdAt: "desc" },
     });
 
     // Swords with level definition
     const swords = await prisma.userSword.findMany({
-      where: { userId: user.id },
+      where: { userId: userId },
       include: {
         swordLevelDefinition: {
           select: {
@@ -71,7 +70,7 @@ export const getUserFullDetails = async (req: Request, res: Response) => {
 
     // Materials
     const materials = await prisma.userMaterial.findMany({
-      where: { userId: user.id },
+      where: { userId: userId },
       include: {
         material: {
           select: {
@@ -90,7 +89,7 @@ export const getUserFullDetails = async (req: Request, res: Response) => {
 
     // Shields
     const shields = await prisma.userShield.findMany({
-      where: { userId: user.id },
+      where: { userId: userId },
       include: {
         shield: {
           select: {
@@ -109,7 +108,7 @@ export const getUserFullDetails = async (req: Request, res: Response) => {
 
     // Gifts + items
     const gifts = await prisma.userGift.findMany({
-      where: { receiverId: user.id },
+      where: { receiverId: userId },
       include: {
         items: true, // all fields
       },
@@ -118,7 +117,7 @@ export const getUserFullDetails = async (req: Request, res: Response) => {
 
     // Marketplace purchases
     const marketplacePurchases = await prisma.marketplacePurchase.findMany({
-      where: { userId: user.id },
+      where: { userId: userId },
       include: {
         marketplaceItem: {
           select: {
@@ -177,7 +176,7 @@ export const getUserFullDetails = async (req: Request, res: Response) => {
 
     // Customer support tickets
     const customerSupports = await prisma.customerSupport.findMany({
-      where: { userId: user.id },
+      where: { userId: userId },
       orderBy: { createdAt: "desc" },
     });
 
@@ -211,7 +210,7 @@ export const getUserFullDetails = async (req: Request, res: Response) => {
     if (error.message === "IDENTIFIER_REQUIRED") {
       return res.status(400).json({
         success: false,
-        error: "Either email or userId is required",
+        error: "UserId is required",
       });
     }
 
@@ -224,23 +223,24 @@ export const getUserFullDetails = async (req: Request, res: Response) => {
 };
 
 // 2) Returns only main user table fields (no relations)
-export const getUserBasicInfo = async (req: Request, res: Response) => {
+export const getUserBasicInfo = async (req: any, res: Response) => {
   try {
-    const { email, userId } = req.query;
+    const userId = BigInt(req.user.userId);
 
-    if (!email && !userId) {
-      return res
-        .status(400)
-        .json({ success: false, error: "email or userId required" });
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "UserId is required",
+      });
     }
 
     const user = await resolveUser({
       id: userId ? String(userId) : undefined,
-      email: email ? String(email) : undefined,
+      email: undefined,
     });
 
     const safeUser = {
-      id: user.id,
+      id: userId,
       email: user.email,
       name: user.name,
       gold: user.gold,
@@ -275,29 +275,34 @@ export const getUserBasicInfo = async (req: Request, res: Response) => {
 };
 
 // 3) Only user's swords list + total count
-export const getUserSwords = async (req: Request, res: Response) => {
+export const getUserSwords = async (req: any, res: Response) => {
   try {
-    const {
-      email,
-      userId,
+    const userId = BigInt(req.user.userId);
 
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "UserId is required",
+      });
+    }
+
+    const {
       sortCreatedAt,
       sortPower,
       sortUpgradeCost,
       sortSellingCost,
       sortSuccessRate,
-
-      sold, // NEW
+      sold,
     } = req.query;
 
-    const user = await resolveUser({
+    await resolveUser({
       id: userId ? String(userId) : undefined,
-      email: email ? String(email) : undefined,
+      email: undefined,
     });
 
     /* ---------------- WHERE ---------------- */
     const where: any = {
-      userId: user.id,
+      userId: userId,
     };
 
     if (sold === "true") where.isSolded = true;
@@ -382,23 +387,22 @@ export const getUserSwords = async (req: Request, res: Response) => {
 };
 
 // 4) only user's materials list + total count
-export const getUserMaterials = async (req: Request, res: Response) => {
+export const getUserMaterials = async (req: any, res: Response) => {
   try {
-    const {
-      email,
-      userId,
+    const userId = BigInt(req.user.userId);
 
-      sortCreatedAt,
-      sortCost,
-      sortPower,
-      rarity,
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "UserId is required",
+      });
+    }
 
-      sold, // NEW
-    } = req.query;
+    const { sortCreatedAt, sortCost, sortPower, rarity, sold } = req.query;
 
-    const user = await resolveUser({
+    await resolveUser({
       id: userId ? String(userId) : undefined,
-      email: email ? String(email) : undefined,
+      email: undefined,
     });
 
     const allowedRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
@@ -417,7 +421,7 @@ export const getUserMaterials = async (req: Request, res: Response) => {
 
     /* ---------------- WHERE ---------------- */
     const where: any = {
-      userId: user.id,
+      userId: userId,
     };
 
     if (filterRarity) {
@@ -482,23 +486,28 @@ export const getUserMaterials = async (req: Request, res: Response) => {
 };
 
 // 5) only user's shields list + total count
-export const getUserShields = async (req: Request, res: Response) => {
+export const getUserShields = async (req: any, res: Response) => {
   try {
-    const {
-      email,
-      userId,
+    const userId = BigInt(req.user.userId);
 
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "UserId is required",
+      });
+    }
+
+    const {
       sortCreatedAt,
       sortCost,
       sortPower,
       rarity,
-
       sold, // NEW
     } = req.query;
 
-    const user = await resolveUser({
+    await resolveUser({
       id: userId ? String(userId) : undefined,
-      email: email ? String(email) : undefined,
+      email: undefined,
     });
 
     const allowedRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
@@ -517,7 +526,7 @@ export const getUserShields = async (req: Request, res: Response) => {
 
     /* ---------------- WHERE ---------------- */
     const where: any = {
-      userId: user.id,
+      userId: userId,
     };
 
     if (filterRarity) {
@@ -582,21 +591,21 @@ export const getUserShields = async (req: Request, res: Response) => {
 };
 
 // 6) Only user's gift list + total count
-export const getUserGifts = async (req: Request, res: Response) => {
+export const getUserGifts = async (req: any, res: Response) => {
   try {
-    const {
-      email,
-      userId,
+    const userId = BigInt(req.user.userId);
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "UserId is required",
+      });
+    }
 
-      // optional filters
-      status,
-      type,
-      sortCreatedAt,
-    } = req.query;
+    const { status, type, sortCreatedAt } = req.query;
 
-    const user = await resolveUser({
+    await resolveUser({
       id: userId ? String(userId) : undefined,
-      email: email ? String(email) : undefined,
+      email: undefined,
     });
 
     /* ---------------- ENUM VALIDATION ---------------- */
@@ -629,7 +638,7 @@ export const getUserGifts = async (req: Request, res: Response) => {
 
     /* ---------------- WHERE CLAUSE ---------------- */
     const where: any = {
-      receiverId: user.id,
+      receiverId: userId,
     };
 
     if (filterStatus) {
@@ -688,23 +697,21 @@ export const getUserGifts = async (req: Request, res: Response) => {
 };
 
 // 7) only user's vouchers list + total count
-export const getUserVouchers = async (req: Request, res: Response) => {
+export const getUserVouchers = async (req: any, res: Response) => {
   try {
-    const {
-      email,
-      userId,
+    const userId = BigInt(req.user.userId);
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "UserId is required",
+      });
+    }
 
-      // optional filters
-      status,
+    const { status, sortCreatedAt, sortGoldAmount } = req.query;
 
-      // optional sorts
-      sortCreatedAt,
-      sortGoldAmount,
-    } = req.query;
-
-    const user = await resolveUser({
+    await resolveUser({
       id: userId ? String(userId) : undefined,
-      email: email ? String(email) : undefined,
+      email: undefined,
     });
 
     /* ---------------- VALIDATION ---------------- */
@@ -724,7 +731,7 @@ export const getUserVouchers = async (req: Request, res: Response) => {
 
     /* ---------------- WHERE CLAUSE ---------------- */
     const where: any = {
-      userId: user.id,
+      userId: userId,
     };
 
     if (filterStatus) {
@@ -766,22 +773,21 @@ export const getUserVouchers = async (req: Request, res: Response) => {
 };
 
 // 8) only user's customer support list + total count
-export const getUserCustomerSupports = async (req: Request, res: Response) => {
+export const getUserCustomerSupports = async (req: any, res: Response) => {
   try {
-    const {
-      email,
-      userId,
+    const userId = BigInt(req.user.userId);
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "UserId is required",
+      });
+    }
 
-      // optional filters
-      isReviewed,
-      category,
-      priority,
-      sortCreatedAt,
-    } = req.query;
+    const { isReviewed, category, priority, sortCreatedAt } = req.query;
 
-    const user = await resolveUser({
+    await resolveUser({
       id: userId ? String(userId) : undefined,
-      email: email ? String(email) : undefined,
+      email: undefined,
     });
 
     /* ---------------- VALIDATION ---------------- */
@@ -833,7 +839,7 @@ export const getUserCustomerSupports = async (req: Request, res: Response) => {
 
     /* ---------------- WHERE CLAUSE ---------------- */
     const where: any = {
-      userId: user.id,
+      userId: userId,
     };
 
     if (filterIsReviewed !== undefined) {
@@ -878,24 +884,21 @@ export const getUserCustomerSupports = async (req: Request, res: Response) => {
 };
 
 // 9) only user's marketplace pucrchases list + total count
-export const getUserMarketplacePurchases = async (
-  req: Request,
-  res: Response,
-) => {
+export const getUserMarketplacePurchases = async (req: any, res: Response) => {
   try {
-    const {
-      email,
-      userId,
+    const userId = BigInt(req.user.userId);
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "UserId is required",
+      });
+    }
 
-      // optional filters
-      itemType,
-      sortCreatedAt,
-      sortPriceGold,
-    } = req.query;
+    const { itemType, sortCreatedAt, sortPriceGold } = req.query;
 
-    const user = await resolveUser({
+    await resolveUser({
       id: userId ? String(userId) : undefined,
-      email: email ? String(email) : undefined,
+      email: undefined,
     });
 
     /* ---------------- VALIDATION ---------------- */
@@ -915,7 +918,7 @@ export const getUserMarketplacePurchases = async (
 
     /* ---------------- WHERE CLAUSE ---------------- */
     const where: any = {
-      userId: user.id,
+      userId: userId,
     };
 
     if (filterItemType) {
@@ -986,8 +989,16 @@ export const getUserMarketplacePurchases = async (
 };
 
 // 10) all marketplace items
-export const getAllMarketplaceItems = async (req: Request, res: Response) => {
+export const getAllMarketplaceItems = async (req: any, res: Response) => {
   try {
+    const userId = BigInt(req.user.userId);
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "UserId is required",
+      });
+    }
+
     const { itemType, isActive, isPurchased, sortPriceGold, sortCreatedAt } =
       req.query;
 

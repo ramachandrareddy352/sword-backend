@@ -3,10 +3,15 @@ import prisma from "../database/client.ts";
 import { generateSecureCode } from "../services/generateCode.ts";
 import { handleUserError, userGuard } from "../services/queryHelpers.ts";
 import { UserAuthRequest } from "../middleware/userAuth.ts";
-import { MarketplaceItemType, VoucherStatus } from "@prisma/client";
+import {
+  MarketplaceItemType,
+  MaterialType,
+  ShieldType,
+  VoucherStatus,
+} from "@prisma/client";
 import { serializeBigInt } from "../services/serializeBigInt.ts";
 
-// 1. Toggle Sound On/Off
+// 1) Toggle Sound On/Off
 export const toggleSound = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -28,7 +33,7 @@ export const toggleSound = async (req: UserAuthRequest, res: Response) => {
   }
 };
 
-// 2. Create Voucher
+// 2) Create Voucher
 export const createVoucher = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -99,7 +104,7 @@ export const createVoucher = async (req: UserAuthRequest, res: Response) => {
   }
 };
 
-// 3. Cancel Voucher
+// 3) Cancel Voucher
 export const cancelVoucher = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -153,7 +158,7 @@ export const cancelVoucher = async (req: UserAuthRequest, res: Response) => {
   }
 };
 
-// 4. Create Customer Support Complaint (No ban check)
+// 4) Create Customer Support Complaint (No ban check)
 export const createComplaint = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -207,7 +212,152 @@ export const createComplaint = async (req: UserAuthRequest, res: Response) => {
   }
 };
 
-// 5. Buy Marketplace Item
+// 5) Update Complaint (only if not reviewed)
+export const updateComplaint = async (req: UserAuthRequest, res: Response) => {
+  try {
+    const userId = BigInt(req.user.userId);
+    const { complaintId, title, content, message } = req.body;
+
+    if (!complaintId) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Complaint ID required" });
+    }
+
+    if (!title && !content && !message) {
+      return res.status(400).json({
+        success: false,
+        error: "Provide at least one field to update",
+      });
+    }
+
+    if (title && title.length < 5) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Title must be at least 5 characters" });
+    }
+    if (content && content.length < 5) {
+      return res.status(400).json({
+        success: false,
+        error: "Content must be at least 5 characters",
+      });
+    }
+    if (message && message.length < 10) {
+      return res.status(400).json({
+        success: false,
+        error: "Message must be at least 10 characters",
+      });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const complaint = await tx.customerSupport.findUnique({
+        where: { id: BigInt(complaintId) },
+      });
+
+      if (!complaint) {
+        return res
+          .status(404)
+          .json({ success: false, error: "Complaint not found" });
+      }
+
+      if (complaint.userId !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: "You can only update your own complaints",
+        });
+      }
+
+      if (complaint.isReviewed) {
+        return res
+          .status(403)
+          .json({ success: false, error: "Cannot update reviewed complaint" });
+      }
+
+      return tx.customerSupport.update({
+        where: { id: complaint.id },
+        data: {
+          title: title ?? complaint.title,
+          content: content ?? complaint.content,
+          message: message ?? complaint.message,
+          updatedAt: new Date(),
+        },
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          message: true,
+          updatedAt: true,
+        },
+      });
+    });
+
+    return res.json({
+      success: true,
+      message: "Complaint updated successfully",
+      complaint: updated,
+    });
+  } catch (err: any) {
+    console.error("updateComplaint error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 6) Delete Complaint (only if not reviewed)
+export const deleteComplaint = async (req: UserAuthRequest, res: Response) => {
+  try {
+    const userId = BigInt(req.user.userId);
+    const { complaintId } = req.body;
+
+    if (!complaintId) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Complaint ID required" });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const complaint = await tx.customerSupport.findUnique({
+        where: { id: BigInt(complaintId) },
+      });
+
+      if (!complaint) {
+        return res
+          .status(404)
+          .json({ success: false, error: "Complaint not found" });
+      }
+
+      if (complaint.userId !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: "You can only delete your own complaints",
+        });
+      }
+
+      if (complaint.isReviewed) {
+        return res
+          .status(403)
+          .json({ success: false, error: "Cannot delete reviewed complaint" });
+      }
+
+      await tx.customerSupport.delete({
+        where: { id: complaint.id },
+      });
+    });
+
+    return res.json({
+      success: true,
+      message: "Complaint deleted successfully",
+    });
+  } catch (err: any) {
+    console.error("deleteComplaint error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 7) Buy Marketplace Item
 export const buyMarketplaceItem = async (
   req: UserAuthRequest,
   res: Response,
@@ -327,7 +477,7 @@ export const buyMarketplaceItem = async (
   }
 };
 
-// 6. Sell Sword
+// 8) Sell Sword
 export const sellSword = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -387,7 +537,7 @@ export const sellSword = async (req: UserAuthRequest, res: Response) => {
   }
 };
 
-// 7. Sell Material
+// 9) Sell Material
 export const sellMaterial = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -440,7 +590,7 @@ export const sellMaterial = async (req: UserAuthRequest, res: Response) => {
   }
 };
 
-// 8. Sell Shield
+// 10) Sell Shield
 export const sellShield = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -501,7 +651,7 @@ export const sellShield = async (req: UserAuthRequest, res: Response) => {
   }
 };
 
-// 9. Set Sword on Anvil
+// 11) Set Sword on Anvil
 export const setSwordOnAnvil = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -555,7 +705,7 @@ export const setSwordOnAnvil = async (req: UserAuthRequest, res: Response) => {
   }
 };
 
-// 10. Remove Sword from Anvil (Put back to bag)
+// 12) Remove Sword from Anvil (Put back to bag)
 export const removeSwordFromAnvil = async (
   req: UserAuthRequest,
   res: Response,
@@ -589,7 +739,7 @@ export const removeSwordFromAnvil = async (
   }
 };
 
-// 11. Upgrade Sword
+// 13) Upgrade Sword
 export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -630,10 +780,17 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
         .json({ success: false, error: "Insufficient gold for upgrade" });
     }
 
+    // Check if max level reached (assuming max is 100)
+    if (sword.level >= 100) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Sword is at maximum level" });
+    }
+
     const successRate = sword.swordLevelDefinition.successRate;
     const success = Math.random() < successRate;
 
-    let result;
+    let result: any;
     await prisma.$transaction(async (tx) => {
       // Deduct cost always
       await tx.user.update({
@@ -642,7 +799,6 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
       });
 
       if (success) {
-        /// NOTE: MAX LEVEL HAVE 100, NO UPGRADE
         const nextLevel = sword.level + 1;
         const nextDef = await tx.swordLevelDefinition.findUnique({
           where: { level: nextLevel },
@@ -669,39 +825,53 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
         // Random reward (material or shield)
         const materials = await tx.materialType.findMany({ take: 100 });
         const shields = await tx.shieldType.findMany({ take: 100 });
-        const rewards = [...materials, ...shields];
-        if (rewards.length === 0) throw new Error("No rewards available");
+
+        if (materials.length === 0 && shields.length === 0) {
+          throw new Error("No rewards available");
+        }
+
+        // Use discriminated union for proper type narrowing
+        type RewardItem =
+          | { kind: "material"; data: MaterialType }
+          | { kind: "shield"; data: ShieldType };
+
+        const rewards: RewardItem[] = [
+          ...materials.map((m) => ({ kind: "material" as const, data: m })),
+          ...shields.map((s) => ({ kind: "shield" as const, data: s })),
+        ];
 
         const randomReward =
           rewards[Math.floor(Math.random() * rewards.length)];
 
-        if ("cost" in randomReward) {
-          // Material
+        let rewardData: any;
+
+        if (randomReward.kind === "material") {
+          const mat = randomReward.data;
           await tx.userMaterial.upsert({
-            where: {
-              userId_materialId: { userId, materialId: randomReward.id },
-            },
+            where: { userId_materialId: { userId, materialId: mat.id } },
             update: { quantity: { increment: 1 } },
             create: {
               userId,
-              materialId: randomReward.id,
+              materialId: mat.id,
               quantity: 1,
               soldedQuantity: 0,
             },
           });
+          rewardData = { type: "material", ...mat };
         } else {
-          // Shield
+          const sh = randomReward.data;
           await tx.userShield.upsert({
-            where: { userId_shieldId: { userId, shieldId: randomReward.id } },
+            where: { userId_shieldId: { userId, shieldId: sh.id } },
             update: { quantity: { increment: 1 } },
             create: {
               userId,
-              shieldId: randomReward.id,
+              shieldId: sh.id,
               quantity: 1,
               soldedQuantity: 0,
               isOnAnvil: false,
             },
           });
+          rewardData = { type: "shield", ...sh };
         }
 
         // Clear anvil
@@ -713,18 +883,30 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
         result = {
           success: false,
           message: "Upgrade failed, sword destroyed. Received random reward.",
-          reward: randomReward,
+          reward: rewardData,
         };
       }
     });
 
     return res.json(result);
   } catch (err: any) {
+    if (err.message === "Next level not defined") {
+      return res.status(400).json({
+        success: false,
+        error: "Cannot upgrade beyond maximum level",
+      });
+    }
+    if (err.message === "No rewards available") {
+      return res.status(500).json({
+        success: false,
+        error: "No reward items available for failure",
+      });
+    }
     handleUserError(err, res);
   }
 };
 
-// 12. Sword Synthesis (Consume 1-4 items, guarantee 1 new sword)
+// 14) Sword Synthesis (Consume 1-4 items, guarantee 1 new sword)
 export const synthesizeSword = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -744,6 +926,7 @@ export const synthesizeSword = async (req: UserAuthRequest, res: Response) => {
     if (!levelZero) throw new Error("Level 0 sword definition missing");
 
     const swordCode = generateSecureCode(12);
+    let newSword;
 
     await prisma.$transaction(async (tx) => {
       // Consume items (pseudo - implement decrement for each)
@@ -760,10 +943,15 @@ export const synthesizeSword = async (req: UserAuthRequest, res: Response) => {
             where: { userId_shieldId: { userId, shieldId: BigInt(item.id) } },
             data: { quantity: { decrement: item.quantity || 1 } },
           });
+        } else {
+          return res.status(400).json({
+            success: false,
+            error: "Only material or shields are allowed to synthesis",
+          });
         }
       }
 
-      await tx.userSword.create({
+      newSword = await tx.userSword.create({
         data: {
           code: swordCode,
           userId,
@@ -778,8 +966,101 @@ export const synthesizeSword = async (req: UserAuthRequest, res: Response) => {
     return res.json({
       success: true,
       message: "Sword synthesized successfully",
-      swordCode,
+      data: newSword,
     });
+  } catch (err: any) {
+    handleUserError(err, res);
+  }
+};
+
+// 15) Set Shield on Anvil
+export const setShieldOnAnvil = async (req: UserAuthRequest, res: Response) => {
+  try {
+    const userId = BigInt(req.user.userId);
+    const { shieldId } = req.body;
+
+    if (!shieldId) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Shield ID required" });
+    }
+
+    const user = await userGuard(userId);
+
+    const shield = await prisma.userShield.findUnique({
+      where: { userId_shieldId: { userId, shieldId: BigInt(shieldId) } },
+    });
+
+    if (!shield || shield.quantity === 0) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid or no shield available" });
+    }
+
+    // You can only put on anvil if you have at least 1
+    if (shield.quantity < 1) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Insufficient shield quantity" });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Remove current anvil shield if exists
+      if (user.anvilShieldId) {
+        await tx.userShield.update({
+          where: { userId_shieldId: { userId, shieldId: user.anvilShieldId } },
+          data: { isOnAnvil: false },
+        });
+      }
+
+      // Set new shield on anvil
+      await tx.userShield.update({
+        where: { userId_shieldId: { userId, shieldId: BigInt(shieldId) } },
+        data: { isOnAnvil: true },
+      });
+
+      // Update user anvil reference
+      await tx.user.update({
+        where: { id: userId },
+        data: { anvilShieldId: BigInt(shieldId) },
+      });
+    });
+
+    return res.json({ success: true, message: "Shield placed on anvil" });
+  } catch (err: any) {
+    handleUserError(err, res);
+  }
+};
+
+// 16) Remove Shield from Anvil (Put back to inventory)
+export const removeShieldFromAnvil = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const user = await userGuard(userId);
+
+    if (!user.anvilShieldId) {
+      return res
+        .status(400)
+        .json({ success: false, error: "No shield on anvil" });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.userShield.update({
+        where: { userId_shieldId: { userId, shieldId: user.anvilShieldId! } },
+        data: { isOnAnvil: false },
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: { anvilShieldId: null },
+      });
+    });
+
+    return res.json({ success: true, message: "Shield removed from anvil" });
   } catch (err: any) {
     handleUserError(err, res);
   }

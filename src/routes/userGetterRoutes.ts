@@ -13,6 +13,7 @@ import {
   getUserMarketplacePurchases,
   getAllMarketplaceItems,
 } from "../controllers/commonGetterController.ts";
+import { getUserRank } from "../controllers/userGetterController.ts";
 
 const router = express.Router();
 
@@ -49,5 +50,7 @@ router.get(
 
 // 9) all marketplace purchases
 router.get("/all/marketplace-items", userAuth, getAllMarketplaceItems);
+
+router.get("/user/rank", userAuth, getUserRank);
 
 export default router;

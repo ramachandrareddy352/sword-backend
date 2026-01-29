@@ -8,7 +8,7 @@ import {
   GiftStatus,
 } from "@prisma/client";
 import type { AdminAuthRequest } from "../middleware/adminAuth.ts";
-import { getPagination } from "../services/queryHelpers.ts";
+import { getPagination, resolveUser } from "../services/queryHelpers.ts";
 import { serializeBigInt } from "../services/serializeBigInt.ts";
 
 // 1) Get the basic information of all users using pagination

@@ -499,3 +499,138 @@ export const getShield = async (req: Request, res: Response) => {
       .json({ success: false, error: "Internal server error" });
   }
 };
+
+export const getLeaderboard = async (req: Request, res: Response) => {
+  try {
+    // ── Safe extraction of sortBy ───────────────────────────────────────
+    let sortBy: string = "createdAt"; // default
+    const sortByRaw = req.query.sortBy;
+
+    if (typeof sortByRaw === "string" && sortByRaw.trim()) {
+      sortBy = sortByRaw.trim();
+    } else if (Array.isArray(sortByRaw) && sortByRaw.length > 0) {
+      // take first value if someone sent multiple (common frontend mistake)
+      sortBy = String(sortByRaw[0]).trim();
+    }
+
+    // ── Validate sort field ──────────────────────────────────────────────
+    const validSortFields = [
+      "totalSwords",
+      "totalMaterials",
+      "totalShields",
+      "gold",
+      "trustPoints",
+      "totalPower",
+      "createdAt",
+    ] as const;
+
+    if (!validSortFields.includes(sortBy as any)) {
+      // type assertion safe here
+      return res.status(400).json({
+        success: false,
+        error: `Invalid sortBy field. Allowed: ${validSortFields.join(", ")}`,
+      });
+    }
+
+    // ── Order (asc / desc) ───────────────────────────────────────────────
+    let order: "asc" | "desc" = "desc";
+    const orderRaw = req.query.order;
+    if (
+      typeof orderRaw === "string" &&
+      (orderRaw === "asc" || orderRaw === "desc")
+    ) {
+      order = orderRaw;
+    }
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "No data found in the game",
+      });
+    }
+
+    // ── Fetch users (unchanged) ──────────────────────────────────────────
+    const users = await prisma.user.findMany({
+      where: { isBanned: false },
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+        gold: true,
+        trustPoints: true,
+        swords: {
+          where: { isSolded: false },
+          select: { swordLevelDefinition: { select: { power: true } } },
+        },
+        materials: {
+          select: {
+            quantity: true,
+            material: { select: { power: true } },
+          },
+        },
+        shields: {
+          select: {
+            quantity: true,
+            shield: { select: { power: true } },
+          },
+        },
+      },
+    });
+
+    // ── Compute leaderboard data (unchanged) ─────────────────────────────
+    const leaderboardData = users.map((u) => ({
+      userId: u.id.toString(),
+      name: u.name,
+      createdAt: u.createdAt,
+      gold: Number(u.gold),
+      trustPoints: u.trustPoints,
+      totalSwords: u.swords.length,
+      totalMaterials: u.materials.reduce((sum, m) => sum + m.quantity, 0),
+      totalShields: u.shields.reduce((sum, s) => sum + s.quantity, 0),
+      totalPower:
+        u.swords.reduce((sum, s) => sum + s.swordLevelDefinition.power, 0) +
+        u.materials.reduce((sum, m) => sum + m.material.power * m.quantity, 0) +
+        u.shields.reduce((sum, s) => sum + s.shield.power * s.quantity, 0),
+    }));
+
+    // ── Sort ─────────────────────────────────────────────────────────────
+    leaderboardData.sort((a, b) => {
+      let valA: number | Date;
+      let valB: number | Date;
+
+      // Type-safe access — we already validated sortBy
+      if (sortBy === "createdAt") {
+        valA = a.createdAt;
+        valB = b.createdAt;
+        return order === "desc"
+          ? valB.getTime() - valA.getTime()
+          : valA.getTime() - valB.getTime();
+      }
+
+      // All other fields are numbers
+      valA = a[sortBy as keyof typeof a] as number;
+      valB = b[sortBy as keyof typeof a] as number;
+
+      return order === "desc" ? valB - valA : valA - valB;
+    });
+
+    // ── Paginate ─────────────────────────────────────────────────────────
+    const start = pagination.skip;
+    const paginated = leaderboardData.slice(start, start + pagination.take);
+
+    return res.json({
+      success: true,
+      data: paginated,
+      total: leaderboardData.length,
+      page: pagination.page,
+      limit: pagination.limit,
+      message: "Leaderboard data fetched successfully",
+    });
+  } catch (err) {
+    console.error("getLeaderboard error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};

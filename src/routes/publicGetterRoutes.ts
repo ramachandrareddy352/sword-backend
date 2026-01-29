@@ -8,6 +8,7 @@ import {
   getSword,
   getMaterial,
   getShield,
+  getLeaderboard,
 } from "../controllers/publicGetterController.ts";
 
 const router = express.Router();
@@ -35,5 +36,7 @@ router.get("/single/material", getMaterial);
 // Query params: ?id=456  OR  ?code="AEGIS"  OR  ?name="Guardian Shield"
 // Example: GET /public/shield?name=Iron Buckler
 router.get("/single/shield", getShield);
+
+router.get("/leaderboard", getLeaderboard);
 
 export default router;
