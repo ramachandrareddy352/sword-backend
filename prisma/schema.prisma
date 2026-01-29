@@ -120,6 +120,7 @@ model UserSword {
   level                  Int     @default(0) // current sword level
   isOnAnvil              Boolean
   swordLevelDefinitionId BigInt
+  isSolded               Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -159,9 +160,10 @@ enum MaterialRarity {
 }
 
 model UserMaterial {
-  userId     BigInt
-  materialId BigInt
-  quantity   Int    @default(0)
+  userId         BigInt
+  materialId     BigInt
+  quantity       Int    @default(0)
+  soldedQuantity Int    @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -194,10 +196,11 @@ model ShieldType {
 }
 
 model UserShield {
-  userId    BigInt
-  shieldId  BigInt
-  quantity  Int     @default(0)
-  isOnAnvil Boolean
+  userId         BigInt
+  shieldId       BigInt
+  quantity       Int     @default(0)
+  soldedQuantity Int     @default(0)
+  isOnAnvil      Boolean
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -281,12 +281,13 @@ export const getUserSwords = async (req: Request, res: Response) => {
       email,
       userId,
 
-      // optional sorting params
       sortCreatedAt,
       sortPower,
       sortUpgradeCost,
       sortSellingCost,
       sortSuccessRate,
+
+      sold, // NEW
     } = req.query;
 
     const user = await resolveUser({
@@ -294,7 +295,15 @@ export const getUserSwords = async (req: Request, res: Response) => {
       email: email ? String(email) : undefined,
     });
 
-    /* ---------------- BUILD ORDER BY ---------------- */
+    /* ---------------- WHERE ---------------- */
+    const where: any = {
+      userId: user.id,
+    };
+
+    if (sold === "true") where.isSolded = true;
+    if (sold === "false") where.isSolded = false;
+
+    /* ---------------- ORDER BY ---------------- */
     const orderBy: any[] = [];
 
     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
@@ -302,9 +311,7 @@ export const getUserSwords = async (req: Request, res: Response) => {
     }
 
     if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
-      orderBy.push({
-        swordLevelDefinition: { power: sortPower },
-      });
+      orderBy.push({ swordLevelDefinition: { power: sortPower } });
     }
 
     if (
@@ -334,14 +341,13 @@ export const getUserSwords = async (req: Request, res: Response) => {
       });
     }
 
-    // ✅ default fallback
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
 
-    /* ---------------- FETCH DATA ---------------- */
+    /* ---------------- FETCH ---------------- */
     const swords = await prisma.userSword.findMany({
-      where: { userId: user.id },
+      where,
       include: {
         swordLevelDefinition: {
           select: {
@@ -382,11 +388,12 @@ export const getUserMaterials = async (req: Request, res: Response) => {
       email,
       userId,
 
-      // optional sorting
       sortCreatedAt,
       sortCost,
       sortPower,
       rarity,
+
+      sold, // NEW
     } = req.query;
 
     const user = await resolveUser({
@@ -394,10 +401,9 @@ export const getUserMaterials = async (req: Request, res: Response) => {
       email: email ? String(email) : undefined,
     });
 
-    /* ---------------- VALIDATE RARITY ---------------- */
     const allowedRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
-
     let filterRarity: string | undefined;
+
     if (rarity) {
       const upper = String(rarity).toUpperCase();
       if (!allowedRarities.includes(upper)) {
@@ -409,7 +415,7 @@ export const getUserMaterials = async (req: Request, res: Response) => {
       filterRarity = upper;
     }
 
-    /* ---------------- WHERE CLAUSE ---------------- */
+    /* ---------------- WHERE ---------------- */
     const where: any = {
       userId: user.id,
     };
@@ -417,6 +423,9 @@ export const getUserMaterials = async (req: Request, res: Response) => {
     if (filterRarity) {
       where.material = { rarity: filterRarity };
     }
+
+    if (sold === "true") where.soldedQuantity = { gt: 0 };
+    if (sold === "false") where.soldedQuantity = 0;
 
     /* ---------------- ORDER BY ---------------- */
     const orderBy: any[] = [];
@@ -433,12 +442,11 @@ export const getUserMaterials = async (req: Request, res: Response) => {
       orderBy.push({ material: { power: sortPower } });
     }
 
-    // ✅ default fallback
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
 
-    /* ---------------- FETCH DATA ---------------- */
+    /* ---------------- FETCH ---------------- */
     const materials = await prisma.userMaterial.findMany({
       where,
       include: {
@@ -480,11 +488,12 @@ export const getUserShields = async (req: Request, res: Response) => {
       email,
       userId,
 
-      // optional sorting
       sortCreatedAt,
       sortCost,
       sortPower,
       rarity,
+
+      sold, // NEW
     } = req.query;
 
     const user = await resolveUser({
@@ -492,10 +501,9 @@ export const getUserShields = async (req: Request, res: Response) => {
       email: email ? String(email) : undefined,
     });
 
-    /* ---------------- VALIDATE RARITY ---------------- */
     const allowedRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
-
     let filterRarity: string | undefined;
+
     if (rarity) {
       const upper = String(rarity).toUpperCase();
       if (!allowedRarities.includes(upper)) {
@@ -507,7 +515,7 @@ export const getUserShields = async (req: Request, res: Response) => {
       filterRarity = upper;
     }
 
-    /* ---------------- WHERE CLAUSE ---------------- */
+    /* ---------------- WHERE ---------------- */
     const where: any = {
       userId: user.id,
     };
@@ -515,6 +523,9 @@ export const getUserShields = async (req: Request, res: Response) => {
     if (filterRarity) {
       where.shield = { rarity: filterRarity };
     }
+
+    if (sold === "true") where.soldedQuantity = { gt: 0 };
+    if (sold === "false") where.soldedQuantity = 0;
 
     /* ---------------- ORDER BY ---------------- */
     const orderBy: any[] = [];
@@ -531,12 +542,11 @@ export const getUserShields = async (req: Request, res: Response) => {
       orderBy.push({ shield: { power: sortPower } });
     }
 
-    // ✅ default fallback
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
 
-    /* ---------------- FETCH DATA ---------------- */
+    /* ---------------- FETCH ---------------- */
     const shields = await prisma.userShield.findMany({
       where,
       include: {

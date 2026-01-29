@@ -141,6 +141,7 @@ export const getAllUsersMaterials = async (
       sortPower, // 'asc' | 'desc'
       sortGoldCost, // 'asc' | 'desc'
       rarity, // 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'MYTHIC' (filter)
+      sold, // true | false
     } = req.query;
 
     const pagination = getPagination(req.query);
@@ -171,6 +172,13 @@ export const getAllUsersMaterials = async (
     if (filterRarity) {
       where.material = { rarity: filterRarity };
     }
+    // SOLD FILTER
+    if (sold === "true") {
+      where.soldedQuantity = { gt: 0 };
+    }
+    if (sold === "false") {
+      where.soldedQuantity = 0;
+    }
 
     // Build orderBy
     const orderBy: any[] = [];
@@ -200,6 +208,7 @@ export const getAllUsersMaterials = async (
       select: {
         userId: true,
         quantity: true,
+        soldedQuantity: true,
         createdAt: true,
         updatedAt: true,
         material: {
@@ -242,6 +251,7 @@ export const getAllUsersSwords = async (
       sortCreatedAt, // 'asc' | 'desc'
       sortLevel, // 'asc' | 'desc'
       sortPower, // 'asc' | 'desc'
+      sold, // true | false
     } = req.query;
 
     const pagination = getPagination(req.query);
@@ -251,6 +261,12 @@ export const getAllUsersSwords = async (
         error: "There are no shields in the game",
       });
     }
+
+    const where: any = {};
+
+    // SOLD FILTER
+    if (sold === "true") where.isSolded = true;
+    if (sold === "false") where.isSolded = false;
 
     // Build orderBy
     const orderBy: any[] = [];
@@ -269,10 +285,11 @@ export const getAllUsersSwords = async (
     }
 
     // Get total count
-    const totalItems = await prisma.userSword.count();
+    const totalItems = await prisma.userSword.count({ where });
 
     // Fetch data
     const swords = await prisma.userSword.findMany({
+      where,
       orderBy,
       skip: pagination.skip,
       take: pagination.take,
@@ -282,6 +299,7 @@ export const getAllUsersSwords = async (
         userId: true,
         level: true,
         isOnAnvil: true,
+        isSolded: true,
         createdAt: true,
         updatedAt: true,
         swordLevelDefinition: {
@@ -327,6 +345,7 @@ export const getAllUsersShields = async (
       sortRarity, // 'asc' | 'desc'
       sortPower, // 'asc' | 'desc'
       sortCost, // 'asc' | 'desc'
+      sold, // true | false
     } = req.query;
 
     const pagination = getPagination(req.query);
@@ -357,6 +376,10 @@ export const getAllUsersShields = async (
       where.shield = { rarity: filterRarity };
     }
 
+    // SOLD FILTER
+    if (sold === "true") where.soldedQuantity = { gt: 0 };
+    if (sold === "false") where.soldedQuantity = 0;
+
     // Build orderBy
     const orderBy: any[] = [];
     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
@@ -385,6 +408,7 @@ export const getAllUsersShields = async (
       select: {
         userId: true,
         quantity: true,
+        soldedQuantity: true,
         createdAt: true,
         updatedAt: true,
         shield: {
