@@ -9,6 +9,7 @@ import type { AdminAuthRequest } from "../middleware/adminAuth.ts";
 import { generateSecureCode } from "../services/generateCode.ts";
 import { serializeBigInt } from "../services/serializeBigInt.ts";
 import { uploadToCloudinary } from "../services/uploadToCloudinary.ts";
+import cloudinary from "../config/cloudinary.ts";
 
 async function ensureNotPurchased(itemId: bigint) {
   const purchase = await prisma.marketplacePurchase.findFirst({
@@ -17,6 +18,18 @@ async function ensureNotPurchased(itemId: bigint) {
   });
   if (purchase) {
     throw new Error("ITEM_ALREADY_PURCHASED");
+  }
+}
+
+function getPublicIdFromUrl(url: string): string | null {
+  try {
+    const parts = url.split("/");
+    const filenameWithExt = parts[parts.length - 1];
+    const filename = filenameWithExt.split(".")[0];
+    const folderPath = parts.slice(parts.indexOf("upload") + 2, -1).join("/");
+    return folderPath ? `${folderPath}/${filename}` : filename;
+  } catch {
+    return null;
   }
 }
 
@@ -130,8 +143,8 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
       !name ||
       upgradeCost === undefined ||
       sellingCost === undefined ||
-      successRate <= 0 ||
-      successRate > 100 ||
+      parseFloat(successRate) <= 0 ||
+      parseFloat(successRate) > 100 ||
       power <= 0
     ) {
       return res
@@ -195,8 +208,8 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
         description: description || null,
         upgradeCost: BigInt(upgradeCost),
         sellingCost: BigInt(sellingCost),
-        successRate,
-        power,
+        successRate: parseFloat(successRate),
+        power: Number(power),
       },
     });
 
@@ -298,6 +311,12 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
           error: "Image is failed to upload",
         });
       }
+      if (existing.image) {
+        const oldPublicId = getPublicIdFromUrl(existing.image);
+        if (oldPublicId) {
+          await cloudinary.uploader.destroy(oldPublicId);
+        }
+      }
     }
 
     // ---------- Update ----------
@@ -314,8 +333,8 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
           sellingCost !== undefined
             ? BigInt(sellingCost)
             : existing.sellingCost,
-        successRate: successRate ?? existing.successRate,
-        power: power ?? existing.power,
+        successRate: parseFloat(successRate) ?? existing.successRate,
+        power: Number(power) ?? existing.power,
       },
     });
 
@@ -395,7 +414,7 @@ export async function createMaterial(req: AdminAuthRequest, res: Response) {
             description: description || null,
             image,
             cost: BigInt(cost),
-            power,
+            power: Number(power),
             rarity: rarity || "COMMON",
           },
         });
@@ -478,6 +497,12 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
           error: "Image is failed to upload",
         });
       }
+      if (existing.image) {
+        const oldPublicId = getPublicIdFromUrl(existing.image);
+        if (oldPublicId) {
+          await cloudinary.uploader.destroy(oldPublicId);
+        }
+      }
     }
 
     const updated = await prisma.materialType.update({
@@ -487,7 +512,7 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
         description: description ?? existing.description,
         image: image ?? existing.image,
         cost: cost !== undefined ? BigInt(cost) : existing.cost,
-        power: power ?? existing.power,
+        power: Number(power) ?? existing.power,
         rarity: rarity ?? existing.rarity,
       },
     });
@@ -568,7 +593,7 @@ export async function createShield(req: AdminAuthRequest, res: Response) {
             description: description || null,
             image,
             cost: BigInt(cost),
-            power,
+            power: Number(power),
             rarity: rarity || "COMMON",
           },
         });
@@ -645,6 +670,12 @@ export async function updateShield(req: AdminAuthRequest, res: Response) {
           error: "Image is failed to upload",
         });
       }
+      if (existing.image) {
+        const oldPublicId = getPublicIdFromUrl(existing.image);
+        if (oldPublicId) {
+          await cloudinary.uploader.destroy(oldPublicId);
+        }
+      }
     }
 
     const updated = await prisma.shieldType.update({
@@ -654,7 +685,7 @@ export async function updateShield(req: AdminAuthRequest, res: Response) {
         description: description ?? existing.description,
         image: image ?? existing.image,
         cost: cost !== undefined ? BigInt(cost) : existing.cost,
-        power: power ?? existing.power,
+        power: Number(power) ?? existing.power,
         rarity: rarity ?? existing.rarity,
       },
     });

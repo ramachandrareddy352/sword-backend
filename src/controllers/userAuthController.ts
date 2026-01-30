@@ -149,6 +149,7 @@ export async function verifyRegistration(req: Request, res: Response) {
         data: {
           email,
           name,
+          gold: 5000,
           password,
           trustPoints,
           emailVerified: true,
