@@ -683,15 +683,9 @@ export const getAllMarketplaceItems = async (req: Request, res: Response) => {
       where,
       orderBy,
       include: {
-        swordLevelDefinition: {
-          select: { id: true, level: true, name: true },
-        },
-        material: {
-          select: { id: true, name: true, rarity: true },
-        },
-        shieldType: {
-          select: { id: true, name: true, rarity: true },
-        },
+        swordLevelDefinition: true,
+        material: true,
+        shieldType: true,
       },
     });
 

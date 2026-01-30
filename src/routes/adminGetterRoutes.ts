@@ -10,6 +10,7 @@ import {
   getAllCustomerSupports,
   getAllUsersVouchers,
   getAdminConfig,
+  checkUserByEmail,
 } from "../controllers/adminGetterController.ts";
 
 import {
@@ -25,6 +26,9 @@ import {
 } from "../controllers/commonGetterController.ts";
 
 const router = express.Router();
+
+// 3) Get only basic user table info
+router.get("/users/check-email", adminAuth, checkUserByEmail);
 
 // 1) Get all users with sorting + pagination
 router.get("/data/allusers", adminAuth, getAllUsers);

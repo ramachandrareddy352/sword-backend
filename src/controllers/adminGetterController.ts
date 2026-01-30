@@ -1,14 +1,8 @@
 import type { Response } from "express";
 import prisma from "../database/client.ts";
-import {
-  MaterialRarity,
-  GiftItemType,
-  MarketplaceItemType,
-  VoucherStatus,
-  GiftStatus,
-} from "@prisma/client";
+import { MaterialRarity, VoucherStatus } from "@prisma/client";
 import type { AdminAuthRequest } from "../middleware/adminAuth.ts";
-import { getPagination, resolveUser } from "../services/queryHelpers.ts";
+import { getPagination } from "../services/queryHelpers.ts";
 import { serializeBigInt } from "../services/serializeBigInt.ts";
 
 // 1) Get the basic information of all users using pagination
@@ -482,81 +476,64 @@ export const getAllUsersShields = async (
 };
 
 // 5) Admin GET all users' gifts with optional status filter, optional itemType filter (gifts containing that item type), sorting (createdAt, status), pagination
-export const getAllUsersGifts = async (
-  req: AdminAuthRequest,
-  res: Response,
-) => {
+// Example: in adminGetterController.ts or wherever getAllUsersGifts is defined
+export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
   try {
     const {
-      status, // optional: 'PENDING' | 'CLAIMED' | 'CANCELLED'
-      itemType, // optional: 'GOLD' | 'TRUST_POINTS' | 'MATERIAL' | 'SWORD' | 'SHIELD'
-      sortCreatedAt, // 'asc' | 'desc'
-      // Note: No direct sort on GiftItemType as it's 1-many relation; added filter instead (more useful)
+      status, // optional: "PENDING" | "CLAIMED" | "CANCELLED"
+      itemType, // NEW: filter by GiftItemType (GOLD, TRUST_POINTS, MATERIAL, SWORD, SHIELD)
+      sortCreatedAt, // "asc" | "desc"
+      sortItemType, // NEW: "asc" | "desc" — sort by first item's type
+      page = 1,
+      limit = 12,
     } = req.query;
 
     const pagination = getPagination(req.query);
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "Ther are no gifts",
+        error: "Invalid pagination parameters",
       });
-    }
-
-    // Optional status filter + validation
-    let filterStatus: GiftStatus | undefined;
-    if (status) {
-      const upper = (status as string).toUpperCase();
-      const valid = ["PENDING", "CLAIMED", "CANCELLED"];
-      if (!valid.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid gift status. Allowed: ${valid.join(", ")}`,
-        });
-      }
-      filterStatus = upper as GiftStatus;
-    }
-
-    // Optional itemType filter + validation (filter gifts with at least one item of this type)
-    let filterItemType: GiftItemType | undefined;
-    if (itemType) {
-      const upper = (itemType as string).toUpperCase();
-      const valid = ["GOLD", "TRUST_POINTS", "MATERIAL", "SWORD", "SHIELD"];
-      if (!valid.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid gift item type. Allowed: ${valid.join(", ")}`,
-        });
-      }
-      filterItemType = upper as GiftItemType;
     }
 
     // Build where clause
     const where: any = {};
-    if (filterStatus) {
-      where.status = filterStatus;
+
+    // Status filter
+    if (
+      status &&
+      ["PENDING", "CLAIMED", "CANCELLED"].includes(status as string)
+    ) {
+      where.status = status;
     }
-    if (filterItemType) {
+
+    // Item Type filter (has at least one item of this type)
+    if (
+      itemType &&
+      ["GOLD", "TRUST_POINTS", "MATERIAL", "SWORD", "SHIELD"].includes(
+        itemType as string,
+      )
+    ) {
       where.items = {
         some: {
-          type: filterItemType,
+          type: itemType,
         },
       };
     }
 
-    // Build orderBy
+    // Build orderBy (for direct fields)
     const orderBy: any[] = [];
+
     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
       orderBy.push({ createdAt: sortCreatedAt });
     }
-    // Default sort if none: createdAt desc
+
+    // Default sort if none provided
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
 
-    // Get total count
-    const totalItems = await prisma.userGift.count({ where });
-
-    // Fetch data
+    // Fetch gifts with deep relations
     const gifts = await prisma.userGift.findMany({
       where,
       orderBy,
@@ -568,9 +545,49 @@ export const getAllUsersGifts = async (
             id: true,
             type: true,
             amount: true,
+            // Material full details
+            material: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                image: true,
+                description: true,
+                cost: true,
+                power: true,
+                rarity: true,
+              },
+            },
             materialId: true,
             materialRarity: true,
+            // Sword full details
             swordLevel: true,
+            swordLevelDefinition: {
+              select: {
+                id: true,
+                level: true,
+                name: true,
+                image: true,
+                description: true,
+                power: true,
+                upgradeCost: true,
+                sellingCost: true,
+                successRate: true,
+              },
+            },
+            // Shield full details
+            shield: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                image: true,
+                description: true,
+                cost: true,
+                power: true,
+                rarity: true,
+              },
+            },
             shieldId: true,
             shieldRarity: true,
           },
@@ -588,21 +605,40 @@ export const getAllUsersGifts = async (
       },
     });
 
+    // NEW: In-memory sort by first item's type (if requested)
+    let finalGifts = gifts;
+    if (sortItemType && ["asc", "desc"].includes(sortItemType as string)) {
+      finalGifts = [...gifts].sort((a, b) => {
+        const typeA = a.items[0]?.type || "NONE";
+        const typeB = b.items[0]?.type || "NONE";
+
+        if (sortItemType === "asc") {
+          return typeA.localeCompare(typeB);
+        } else {
+          return typeB.localeCompare(typeA);
+        }
+      });
+    }
+
+    // Total count (before in-memory sort)
+    const totalItems = await prisma.userGift.count({ where });
+
     return res.status(200).json({
       success: true,
-      message: "Users gifts fetched successfully",
-      data: serializeBigInt(gifts),
+      message: "Gifts fetched successfully",
+      data: serializeBigInt(finalGifts),
       total: totalItems,
       page: pagination.page,
       limit: pagination.limit,
     });
-  } catch (error) {
-    console.error("getAllUsersGifts error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+  } catch (err: any) {
+    console.error("getAllUsersGifts error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to fetch gifts",
+    });
   }
-};
+}
 
 // 6) Admin GET all customer support — no rarity/type filter (only sorting), added message
 export const getAllCustomerSupports = async (
@@ -799,6 +835,72 @@ export const getAdminConfig = async (req: AdminAuthRequest, res: Response) => {
     return res.status(500).json({
       success: false,
       error: "Failed to fetch admin configuration",
+    });
+  }
+};
+
+export const checkUserByEmail = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const { email } = req.query;
+
+    // 1. Input validation
+    if (!email || typeof email !== "string" || !email.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid email address is required in the request body",
+      });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // 2. Find user (only select safe/public fields)
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        isBanned: true,
+        emailVerified: true,
+        createdAt: true,
+      },
+    });
+
+    // 3. Response
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        exists: false,
+        error: "No user registered with this email",
+        data: null,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      exists: true,
+      message: "User found",
+      data: {
+        id: user.id.toString(), // convert BigInt to string for JSON
+        email: user.email,
+        name: user.name || "Unnamed User",
+        isBanned: user.isBanned,
+        emailVerified: user.emailVerified,
+        createdAt: user.createdAt.toISOString(),
+        // gold: user.gold ? Number(user.gold) : undefined,
+        // trustPoints: user.trustPoints,
+      },
+    });
+  } catch (err: any) {
+    console.error("[checkUserByEmail] Error:", err);
+
+    // In production, you might want to hide full error details
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error while checking user",
     });
   }
 };

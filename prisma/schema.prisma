@@ -110,6 +110,7 @@ model SwordLevelDefinition {
 
   userSwords       UserSword[]
   marketplaceItems MarketplaceItem[]
+  userGiftItems    UserGiftItem[]
 }
 
 model UserSword {
@@ -149,6 +150,7 @@ model MaterialType {
 
   marketplaceItems MarketplaceItem[]
   userMaterials    UserMaterial[]
+  userGiftItems    UserGiftItem[]
 }
 
 enum MaterialRarity {
@@ -193,6 +195,7 @@ model ShieldType {
 
   marketplaceItems MarketplaceItem[]
   userShields      UserShield[]
+  userGiftItems    UserGiftItem[]
 }
 
 model UserShield {
@@ -231,27 +234,33 @@ model UserGift {
 }
 
 model UserGiftItem {
-  id     BigInt       @id @default(autoincrement())
-  giftId BigInt // userGift.id
-  type   GiftItemType
+  id     BigInt @id @default(autoincrement())
+  giftId BigInt
 
-  // GOLD / TRUST
+  type GiftItemType
+
   amount BigInt?
 
-  // MATERIAL
+  // Material relation
   materialId     BigInt?
   materialRarity MaterialRarity?
+  material       MaterialType?   @relation(fields: [materialId], references: [id], onDelete: SetNull)
 
-  // SWORD
-  swordLevel Int?
+  // Sword relation
+  swordLevel           Int?
+  swordLevelDefinition SwordLevelDefinition? @relation(fields: [swordLevel], references: [level], onDelete: SetNull)
 
-  // = SHIELD
+  // Shield relation
   shieldId     BigInt?
   shieldRarity MaterialRarity?
+  shield       ShieldType?     @relation(fields: [shieldId], references: [id], onDelete: SetNull)
 
   gift UserGift @relation(fields: [giftId], references: [id], onDelete: Cascade)
 
   @@index([giftId])
+  @@index([materialId])
+  @@index([swordLevel])
+  @@index([shieldId])
 }
 
 enum GiftStatus {
@@ -338,11 +347,11 @@ model CustomerSupport {
   content String
   message String
 
-  adminReply String?
+  adminReply String? @db.Text
   isReviewed Boolean @default(false)
 
   createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  updatedAt  DateTime? @updatedAt
   reviewedAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
