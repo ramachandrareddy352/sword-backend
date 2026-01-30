@@ -11,7 +11,6 @@ import {
   getUserVouchers,
   getUserCustomerSupports,
   getUserMarketplacePurchases,
-  getAllMarketplaceItems,
 } from "../controllers/commonGetterController.ts";
 import { getUserRank } from "../controllers/userGetterController.ts";
 
@@ -47,9 +46,6 @@ router.get(
   userAuth,
   getUserMarketplacePurchases,
 );
-
-// 9) all marketplace purchases
-router.get("/all/marketplace-items", userAuth, getAllMarketplaceItems);
 
 router.get("/user/rank", userAuth, getUserRank);
 

@@ -211,6 +211,16 @@ export const getAllUsersMaterials = async (
         soldedQuantity: true,
         createdAt: true,
         updatedAt: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            isBanned: true,
+            gold: true,
+            trustPoints: true,
+          },
+        },
         material: {
           select: {
             id: true,
@@ -242,6 +252,7 @@ export const getAllUsersMaterials = async (
 };
 
 // 3) Admin GET all users' swords with sorting (level, power), pagination
+// 3) Admin GET all users' swords with sorting (level, power), pagination
 export const getAllUsersSwords = async (
   req: AdminAuthRequest,
   res: Response,
@@ -251,35 +262,44 @@ export const getAllUsersSwords = async (
       sortCreatedAt, // 'asc' | 'desc'
       sortLevel, // 'asc' | 'desc'
       sortPower, // 'asc' | 'desc'
-      sold, // true | false
+      sold, // 'true' | 'false' | undefined (all)
+      page = 1,
+      limit = 20,
     } = req.query;
 
     const pagination = getPagination(req.query);
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "There are no shields in the game",
+        error: "Invalid pagination parameters",
       });
     }
 
+    // Build where clause
     const where: any = {};
 
-    // SOLD FILTER
+    // Sold filter
     if (sold === "true") where.isSolded = true;
     if (sold === "false") where.isSolded = false;
+    // undefined → show all
 
-    // Build orderBy
+    // Build orderBy array (multiple sorts supported)
     const orderBy: any[] = [];
+
+    // Direct fields on UserSword
     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ material: { createdAt: sortCreatedAt } });
+      orderBy.push({ createdAt: sortCreatedAt }); // ← FIXED: no nesting
     }
     if (sortLevel && ["asc", "desc"].includes(sortLevel as string)) {
       orderBy.push({ level: sortLevel });
     }
+
+    // Nested relation fields
     if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
       orderBy.push({ swordLevelDefinition: { power: sortPower } });
     }
-    // Default sort if none: createdAt desc
+
+    // Default sort if none provided
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
@@ -287,7 +307,7 @@ export const getAllUsersSwords = async (
     // Get total count
     const totalItems = await prisma.userSword.count({ where });
 
-    // Fetch data
+    // Fetch swords with user details
     const swords = await prisma.userSword.findMany({
       where,
       orderBy,
@@ -296,12 +316,21 @@ export const getAllUsersSwords = async (
       select: {
         id: true,
         code: true,
-        userId: true,
         level: true,
         isOnAnvil: true,
         isSolded: true,
         createdAt: true,
         updatedAt: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            isBanned: true,
+            gold: true,
+            trustPoints: true,
+          },
+        },
         swordLevelDefinition: {
           select: {
             level: true,
@@ -319,7 +348,7 @@ export const getAllUsersSwords = async (
 
     return res.status(200).json({
       success: true,
-      message: "Users data fetched successfully",
+      message: "Users' swords fetched successfully",
       data: serializeBigInt(swords),
       total: totalItems,
       page: pagination.page,
@@ -411,6 +440,16 @@ export const getAllUsersShields = async (
         soldedQuantity: true,
         createdAt: true,
         updatedAt: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            isBanned: true,
+            gold: true,
+            trustPoints: true,
+          },
+        },
         shield: {
           select: {
             id: true,
@@ -540,6 +579,10 @@ export const getAllUsersGifts = async (
           select: {
             id: true,
             email: true,
+            name: true,
+            isBanned: true,
+            gold: true,
+            trustPoints: true,
           },
         },
       },
@@ -561,112 +604,7 @@ export const getAllUsersGifts = async (
   }
 };
 
-// 6) Admin GET all marketplace purchases — optional itemType filter
-export const getAllMarketplacePurchases = async (
-  req: AdminAuthRequest,
-  res: Response,
-) => {
-  try {
-    const {
-      type, // optional: 'SWORD' | 'MATERIAL' | 'SHIELD'
-      sortType,
-      sortPriceGold,
-      sortPurchasedAt,
-    } = req.query;
-
-    const pagination = getPagination(req.query);
-    if (!pagination) {
-      return res.status(400).json({
-        success: false,
-        error: "No marketplace purchases found",
-      });
-    }
-
-    // Optional type filter + validation
-    let filterType: MarketplaceItemType | undefined;
-    if (type) {
-      const upper = (type as string).toUpperCase();
-      const valid = ["SWORD", "MATERIAL", "SHIELD"];
-      if (!valid.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid item type. Allowed: ${valid.join(", ")}`,
-        });
-      }
-      filterType = upper as MarketplaceItemType;
-    }
-
-    const where: any = {};
-    if (filterType) {
-      where.marketplaceItem = { itemType: filterType };
-    }
-
-    const orderBy: any[] = [];
-    if (sortType && ["asc", "desc"].includes(sortType as string)) {
-      orderBy.push({ marketplaceItem: { itemType: sortType } });
-    }
-    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
-      orderBy.push({ priceGold: sortPriceGold });
-    }
-    if (
-      sortPurchasedAt &&
-      ["asc", "desc"].includes(sortPurchasedAt as string)
-    ) {
-      orderBy.push({ purchasedAt: sortPurchasedAt });
-    }
-    if (orderBy.length === 0) {
-      orderBy.push({ purchasedAt: "desc" });
-    }
-
-    const totalItems = await prisma.marketplacePurchase.count({ where });
-
-    const purchases = await prisma.marketplacePurchase.findMany({
-      where,
-      orderBy,
-      skip: pagination.skip,
-      take: pagination.take,
-      include: {
-        user: { select: { id: true, email: true, isBanned: true } },
-        marketplaceItem: {
-          select: {
-            id: true,
-            itemType: true,
-            priceGold: true,
-            isActive: true,
-            isPurchased: true,
-            createdAt: true,
-            updatedAt: true,
-            swordLevelDefinition: {
-              select: { level: true, name: true, image: true, power: true },
-            },
-            material: {
-              select: { name: true, rarity: true, image: true, cost: true },
-            },
-            shieldType: {
-              select: { name: true, rarity: true, image: true, cost: true },
-            },
-          },
-        },
-      },
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Maretplace purchases fetched successfully",
-      data: serializeBigInt(purchases),
-      total: totalItems,
-      page: pagination.page,
-      limit: pagination.limit,
-    });
-  } catch (error) {
-    console.error("getAllMarketplacePurchases error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 7) Admin GET all customer support — no rarity/type filter (only sorting), added message
+// 6) Admin GET all customer support — no rarity/type filter (only sorting), added message
 export const getAllCustomerSupports = async (
   req: AdminAuthRequest,
   res: Response,
@@ -703,7 +641,16 @@ export const getAllCustomerSupports = async (
       skip: pagination.skip,
       take: pagination.take,
       include: {
-        user: { select: { id: true, email: true } },
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            isBanned: true,
+            gold: true,
+            trustPoints: true,
+          },
+        },
       },
     });
 
@@ -723,7 +670,7 @@ export const getAllCustomerSupports = async (
   }
 };
 
-// 8) Admin GET all users' vouchers — optional status filter + sorting
+// 7) Admin GET all users' vouchers — optional status filter + sorting
 export const getAllUsersVouchers = async (
   req: AdminAuthRequest,
   res: Response,
@@ -785,7 +732,16 @@ export const getAllUsersVouchers = async (
       skip: pagination.skip,
       take: pagination.take,
       include: {
-        user: { select: { id: true, email: true } },
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            isBanned: true,
+            gold: true,
+            trustPoints: true,
+          },
+        },
       },
     });
 
@@ -805,7 +761,7 @@ export const getAllUsersVouchers = async (
   }
 };
 
-// 9) admin config data
+// 8) admin config data
 export const getAdminConfig = async (req: AdminAuthRequest, res: Response) => {
   try {
     // Fetch the single AdminConfig row (id is fixed to 1 as per your schema)

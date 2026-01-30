@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import prisma from "../database/client.ts";
 import { getPagination } from "../services/queryHelpers.ts";
 import { serializeBigInt } from "../services/serializeBigInt.ts";
+import { MarketplaceItemType } from "@prisma/client";
 
 // 1. GET /public/swords - All sword definitions
 export const getAllSwords = async (req: Request, res: Response) => {
@@ -500,6 +501,7 @@ export const getShield = async (req: Request, res: Response) => {
   }
 };
 
+// 7)
 export const getLeaderboard = async (req: Request, res: Response) => {
   try {
     // ── Safe extraction of sortBy ───────────────────────────────────────
@@ -629,6 +631,192 @@ export const getLeaderboard = async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error("getLeaderboard error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 8) all marketplace items
+export const getAllMarketplaceItems = async (req: Request, res: Response) => {
+  try {
+    const { itemType, isActive, isPurchased, sortPriceGold, sortCreatedAt } =
+      req.query;
+
+    /* ---------------- WHERE CLAUSE ---------------- */
+    const where: any = {};
+
+    if (itemType) {
+      const allowedTypes = ["SWORD", "MATERIAL", "SHIELD"];
+      if (!allowedTypes.includes(String(itemType))) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid itemType. Allowed: ${allowedTypes.join(", ")}`,
+        });
+      }
+      where.itemType = itemType;
+    }
+    if (isActive !== undefined) {
+      where.isActive = isActive === "true";
+    }
+    if (isPurchased !== undefined) {
+      where.isPurchased = isPurchased === "true";
+    }
+
+    /* ---------------- ORDER BY ---------------- */
+    const orderBy: any[] = [];
+
+    if (sortCreatedAt && ["asc", "desc"].includes(String(sortCreatedAt))) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+    if (sortPriceGold && ["asc", "desc"].includes(String(sortPriceGold))) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+
+    // Default sort → latest first
+    if (orderBy.length === 0) {
+      orderBy.push({ createdAt: "desc" });
+    }
+
+    /* ---------------- QUERY ---------------- */
+    const items = await prisma.marketplaceItem.findMany({
+      where,
+      orderBy,
+      include: {
+        swordLevelDefinition: {
+          select: { id: true, level: true, name: true },
+        },
+        material: {
+          select: { id: true, name: true, rarity: true },
+        },
+        shieldType: {
+          select: { id: true, name: true, rarity: true },
+        },
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Marketplace items fetched successfully",
+      data: serializeBigInt(items),
+      total: items.length,
+    });
+  } catch (error) {
+    console.error("getAllMarketplaceItems error:", error);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 9) Admin GET all marketplace purchases — optional itemType filter
+export const getAllMarketplacePurchases = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const {
+      type, // optional: 'SWORD' | 'MATERIAL' | 'SHIELD'
+      sortType,
+      sortPriceGold,
+      sortPurchasedAt,
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "No marketplace purchases found",
+      });
+    }
+
+    // Optional type filter + validation
+    let filterType: MarketplaceItemType | undefined;
+    if (type) {
+      const upper = (type as string).toUpperCase();
+      const valid = ["SWORD", "MATERIAL", "SHIELD"];
+      if (!valid.includes(upper)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid item type. Allowed: ${valid.join(", ")}`,
+        });
+      }
+      filterType = upper as MarketplaceItemType;
+    }
+
+    const where: any = {};
+    if (filterType) {
+      where.marketplaceItem = { itemType: filterType };
+    }
+
+    const orderBy: any[] = [];
+    if (sortType && ["asc", "desc"].includes(sortType as string)) {
+      orderBy.push({ marketplaceItem: { itemType: sortType } });
+    }
+    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+    if (
+      sortPurchasedAt &&
+      ["asc", "desc"].includes(sortPurchasedAt as string)
+    ) {
+      orderBy.push({ purchasedAt: sortPurchasedAt });
+    }
+    if (orderBy.length === 0) {
+      orderBy.push({ purchasedAt: "desc" });
+    }
+
+    const totalItems = await prisma.marketplacePurchase.count({ where });
+
+    const purchases = await prisma.marketplacePurchase.findMany({
+      where,
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            isBanned: true,
+            gold: true,
+            trustPoints: true,
+          },
+        },
+        marketplaceItem: {
+          select: {
+            id: true,
+            itemType: true,
+            priceGold: true,
+            isActive: true,
+            isPurchased: true,
+            createdAt: true,
+            updatedAt: true,
+            swordLevelDefinition: {
+              select: { level: true, name: true, image: true, power: true },
+            },
+            material: {
+              select: { name: true, rarity: true, image: true, cost: true },
+            },
+            shieldType: {
+              select: { name: true, rarity: true, image: true, cost: true },
+            },
+          },
+        },
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Maretplace purchases fetched successfully",
+      data: serializeBigInt(purchases),
+      total: totalItems,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (error) {
+    console.error("getAllMarketplacePurchases error:", error);
     return res
       .status(500)
       .json({ success: false, error: "Internal server error" });

@@ -7,7 +7,6 @@ import {
   getAllUsersSwords,
   getAllUsersShields,
   getAllUsersGifts,
-  getAllMarketplacePurchases,
   getAllCustomerSupports,
   getAllUsersVouchers,
   getAdminConfig,
@@ -23,7 +22,6 @@ import {
   getUserVouchers,
   getUserCustomerSupports,
   getUserMarketplacePurchases,
-  getAllMarketplaceItems,
 } from "../controllers/commonGetterController.ts";
 
 const router = express.Router();
@@ -73,16 +71,6 @@ router.get("/all/users/shields", adminAuth, getAllUsersShields);
 
 // 14) All users gifts (sorting + filters + pagination)
 router.get("/all/users/gifts", adminAuth, getAllUsersGifts);
-
-// 15) All users marketplace purchases
-router.get(
-  "/all/users/marketplace-purchases",
-  adminAuth,
-  getAllMarketplacePurchases,
-);
-
-// 16) All marketplace purchases
-router.get("/all/marketplace-items", adminAuth, getAllMarketplaceItems);
 
 // 16) All customer support tickets
 router.get("/all/users/customer-supports", adminAuth, getAllCustomerSupports);

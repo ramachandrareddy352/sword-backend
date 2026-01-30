@@ -9,6 +9,8 @@ import {
   getMaterial,
   getShield,
   getLeaderboard,
+  getAllMarketplaceItems,
+  getAllMarketplacePurchases,
 } from "../controllers/publicGetterController.ts";
 
 const router = express.Router();
@@ -38,5 +40,11 @@ router.get("/single/material", getMaterial);
 router.get("/single/shield", getShield);
 
 router.get("/leaderboard", getLeaderboard);
+
+// 15) All users marketplace purchases
+router.get("/marketplace/purchases", getAllMarketplacePurchases);
+
+// 16) All marketplace purchases
+router.get("/marketplace/items", getAllMarketplaceItems);
 
 export default router;
