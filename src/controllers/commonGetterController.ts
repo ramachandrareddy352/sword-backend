@@ -7,9 +7,9 @@ import { serializeBigInt } from "../services/serializeBigInt.ts";
 // 1) get complete information about the user using his id or email
 export const getUserFullDetails = async (req: any, res: Response) => {
   try {
-    const userId = BigInt(req.user.userId);
+    const { email } = req.query;
 
-    if (!userId) {
+    if (!email) {
       return res.status(400).json({
         success: false,
         error: "UserId is required",
@@ -18,13 +18,13 @@ export const getUserFullDetails = async (req: any, res: Response) => {
 
     // Use helper to find user (throws USER_NOT_FOUND if missing)
     const user = await resolveUser({
-      id: userId ? String(userId) : undefined,
-      email: undefined,
+      id: undefined,
+      email: email ? String(email) : undefined,
     });
 
     // Core user data (safe fields only)
     const safeUser = {
-      id: userId,
+      id: user.id,
       email: user.email,
       name: user.name,
       gold: user.gold,
@@ -44,13 +44,13 @@ export const getUserFullDetails = async (req: any, res: Response) => {
 
     // Vouchers
     const vouchers = await prisma.userVoucher.findMany({
-      where: { userId: userId },
+      where: { userId: user.id },
       orderBy: { createdAt: "desc" },
     });
 
     // Swords with level definition
     const swords = await prisma.userSword.findMany({
-      where: { userId: userId },
+      where: { userId: user.id },
       include: {
         swordLevelDefinition: {
           select: {
@@ -70,7 +70,7 @@ export const getUserFullDetails = async (req: any, res: Response) => {
 
     // Materials
     const materials = await prisma.userMaterial.findMany({
-      where: { userId: userId },
+      where: { userId: user.id },
       include: {
         material: {
           select: {
@@ -89,7 +89,7 @@ export const getUserFullDetails = async (req: any, res: Response) => {
 
     // Shields
     const shields = await prisma.userShield.findMany({
-      where: { userId: userId },
+      where: { userId: user.id },
       include: {
         shield: {
           select: {
@@ -108,7 +108,7 @@ export const getUserFullDetails = async (req: any, res: Response) => {
 
     // Gifts + items
     const gifts = await prisma.userGift.findMany({
-      where: { receiverId: userId },
+      where: { receiverId: user.id },
       include: {
         items: true, // all fields
       },
@@ -117,7 +117,7 @@ export const getUserFullDetails = async (req: any, res: Response) => {
 
     // Marketplace purchases
     const marketplacePurchases = await prisma.marketplacePurchase.findMany({
-      where: { userId: userId },
+      where: { userId: user.id },
       include: {
         marketplaceItem: {
           select: {
@@ -176,7 +176,7 @@ export const getUserFullDetails = async (req: any, res: Response) => {
 
     // Customer support tickets
     const customerSupports = await prisma.customerSupport.findMany({
-      where: { userId: userId },
+      where: { userId: user.id },
       orderBy: { createdAt: "desc" },
     });
 
@@ -673,6 +673,9 @@ export const getUserGifts = async (req: any, res: Response) => {
             swordLevel: true,
             shieldId: true,
             shieldRarity: true,
+            material: true,
+            shield: true,
+            swordLevelDefinition: true,
           },
         },
       },
@@ -954,13 +957,35 @@ export const getUserMarketplacePurchases = async (req: any, res: Response) => {
             priceGold: true,
             createdAt: true,
             swordLevelDefinition: {
-              select: { level: true, name: true },
+              select: {
+                level: true,
+                name: true,
+                image: true,
+                description: true,
+                power: true,
+                upgradeCost: true,
+                sellingCost: true,
+              },
             },
             material: {
-              select: { name: true, rarity: true },
+              select: {
+                name: true,
+                image: true,
+                description: true,
+                power: true,
+                cost: true,
+                rarity: true,
+              },
             },
             shieldType: {
-              select: { name: true, rarity: true },
+              select: {
+                name: true,
+                image: true,
+                description: true,
+                power: true,
+                cost: true,
+                rarity: true,
+              },
             },
           },
         },

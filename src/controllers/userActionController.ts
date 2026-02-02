@@ -290,7 +290,7 @@ export const updateComplaint = async (req: UserAuthRequest, res: Response) => {
     return res.json({
       success: true,
       message: "Complaint updated successfully",
-      complaint: updated,
+      complaint: serializeBigInt(updated),
     });
   } catch (err: any) {
     console.error("updateComplaint error:", err);
