@@ -1,11 +1,17 @@
 {
   "compilerOptions": {
-    "sourceMap": true,
+    "target": "ES2020",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
     "outDir": "dist",
-    "lib": ["ESNext"],
+    "rootDir": "src",
+
     "strict": true,
     "esModuleInterop": true,
-    "noEmit": true,
-    "allowImportingTsExtensions": true,
-  }
+    "skipLibCheck": true,
+
+    "sourceMap": true
+  },
+  "include": ["src"]
 }
