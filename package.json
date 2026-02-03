@@ -5,9 +5,8 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node src/app.ts",
+    "start": "node dist/src/app.js",
     "dev": "nodemon --exec ts-node src/app.ts",
-    "test": "echo \"Error: no test specified\" && exit 1",
     "prisma:merge": "ts-node src/database/merge.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "pnpm run prisma:merge && prisma migrate dev",
@@ -16,7 +15,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "dependencies": {
     "@prisma/client": "^6.18.0",
     "axios": "^1.13.2",

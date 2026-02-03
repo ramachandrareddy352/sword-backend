@@ -1,6 +1,6 @@
 import type { Response } from "express";
-import prisma from "../database/client.ts";
-import type { UserAuthRequest } from "../middleware/userAuth.ts";
+import prisma from "../database/client";
+import type { UserAuthRequest } from "../middleware/userAuth";
 
 // 1) User Rank (authenticated, returns rank for a specific field)
 export const getUserRank = async (req: UserAuthRequest, res: Response) => {

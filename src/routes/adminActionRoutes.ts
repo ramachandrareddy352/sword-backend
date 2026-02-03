@@ -1,6 +1,6 @@
 import express from "express";
-import adminAuth from "../middleware/adminAuth.ts";
-import { upload } from "../middleware/upload.ts";
+import adminAuth from "../middleware/adminAuth";
+import { upload } from "../middleware/upload";
 
 import {
   updateAdminConfig,
@@ -19,7 +19,7 @@ import {
   updateMarketplaceItemPrice,
   toggleUserBan,
   replyToSupportTicket,
-} from "../controllers/adminActionController.ts";
+} from "../controllers/adminActionController";
 
 const router = express.Router();
 

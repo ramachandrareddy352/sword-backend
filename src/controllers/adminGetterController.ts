@@ -1,9 +1,9 @@
 import type { Response } from "express";
-import prisma from "../database/client.ts";
+import prisma from "../database/client";
 import { MaterialRarity, VoucherStatus } from "@prisma/client";
-import type { AdminAuthRequest } from "../middleware/adminAuth.ts";
-import { getPagination } from "../services/queryHelpers.ts";
-import { serializeBigInt } from "../services/serializeBigInt.ts";
+import type { AdminAuthRequest } from "../middleware/adminAuth";
+import { getPagination } from "../services/queryHelpers";
+import { serializeBigInt } from "../services/serializeBigInt";
 
 // 1) Get the basic information of all users using pagination
 export const getAllUsers = async (req: AdminAuthRequest, res: Response) => {
@@ -476,7 +476,7 @@ export const getAllUsersShields = async (
 };
 
 // 5) Admin GET all users' gifts with optional status filter, optional itemType filter (gifts containing that item type), sorting (createdAt, status), pagination
-// Example: in adminGetterController.ts or wherever getAllUsersGifts is defined
+// Example: in adminGetterController or wherever getAllUsersGifts is defined
 export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
   try {
     const {

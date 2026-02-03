@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import redis from "../config/redis.ts";
+import redis from "../config/redis";
 
 export interface AdminAuthRequest extends Request {
   admin?: { email: string; role: "ADMIN"; jti: string };

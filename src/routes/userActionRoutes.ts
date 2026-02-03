@@ -1,5 +1,5 @@
 import express from "express";
-import userAuth from "../middleware/userAuth.ts";
+import userAuth from "../middleware/userAuth";
 
 import {
   toggleSound,
@@ -18,7 +18,7 @@ import {
   synthesizeSword,
   setShieldOnAnvil,
   removeShieldFromAnvil,
-} from "../controllers/userActionController.ts";
+} from "../controllers/userActionController";
 
 const router = express.Router();
 

@@ -1,5 +1,5 @@
 import express from "express";
-import userAuth from "../middleware/userAuth.ts";
+import userAuth from "../middleware/userAuth";
 import {
   sendVerification,
   verifyRegistration,
@@ -7,7 +7,7 @@ import {
   forgotPassword,
   resetPassword,
   logout,
-} from "../controllers/userAuthController.ts";
+} from "../controllers/userAuthController";
 
 const router = express.Router();
 

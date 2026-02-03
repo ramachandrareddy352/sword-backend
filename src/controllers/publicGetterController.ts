@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
-import prisma from "../database/client.ts";
-import { getPagination } from "../services/queryHelpers.ts";
-import { serializeBigInt } from "../services/serializeBigInt.ts";
+import prisma from "../database/client";
+import { getPagination } from "../services/queryHelpers";
+import { serializeBigInt } from "../services/serializeBigInt";
 import { MarketplaceItemType } from "@prisma/client";
 
 // 1. GET /public/swords - All sword definitions

@@ -1,4 +1,4 @@
-// src/routes/publicGetterRoutes.ts
+// src/routes/publicGetterRoutes
 import express from "express";
 
 import {
@@ -11,7 +11,7 @@ import {
   getLeaderboard,
   getAllMarketplaceItems,
   getAllMarketplacePurchases,
-} from "../controllers/publicGetterController.ts";
+} from "../controllers/publicGetterController";
 
 const router = express.Router();
 

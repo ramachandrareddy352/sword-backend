@@ -2,10 +2,10 @@ import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { randomInt } from "crypto";
 import { v4 as uuidv4 } from "uuid";
-import prisma from "../database/client.ts";
-import redis from "../config/redis.ts";
-import type { AdminAuthRequest } from "../middleware/adminAuth.ts";
-import { sendEmail } from "../services/generateOTP.ts";
+import prisma from "../database/client";
+import redis from "../config/redis";
+import type { AdminAuthRequest } from "../middleware/adminAuth";
+import { sendEmail } from "../services/generateOTP";
 
 // 1.1) Admin login, send otp to admin mail id
 export async function sendAdminOtp(req: Request, res: Response) {

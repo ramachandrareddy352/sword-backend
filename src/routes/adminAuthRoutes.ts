@@ -1,10 +1,10 @@
 import express from "express";
-import adminAuth from "../middleware/adminAuth.ts";
+import adminAuth from "../middleware/adminAuth";
 import {
   sendAdminOtp,
   verifyAdminOtp,
   adminLogout,
-} from "../controllers/adminAuthController.ts";
+} from "../controllers/adminAuthController";
 
 const router = express.Router();
 

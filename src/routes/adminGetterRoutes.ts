@@ -1,5 +1,5 @@
 import express from "express";
-import adminAuth from "../middleware/adminAuth.ts";
+import adminAuth from "../middleware/adminAuth";
 
 import {
   getAllUsers,
@@ -11,7 +11,7 @@ import {
   getAllUsersVouchers,
   getAdminConfig,
   checkUserByEmail,
-} from "../controllers/adminGetterController.ts";
+} from "../controllers/adminGetterController";
 
 import {
   getUserFullDetails,
@@ -23,7 +23,7 @@ import {
   getUserVouchers,
   getUserCustomerSupports,
   getUserMarketplacePurchases,
-} from "../controllers/commonGetterController.ts";
+} from "../controllers/commonGetterController";
 
 const router = express.Router();
 

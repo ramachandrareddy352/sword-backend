@@ -1,15 +1,15 @@
 import type { Request, Response } from "express";
-import prisma from "../database/client.ts";
+import prisma from "../database/client";
 import {
   MaterialRarity,
   GiftItemType,
   MarketplaceItemType,
 } from "@prisma/client";
-import type { AdminAuthRequest } from "../middleware/adminAuth.ts";
-import { generateSecureCode } from "../services/generateCode.ts";
-import { serializeBigInt } from "../services/serializeBigInt.ts";
-import { uploadToCloudinary } from "../services/uploadToCloudinary.ts";
-import cloudinary from "../config/cloudinary.ts";
+import type { AdminAuthRequest } from "../middleware/adminAuth";
+import { generateSecureCode } from "../services/generateCode";
+import { serializeBigInt } from "../services/serializeBigInt";
+import { uploadToCloudinary } from "../services/uploadToCloudinary";
+import cloudinary from "../config/cloudinary";
 
 async function ensureNotPurchased(itemId: bigint) {
   const purchase = await prisma.marketplacePurchase.findFirst({

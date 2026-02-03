@@ -1,7 +1,7 @@
 import type { Response } from "express";
-import prisma from "../database/client.ts";
-import { resolveUser } from "../services/queryHelpers.ts";
-import { serializeBigInt } from "../services/serializeBigInt.ts";
+import prisma from "../database/client";
+import { resolveUser } from "../services/queryHelpers";
+import { serializeBigInt } from "../services/serializeBigInt";
 
 // =================== COMMON ROUTES =================== //
 // 1) get complete information about the user using his id or email

@@ -1,11 +1,11 @@
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
-import prismaClient from "../database/client.ts";
-import redis from "../config/redis.ts";
+import prismaClient from "../database/client";
+import redis from "../config/redis";
 import bcrypt from "bcrypt";
-import { sendEmail } from "../services/generateOTP.ts";
-import { generateSecureCode } from "../services/generateCode.ts";
+import { sendEmail } from "../services/generateOTP";
+import { generateSecureCode } from "../services/generateCode";
 
 export async function sendVerification(req: Request, res: Response) {
   try {

@@ -1,5 +1,5 @@
 import express from "express";
-import userAuth from "../middleware/userAuth.ts";
+import userAuth from "../middleware/userAuth";
 
 import {
   getUserFullDetails,
@@ -11,8 +11,8 @@ import {
   getUserVouchers,
   getUserCustomerSupports,
   getUserMarketplacePurchases,
-} from "../controllers/commonGetterController.ts";
-import { getUserRank } from "../controllers/userGetterController.ts";
+} from "../controllers/commonGetterController";
+import { getUserRank } from "../controllers/userGetterController";
 
 const router = express.Router();
 

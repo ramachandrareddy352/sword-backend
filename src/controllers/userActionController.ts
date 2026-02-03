@@ -1,11 +1,11 @@
 import type { Response } from "express";
-import prisma from "../database/client.ts";
-import { generateSecureCode } from "../services/generateCode.ts";
-import { handleUserError, userGuard } from "../services/queryHelpers.ts";
-import type { UserAuthRequest } from "../middleware/userAuth.ts";
+import prisma from "../database/client";
+import { generateSecureCode } from "../services/generateCode";
+import { handleUserError, userGuard } from "../services/queryHelpers";
+import type { UserAuthRequest } from "../middleware/userAuth";
 import { VoucherStatus, MarketplaceItemType } from "@prisma/client";
 import type { MaterialType, ShieldType } from "@prisma/client";
-import { serializeBigInt } from "../services/serializeBigInt.ts";
+import { serializeBigInt } from "../services/serializeBigInt";
 
 // 1) Toggle Sound On/Off
 export const toggleSound = async (req: UserAuthRequest, res: Response) => {

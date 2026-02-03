@@ -1,4 +1,4 @@
-import prisma from "../database/client.ts";
+import prisma from "../database/client";
 import type { Response } from "express";
 
 export async function resolveUser(identifier: { id?: string; email?: string }) {
@@ -49,12 +49,10 @@ export function handleUserError(err: any, res: Response) {
     return res.status(404).json({ success: false, error: "User not found" });
   }
   if (err.message === "USER_BANNED") {
-    return res
-      .status(403)
-      .json({
-        success: false,
-        error: "Account is banned. Actions restricted.",
-      });
+    return res.status(403).json({
+      success: false,
+      error: "Account is banned. Actions restricted.",
+    });
   }
   if (err.message.includes("INSUFFICIENT_GOLD")) {
     return res
