@@ -2,10 +2,10 @@
   "name": "leaderboard-backend",
   "version": "1.0.0",
   "description": "",
-  "main": "src/app.ts",
+  "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/src/app.js",
+    "start": "node src/app.ts",
     "dev": "nodemon --exec ts-node src/app.ts",
     "test": "echo \"Error: no test specified\" && exit 1",
     "prisma:merge": "ts-node src/database/merge.ts",
