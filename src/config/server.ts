@@ -5,15 +5,15 @@ import bodyParser from "body-parser";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 
-import AdminActionRouters from "../routes/adminActionRoutes.ts";
-import AdminAuthRouters from "../routes/adminAuthRoutes.ts";
-import AdminGetterRouters from "../routes/adminGetterRoutes.ts";
+import AdminActionRouters from "../routes/adminActionRoutes";
+import AdminAuthRouters from "../routes/adminAuthRoutes";
+import AdminGetterRouters from "../routes/adminGetterRoutes";
 
-import PublicGetterRouters from "../routes/publicGetterRoutes.ts";
+import PublicGetterRouters from "../routes/publicGetterRoutes";
 
-import UserActionRouters from "../routes/userActionRoutes.ts";
-import UserAuthRouters from "../routes/userAuthRoutes.ts";
-import UserGetterRouters from "../routes/userGetterRoutes.ts";
+import UserActionRouters from "../routes/userActionRoutes";
+import UserAuthRouters from "../routes/userAuthRoutes";
+import UserGetterRouters from "../routes/userGetterRoutes";
 
 export const app = express();
 
