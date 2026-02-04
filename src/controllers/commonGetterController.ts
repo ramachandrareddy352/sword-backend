@@ -965,6 +965,7 @@ export const getUserMarketplacePurchases = async (req: any, res: Response) => {
                 power: true,
                 upgradeCost: true,
                 sellingCost: true,
+                successRate: true,
               },
             },
             material: {
