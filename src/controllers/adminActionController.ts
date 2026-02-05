@@ -1,26 +1,13 @@
-import type { Request, Response } from "express";
+import type { Response } from "express";
 import prisma from "../database/client";
-import {
-  MaterialRarity,
-  GiftItemType,
-  MarketplaceItemType,
-} from "@prisma/client";
+import { MaterialRarity, GiftItemType, GiftStatus } from "@prisma/client";
 import type { AdminAuthRequest } from "../middleware/adminAuth";
 import { generateSecureCode } from "../services/generateCode";
 import { serializeBigInt } from "../services/serializeBigInt";
 import { uploadToCloudinary } from "../services/uploadToCloudinary";
 import cloudinary from "../config/cloudinary";
 
-async function ensureNotPurchased(itemId: bigint) {
-  const purchase = await prisma.marketplacePurchase.findFirst({
-    where: { marketplaceItemId: itemId },
-    select: { id: true },
-  });
-  if (purchase) {
-    throw new Error("ITEM_ALREADY_PURCHASED");
-  }
-}
-
+// get the image id using teh complete URL
 function getPublicIdFromUrl(url: string): string | null {
   try {
     const parts = url.split("/");
@@ -33,48 +20,99 @@ function getPublicIdFromUrl(url: string): string | null {
   }
 }
 
-export async function updateAdminConfig(req: Request, res: Response) {
+async function findSwordByLevel(tx: any, level: number) {
+  if (!Number.isInteger(level) || level < 0 || level > 100) {
+    throw new Error("Invalid sword level: must be integer 0–100");
+  }
+
+  const sword = await tx.swordLevelDefinition.findUnique({
+    where: { level },
+  });
+
+  if (!sword) {
+    throw new Error(`Sword level ${level} not found`);
+  }
+
+  return sword;
+}
+
+// 1) update the admin config data(except mailID)
+export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
   try {
     const data = req.body;
-    const updateData: any = {};
+    const updateData: Record<string, any> = {};
 
+    const validateUnsignedInt = (value: any, field: string) => {
+      if (!Number.isInteger(value) || value < 0) {
+        throw new Error(`Invalid ${field}`);
+      }
+    };
+
+    // ================= Shield Config =================
+    if (data.shieldGoldPrice !== undefined) {
+      validateUnsignedInt(data.shieldGoldPrice, "shield Gold Price");
+      updateData.shieldGoldPrice = data.shieldGoldPrice;
+    }
+
+    if (data.maxDailyShieldAds !== undefined) {
+      validateUnsignedInt(data.maxDailyShieldAds, "maximum daily shield Ads");
+      updateData.maxDailyShieldAds = data.maxDailyShieldAds;
+    }
+
+    if (data.maxShieldHold !== undefined) {
+      if (!Number.isInteger(data.maxShieldHold)) {
+        throw new Error("Invalid maximum shiled hold value type");
+      }
+      updateData.maxShieldHold = data.maxShieldHold;
+    }
+
+    if (data.shieldActiveOnMarketplace !== undefined) {
+      updateData.shieldActiveOnMarketplace = Boolean(
+        data.shieldActiveOnMarketplace,
+      );
+    }
+
+    // ================= Ads & Missions =================
     if (data.maxDailyAds !== undefined) {
-      if (!Number.isInteger(data.maxDailyAds) || data.maxDailyAds < 0) {
-        return res
-          .status(400)
-          .json({ success: false, error: "Invalid maxDailyAds" });
+      if (!Number.isInteger(data.maxDailyAds)) {
+        throw new Error("Invalid maximum daily Ads value type");
       }
       updateData.maxDailyAds = data.maxDailyAds;
     }
+
     if (data.maxDailyMissions !== undefined) {
-      if (
-        !Number.isInteger(data.maxDailyMissions) ||
-        data.maxDailyMissions < 0
-      ) {
-        return res
-          .status(400)
-          .json({ success: false, error: "Invalid maxDailyMissions" });
+      if (!Number.isInteger(data.maxDailyMissions)) {
+        throw new Error("Invalid maximum Missions Ads value type");
       }
       updateData.maxDailyMissions = data.maxDailyMissions;
     }
+
+    // ================= Defaults =================
     if (data.defaultTrustPoints !== undefined) {
-      if (
-        !Number.isInteger(data.defaultTrustPoints) ||
-        data.defaultTrustPoints < 0
-      ) {
-        return res
-          .status(400)
-          .json({ success: false, error: "Invalid defaultTrustPoints" });
+      if (!Number.isInteger(data.defaultTrustPoints)) {
+        throw new Error("Invalid default trust points  value type");
       }
       updateData.defaultTrustPoints = data.defaultTrustPoints;
     }
 
+    if (data.defaultGold !== undefined) {
+      if (!Number.isInteger(data.defaultGold)) {
+        throw new Error("Invalid default Gold value type");
+      }
+      updateData.defaultGold = data.defaultGold;
+    }
+
+    // ================= Voucher =================
     if (data.minVoucherGold !== undefined) {
-      updateData.minVoucherGold = BigInt(data.minVoucherGold);
+      validateUnsignedInt(data.minVoucherGold, "minimum Voucher Gold");
+      updateData.minVoucherGold = data.minVoucherGold;
     }
+
     if (data.maxVoucherGold !== undefined) {
-      updateData.maxVoucherGold = BigInt(data.maxVoucherGold);
+      validateUnsignedInt(data.maxVoucherGold, "maximum Voucher Gold");
+      updateData.maxVoucherGold = data.maxVoucherGold;
     }
+
     if (
       updateData.minVoucherGold !== undefined &&
       updateData.maxVoucherGold !== undefined &&
@@ -85,24 +123,19 @@ export async function updateAdminConfig(req: Request, res: Response) {
         error: "minVoucherGold cannot be greater than maxVoucherGold",
       });
     }
+
     if (data.voucherExpiryDays !== undefined) {
-      if (
-        !Number.isInteger(data.voucherExpiryDays) ||
-        data.voucherExpiryDays < 0
-      ) {
-        return res
-          .status(400)
-          .json({ success: false, error: "Invalid voucherExpiryDays" });
+      if (!Number.isInteger(data.voucherExpiryDays)) {
+        throw new Error("Invalid voucher Expiry Days value type");
       }
       updateData.voucherExpiryDays = data.voucherExpiryDays;
     }
-    if (data.expiryallowVoucherCancel !== undefined) {
-      updateData.expiryallowVoucherCancel = Boolean(
-        data.expiryallowVoucherCancel,
-      );
+
+    if (data.expiryAllow !== undefined) {
+      updateData.expiryAllow = Boolean(data.expiryAllow);
     }
 
-    // Do NOT allow changing adminEmailId through API
+    // ================= Security =================
     if (data.adminEmailId !== undefined) {
       return res.status(403).json({
         success: false,
@@ -111,9 +144,10 @@ export async function updateAdminConfig(req: Request, res: Response) {
     }
 
     if (Object.keys(updateData).length === 0) {
-      return res
-        .status(400)
-        .json({ success: false, error: "No valid fields to update" });
+      return res.status(400).json({
+        success: false,
+        error: "No valid fields to update",
+      });
     }
 
     const config = await prisma.adminConfig.update({
@@ -126,245 +160,59 @@ export async function updateAdminConfig(req: Request, res: Response) {
       message: "Admin configuration updated",
       data: serializeBigInt(config),
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error(err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-}
-
-export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
-  try {
-    const { name, description, upgradeCost, sellingCost, successRate, power } =
-      req.body;
-
-    if (
-      !name ||
-      upgradeCost === undefined ||
-      sellingCost === undefined ||
-      parseFloat(successRate) <= 0 ||
-      parseFloat(successRate) > 100 ||
-      power <= 0
-    ) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid or missing fields" });
-    }
-
-    if (power <= 0 || BigInt(upgradeCost) <= 0 || BigInt(sellingCost) <= 0) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid power or cost" });
-    }
-
-    const existing = await prisma.swordLevelDefinition.findUnique({
-      where: { name },
-    });
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        error: "Sword name already exists",
-      });
-    }
-
-    const agg = await prisma.swordLevelDefinition.aggregate({
-      _max: { level: true },
-    });
-    const nextLevel = (agg._max.level ?? -1) + 1;
-
-    if (nextLevel > 100) {
-      return res.status(400).json({
-        success: false,
-        error: "Maximum sword level (100) reached",
-      });
-    }
-
-    const file = (req as any).file;
-
-    if (!file) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Missing sword file" });
-    }
-
-    const uploaded: any = await uploadToCloudinary(
-      file.buffer,
-      "sword-game/swords",
-    );
-
-    const image = uploaded.secure_url;
-    if (!image || image === "") {
-      return res
-        .status(400)
-        .json({ success: false, error: "Image is failed to upload" });
-    }
-
-    const created = await prisma.swordLevelDefinition.create({
-      data: {
-        level: nextLevel,
-        name,
-        image,
-        description: description || null,
-        upgradeCost: BigInt(upgradeCost),
-        sellingCost: BigInt(sellingCost),
-        successRate: parseFloat(successRate),
-        power: Number(power),
-      },
-    });
-
-    return res.json({
-      success: true,
-      message: "Sword level created successfully",
-      data: serializeBigInt(created),
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({
+    return res.status(400).json({
       success: false,
-      error: "Failed to create sword level",
+      error: err.message || "Internal server error",
     });
   }
 }
 
-export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
-  try {
-    const {
-      level,
-      name,
-      isImageChanged,
-      description,
-      upgradeCost,
-      sellingCost,
-      successRate,
-      power,
-    } = req.body;
-
-    // ---------- Validation ----------
-    if (level === undefined && !name) {
-      return res.status(400).json({
-        success: false,
-        error: "Either sword level or name is required",
-      });
-    }
-
-    // ---------- Find Existing Sword ----------
-    const existing = await prisma.swordLevelDefinition.findFirst({
-      where: {
-        OR: [
-          level !== undefined ? { level: Number(level) } : undefined,
-          name ? { name } : undefined,
-        ].filter(Boolean) as any,
-      },
-    });
-
-    if (!existing) {
-      return res.status(404).json({
-        success: false,
-        error: "Sword is not founded",
-      });
-    }
-
-    // ---------- Field Validation ----------
-    if (successRate !== undefined) {
-      if (successRate <= 0 || successRate > 100) {
-        return res.status(400).json({
-          success: false,
-          error: "Success rate must be between 1 and 100",
-        });
-      }
-    }
-
-    if (power !== undefined && power <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Power must be greater than 0",
-      });
-    }
-
-    if (upgradeCost !== undefined && BigInt(upgradeCost) <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Upgrade cost must be greater than 0",
-      });
-    }
-
-    if (sellingCost !== undefined && BigInt(sellingCost) <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Selling cost must be greater than 0",
-      });
-    }
-
-    let image = undefined;
-    const file = (req as any).file;
-
-    if (isImageChanged === "yes" && file) {
-      const uploaded: any = await uploadToCloudinary(
-        file.buffer,
-        "sword-game/swords",
-      );
-      image = uploaded.secure_url;
-      if (!image || image === "") {
-        return res.status(400).json({
-          success: false,
-          error: "Image is failed to upload",
-        });
-      }
-      if (existing.image) {
-        const oldPublicId = getPublicIdFromUrl(existing.image);
-        if (oldPublicId) {
-          await cloudinary.uploader.destroy(oldPublicId);
-        }
-      }
-    }
-
-    // ---------- Update ----------
-    const updated = await prisma.swordLevelDefinition.update({
-      where: { id: existing.id },
-      data: {
-        image: image ?? existing.image,
-        description: description ?? existing.description,
-        upgradeCost:
-          upgradeCost !== undefined
-            ? BigInt(upgradeCost)
-            : existing.upgradeCost,
-        sellingCost:
-          sellingCost !== undefined
-            ? BigInt(sellingCost)
-            : existing.sellingCost,
-        successRate: parseFloat(successRate) ?? existing.successRate,
-        power: Number(power) ?? existing.power,
-      },
-    });
-
-    return res.json({
-      success: true,
-      message: "Sword level updated successfully",
-      data: serializeBigInt(updated),
-    });
-  } catch (err) {
-    console.error("updateSwordLevel error:", err);
-    return res.status(500).json({
-      success: false,
-      error: "Failed to update sword level",
-    });
-  }
-}
-
+// 2) Create material, name should be unique
 export async function createMaterial(req: AdminAuthRequest, res: Response) {
   try {
-    const { name, description, cost, power, rarity } = req.body;
+    const {
+      name,
+      description,
+      buyingCost,
+      sellingCost,
+      rarity,
+      isBuyingAllow,
+      isSellingAllow,
+    } = req.body;
 
-    if (!name || cost === undefined || power === undefined) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Missing required fields" });
+    // ================= Validation =================
+    if (!name || buyingCost === undefined || sellingCost === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields",
+      });
     }
 
-    const existing = await prisma.materialType.findUnique({
+    if (
+      !Number.isInteger(buyingCost) ||
+      !Number.isInteger(sellingCost) ||
+      buyingCost < 0 ||
+      sellingCost < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "buyingCost and sellingCost must be non-negative integers",
+      });
+    }
+
+    if (rarity && !Object.values(MaterialRarity).includes(rarity)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid material rarity type",
+      });
+    }
+
+    const existing = await prisma.material.findUnique({
       where: { name },
     });
+
     if (existing) {
       return res.status(409).json({
         success: false,
@@ -372,24 +220,13 @@ export async function createMaterial(req: AdminAuthRequest, res: Response) {
       });
     }
 
-    if (power <= 0 || BigInt(cost) <= 0) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid power or cost" });
-    }
-
-    if (rarity && !Object.values(MaterialRarity).includes(rarity)) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid material rarity" });
-    }
-
+    // ================= Image =================
     const file = (req as any).file;
-
     if (!file) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Missing sword file" });
+      return res.status(400).json({
+        success: false,
+        error: "Material image is required",
+      });
     }
 
     const uploaded: any = await uploadToCloudinary(
@@ -397,25 +234,31 @@ export async function createMaterial(req: AdminAuthRequest, res: Response) {
       "sword-game/materials",
     );
 
-    const image = uploaded.secure_url;
-    if (!image || image === "") {
-      return res
-        .status(400)
-        .json({ success: false, error: "Image is failed to upload" });
+    const image = uploaded?.secure_url;
+    if (!image) {
+      return res.status(400).json({
+        success: false,
+        error: "Failed to upload image",
+      });
     }
 
+    // ================= Create =================
     let created;
     for (let i = 0; i < 5; i++) {
       try {
-        created = await prisma.materialType.create({
+        created = await prisma.material.create({
           data: {
             code: generateSecureCode(12),
             name,
-            description: description || null,
+            description: description ?? null,
             image,
-            cost: BigInt(cost),
-            power: Number(power),
-            rarity: rarity || "COMMON",
+            rarity: rarity ?? "COMMON",
+            buyingCost,
+            sellingCost,
+            isBuyingAllow:
+              isBuyingAllow !== undefined ? Boolean(isBuyingAllow) : true,
+            isSellingAllow:
+              isSellingAllow !== undefined ? Boolean(isSellingAllow) : true,
           },
         });
         break;
@@ -445,44 +288,69 @@ export async function createMaterial(req: AdminAuthRequest, res: Response) {
   }
 }
 
+// 3) Update material data using code
 export async function updateMaterial(req: AdminAuthRequest, res: Response) {
   try {
-    const { code, name, isImageChanged, description, cost, power, rarity } =
-      req.body;
+    const {
+      code,
+      name,
+      description,
+      buyingCost,
+      sellingCost,
+      rarity,
+      isBuyingAllow,
+      isSellingAllow,
+      isImageChanged,
+    } = req.body;
 
     if (!code) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Material code is required" });
-    }
-
-    const existing = await prisma.materialType.findUnique({ where: { code } });
-    if (!existing) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Material not found" });
-    }
-
-    if (power !== undefined && power <= 0) {
       return res.status(400).json({
         success: false,
-        error: "Power must be greater than 0",
+        error: "Material code is required",
       });
     }
-    if (cost !== undefined && cost <= 0) {
+
+    const existing = await prisma.material.findUnique({
+      where: { code },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: "Material not found",
+      });
+    }
+
+    // ================= Validation =================
+    if (
+      buyingCost !== undefined &&
+      (!Number.isInteger(buyingCost) || buyingCost < 0)
+    ) {
       return res.status(400).json({
         success: false,
-        error: "Cost must be greater than 0",
+        error: "Invalid buyingCost",
+      });
+    }
+
+    if (
+      sellingCost !== undefined &&
+      (!Number.isInteger(sellingCost) || sellingCost < 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid sellingCost",
       });
     }
 
     if (rarity && !Object.values(MaterialRarity).includes(rarity)) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid material rarity" });
+      return res.status(400).json({
+        success: false,
+        error: "Invalid material rarity",
+      });
     }
 
-    let image = undefined;
+    // ================= Image =================
+    let image: string | undefined;
     const file = (req as any).file;
 
     if (isImageChanged === "yes" && file) {
@@ -490,13 +358,15 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
         file.buffer,
         "sword-game/materials",
       );
-      image = uploaded.secure_url;
-      if (!image || image === "") {
+
+      image = uploaded?.secure_url;
+      if (!image) {
         return res.status(400).json({
           success: false,
-          error: "Image is failed to upload",
+          error: "Failed to upload image",
         });
       }
+
       if (existing.image) {
         const oldPublicId = getPublicIdFromUrl(existing.image);
         if (oldPublicId) {
@@ -505,15 +375,25 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
       }
     }
 
-    const updated = await prisma.materialType.update({
+    // ================= Update =================
+    const updated = await prisma.material.update({
       where: { code },
       data: {
         name: name ?? existing.name,
         description: description ?? existing.description,
         image: image ?? existing.image,
-        cost: cost !== undefined ? BigInt(cost) : existing.cost,
-        power: Number(power) ?? existing.power,
+        buyingCost: buyingCost !== undefined ? buyingCost : existing.buyingCost,
+        sellingCost:
+          sellingCost !== undefined ? sellingCost : existing.sellingCost,
         rarity: rarity ?? existing.rarity,
+        isBuyingAllow:
+          isBuyingAllow !== undefined
+            ? Boolean(isBuyingAllow)
+            : existing.isBuyingAllow,
+        isSellingAllow:
+          isSellingAllow !== undefined
+            ? Boolean(isSellingAllow)
+            : existing.isSellingAllow,
       },
     });
 
@@ -531,684 +411,7 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
   }
 }
 
-export async function createShield(req: AdminAuthRequest, res: Response) {
-  try {
-    const { name, description, cost, power, rarity } = req.body;
-
-    if (!name || cost === undefined || power === undefined) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Missing required fields" });
-    }
-
-    const existing = await prisma.shieldType.findUnique({
-      where: { name },
-    });
-    if (existing) {
-      return res.status(409).json({
-        success: false,
-        error: "Shield name already exists",
-      });
-    }
-
-    if (power !== undefined && power <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Power must be greater than 0",
-      });
-    }
-    if (cost !== undefined && cost <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Cost must be greater than 0",
-      });
-    }
-
-    const file = (req as any).file;
-    if (!file) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Missing sword file" });
-    }
-
-    const uploaded: any = await uploadToCloudinary(
-      file.buffer,
-      "sword-game/shields",
-    );
-
-    const image = uploaded.secure_url;
-    if (!image || image === "") {
-      return res
-        .status(400)
-        .json({ success: false, error: "Image is failed to upload" });
-    }
-
-    let created;
-    for (let i = 0; i < 5; i++) {
-      try {
-        created = await prisma.shieldType.create({
-          data: {
-            code: generateSecureCode(12),
-            name,
-            description: description || null,
-            image,
-            cost: BigInt(cost),
-            power: Number(power),
-            rarity: rarity || "COMMON",
-          },
-        });
-        break;
-      } catch (err: any) {
-        if (err.code !== "P2002") throw err;
-      }
-    }
-
-    if (!created) {
-      return res.status(500).json({
-        success: false,
-        error: "Failed to generate unique shield code",
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: "Shield created successfully",
-      data: serializeBigInt(created),
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({
-      success: false,
-      error: "Failed to create shield",
-    });
-  }
-}
-
-export async function updateShield(req: AdminAuthRequest, res: Response) {
-  try {
-    const { code, name, isImageChanged, description, cost, power, rarity } =
-      req.body;
-
-    if (!code) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Shield code is required" });
-    }
-
-    const existing = await prisma.shieldType.findUnique({ where: { code } });
-    if (!existing) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Shield not found" });
-    }
-
-    if (power !== undefined && power <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Power must be greater than 0",
-      });
-    }
-    if (cost !== undefined && cost <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: "Cost must be greater than 0",
-      });
-    }
-
-    let image = undefined;
-    const file = (req as any).file;
-
-    if (isImageChanged === "yes" && file) {
-      const uploaded: any = await uploadToCloudinary(
-        file.buffer,
-        "sword-game/shields",
-      );
-      image = uploaded.secure_url;
-      if (!image || image === "") {
-        return res.status(400).json({
-          success: false,
-          error: "Image is failed to upload",
-        });
-      }
-      if (existing.image) {
-        const oldPublicId = getPublicIdFromUrl(existing.image);
-        if (oldPublicId) {
-          await cloudinary.uploader.destroy(oldPublicId);
-        }
-      }
-    }
-
-    const updated = await prisma.shieldType.update({
-      where: { code },
-      data: {
-        name: name ?? existing.name,
-        description: description ?? existing.description,
-        image: image ?? existing.image,
-        cost: cost !== undefined ? BigInt(cost) : existing.cost,
-        power: Number(power) ?? existing.power,
-        rarity: rarity ?? existing.rarity,
-      },
-    });
-
-    return res.json({
-      success: true,
-      message: "Shield updated successfully",
-      data: serializeBigInt(updated),
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({
-      success: false,
-      error: "Failed to update shield",
-    });
-  }
-}
-
-export async function createGift(req: AdminAuthRequest, res: Response) {
-  try {
-    const { email, userId, items, note } = req.body;
-    let receiverId: bigint;
-    let receiverUser;
-
-    // ---------- Resolve User ----------
-    if (userId) {
-      receiverUser = await prisma.user.findUnique({
-        where: { id: BigInt(userId) },
-        select: { id: true, isBanned: true },
-      });
-      if (!receiverUser) {
-        return res
-          .status(404)
-          .json({ success: false, error: "User not found with this userId" });
-      }
-    } else if (email) {
-      receiverUser = await prisma.user.findUnique({
-        where: { email },
-        select: { id: true, isBanned: true },
-      });
-      if (!receiverUser) {
-        return res
-          .status(404)
-          .json({ success: false, error: "User not found with this email" });
-      }
-    } else {
-      return res
-        .status(400)
-        .json({ success: false, error: "Provide userId or email" });
-    }
-
-    // BANNED USER CHECK
-    if (receiverUser.isBanned) {
-      return res
-        .status(403)
-        .json({ success: false, error: "Cannot send gifts to a banned user" });
-    }
-    receiverId = receiverUser.id;
-
-    // ---------- Validate Items ----------
-    if (!Array.isArray(items) || items.length === 0) {
-      return res
-        .status(400)
-        .json({ success: false, error: "At least one gift item is required" });
-    }
-
-    // ---------- Validate & Verify Items ----------
-    for (const item of items) {
-      if (!Object.values(GiftItemType).includes(item.type)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid gift item type: ${item.type}`,
-        });
-      }
-
-      // GOLD / TRUST
-      if (
-        (item.type === "GOLD" || item.type === "TRUST_POINTS") &&
-        (!item.amount || item.amount <= 0)
-      ) {
-        return res.status(400).json({
-          success: false,
-          error: `${item.type} requires a valid amount`,
-        });
-      }
-
-      // MATERIAL
-      if (item.type === "MATERIAL") {
-        if (!item.materialId) {
-          return res.status(400).json({
-            success: false,
-            error: "Material gift requires materialId",
-          });
-        }
-        const materialExists = await prisma.materialType.findUnique({
-          where: { id: BigInt(item.materialId) },
-          select: { id: true },
-        });
-        if (!materialExists) {
-          return res.status(404).json({
-            success: false,
-            error: `Material not found (id=${item.materialId})`,
-          });
-        }
-      }
-
-      // SWORD
-      if (item.type === "SWORD") {
-        if (item.swordLevel === undefined) {
-          return res
-            .status(400)
-            .json({ success: false, error: "Sword gift requires swordLevel" });
-        }
-        const swordLevelExists = await prisma.swordLevelDefinition.findUnique({
-          where: { level: item.swordLevel },
-          select: { id: true },
-        });
-        if (!swordLevelExists) {
-          return res.status(404).json({
-            success: false,
-            error: `Sword level not found (level=${item.swordLevel})`,
-          });
-        }
-      }
-
-      // SHIELD
-      if (item.type === "SHIELD") {
-        if (!item.shieldId) {
-          return res
-            .status(400)
-            .json({ success: false, error: "Shield gift requires shieldId" });
-        }
-        const shieldExists = await prisma.shieldType.findUnique({
-          where: { id: BigInt(item.shieldId) },
-          select: { id: true },
-        });
-        if (!shieldExists) {
-          return res.status(404).json({
-            success: false,
-            error: `Shield not found (id=${item.shieldId})`,
-          });
-        }
-      }
-    }
-
-    // ---------- Create Gift ----------
-    const gift = await prisma.userGift.create({
-      data: {
-        receiverId,
-        note: note || null,
-        items: {
-          create: items.map((item: any) => ({
-            type: item.type,
-            amount: item.amount ? BigInt(item.amount) : null,
-            materialId: item.materialId ? BigInt(item.materialId) : null,
-            swordLevel: item.swordLevel ?? null,
-            shieldId: item.shieldId ? BigInt(item.shieldId) : null,
-            shieldRarity: item.shieldRarity || null,
-          })),
-        },
-      },
-      include: { items: true },
-    });
-
-    return res.json({
-      success: true,
-      message: "Gift created successfully",
-      data: serializeBigInt(gift),
-    });
-  } catch (err) {
-    console.error(err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Failed to create gift" });
-  }
-}
-
-export async function cancelGift(req: AdminAuthRequest, res: Response) {
-  try {
-    const giftId = BigInt(req.body.giftId);
-    const gift = await prisma.userGift.findUnique({
-      where: { id: giftId },
-      select: { status: true },
-    });
-
-    if (!gift) {
-      return res.status(404).json({ success: false, error: "Gift not found" });
-    }
-    if (gift.status !== "PENDING") {
-      return res
-        .status(400)
-        .json({ success: false, error: "Only pending gifts can be cancelled" });
-    }
-
-    const updated = await prisma.userGift.update({
-      where: { id: giftId },
-      data: { status: "CANCELLED" },
-    });
-
-    return res.json({
-      success: true,
-      message: "Gift cancelled successfully",
-      data: serializeBigInt(updated),
-    });
-  } catch (err) {
-    console.error(err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Failed to cancel gift" });
-  }
-}
-
-export async function deleteGift(req: AdminAuthRequest, res: Response) {
-  try {
-    const giftId = BigInt(req.body.giftId);
-    const gift = await prisma.userGift.findUnique({
-      where: { id: giftId },
-      select: { status: true },
-    });
-
-    if (!gift) {
-      return res.status(404).json({ success: false, error: "Gift not found" });
-    }
-    if (gift.status !== "PENDING") {
-      return res
-        .status(400)
-        .json({ success: false, error: "Only pending gifts can be deleted" });
-    }
-
-    await prisma.$transaction([
-      prisma.userGiftItem.deleteMany({ where: { giftId } }),
-      prisma.userGift.delete({ where: { id: giftId } }),
-    ]);
-
-    return res.json({ success: true, message: "Gift deleted successfully" });
-  } catch (err) {
-    console.error(err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Failed to delete gift" });
-  }
-}
-
-export async function createMarketplaceItem(
-  req: AdminAuthRequest,
-  res: Response,
-) {
-  try {
-    const {
-      itemType,
-      swordLevelDefinitionId,
-      materialId,
-      shieldTypeId,
-      rarity,
-      shieldRarity,
-      priceGold,
-    } = req.body;
-
-    // ---------- Validation ----------
-    if (!itemType || priceGold === undefined) {
-      return res
-        .status(400)
-        .json({ success: false, error: "itemType and priceGold are required" });
-    }
-    if (!Object.values(MarketplaceItemType).includes(itemType)) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid itemType" });
-    }
-
-    let price: bigint;
-    try {
-      price = BigInt(priceGold);
-      if (price <= 0) throw new Error();
-    } catch {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid priceGold value" });
-    }
-
-    const data: any = { itemType, priceGold: price, isActive: true };
-    // ---------- SWORD ----------
-    if (itemType === "SWORD") {
-      if (!swordLevelDefinitionId) {
-        return res.status(400).json({
-          success: false,
-          error: "swordLevelDefinitionId is required",
-        });
-      }
-
-      const sword = await prisma.swordLevelDefinition.findUnique({
-        where: { id: BigInt(swordLevelDefinitionId) },
-        select: { id: true },
-      });
-
-      if (!sword) {
-        return res
-          .status(404)
-          .json({ success: false, error: "Sword level definition not found" });
-      }
-      data.swordLevelDefinitionId = sword.id;
-    }
-
-    // ---------- MATERIAL ----------
-    else if (itemType === "MATERIAL") {
-      if (!materialId) {
-        return res
-          .status(400)
-          .json({ success: false, error: "materialId is required" });
-      }
-
-      const material = await prisma.materialType.findUnique({
-        where: { id: BigInt(materialId) },
-        select: { id: true },
-      });
-      if (!material) {
-        return res
-          .status(404)
-          .json({ success: false, error: "Material not found" });
-      }
-
-      if (rarity && !Object.values(MaterialRarity).includes(rarity)) {
-        return res
-          .status(400)
-          .json({ success: false, error: "Invalid material rarity" });
-      }
-
-      data.materialId = material.id;
-      data.rarity = rarity || null; // quantity always = 1
-    }
-
-    // // ---------- SHIELD ----------
-    else if (itemType === "SHIELD") {
-      if (!shieldTypeId) {
-        return res
-          .status(400)
-          .json({ success: false, error: "shieldTypeId is required" });
-      }
-
-      const shield = await prisma.shieldType.findUnique({
-        where: { id: BigInt(shieldTypeId) },
-        select: { id: true },
-      });
-
-      if (!shield) {
-        return res
-          .status(404)
-          .json({ success: false, error: "Shield not found" });
-      }
-      if (
-        shieldRarity &&
-        !Object.values(MaterialRarity).includes(shieldRarity)
-      ) {
-        return res
-          .status(400)
-          .json({ success: false, error: "Invalid shield rarity" });
-      }
-
-      data.shieldTypeId = shield.id;
-      data.shieldRarity = shieldRarity || null;
-    } else {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid Item type" });
-    }
-
-    const item = await prisma.marketplaceItem.create({ data });
-
-    return res.json({
-      success: true,
-      message: "Marketplace item created successfully",
-      data: serializeBigInt(item),
-    });
-  } catch (err) {
-    console.error(err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Failed to create marketplace item" });
-  }
-}
-
-export async function toggleMarketplaceItemActive(
-  req: AdminAuthRequest,
-  res: Response,
-) {
-  try {
-    const { id, isActive } = req.body;
-    if (id === undefined || typeof isActive !== "boolean") {
-      return res.status(400).json({
-        success: false,
-        error: "id and isActive(boolean) are required",
-      });
-    }
-    let itemId: bigint;
-
-    try {
-      itemId = BigInt(id);
-    } catch {
-      return res.status(400).json({ success: false, error: "Invalid item id" });
-    }
-
-    const item = await prisma.marketplaceItem.findUnique({
-      where: { id: itemId },
-      select: { id: true, isActive: true },
-    });
-    if (!item) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Marketplace item not found" });
-    }
-
-    // Block if already purchased
-    await ensureNotPurchased(itemId);
-
-    // Idempotent behavior
-    if (item.isActive === isActive) {
-      return res.json({
-        success: true,
-        message: `Marketplace item already ${isActive ? "active" : "inactive"}`,
-      });
-    }
-
-    const updated = await prisma.marketplaceItem.update({
-      where: { id: itemId },
-      data: { isActive },
-    });
-
-    return res.json({
-      success: true,
-      message: `Marketplace item ${isActive ? "activated" : "deactivated"} successfully`,
-      data: serializeBigInt(updated),
-    });
-  } catch (err: any) {
-    console.error(err);
-    if (err.message === "ITEM_ALREADY_PURCHASED") {
-      return res.status(400).json({
-        success: false,
-        error: "Item already purchased, cannot change status",
-      });
-    }
-    return res.status(500).json({
-      success: false,
-      error: "Failed to update marketplace item status",
-    });
-  }
-}
-
-export async function deleteMarketplaceItem(
-  req: AdminAuthRequest,
-  res: Response,
-) {
-  try {
-    const itemId = BigInt(req.body.id);
-
-    await ensureNotPurchased(itemId);
-
-    await prisma.marketplaceItem.delete({ where: { id: itemId } });
-
-    return res.json({ success: true, message: "Marketplace item deleted" });
-  } catch (err: any) {
-    console.error(err);
-    if (err.message === "ITEM_ALREADY_PURCHASED") {
-      return res.status(400).json({
-        success: false,
-        error: "Item already purchased, cannot delete",
-      });
-    }
-    return res
-      .status(500)
-      .json({ success: false, error: "Failed to delete marketplace item" });
-  }
-}
-
-export async function updateMarketplaceItemPrice(
-  req: AdminAuthRequest,
-  res: Response,
-) {
-  try {
-    const itemId = BigInt(req.body.id);
-    const { priceGold } = req.body;
-    if (priceGold === undefined) {
-      return res
-        .status(400)
-        .json({ success: false, error: "priceGold is required" });
-    }
-    let price: bigint;
-
-    try {
-      price = BigInt(priceGold);
-      if (price <= 0) throw new Error();
-    } catch {
-      return res
-        .status(400)
-        .json({ success: false, error: "Invalid priceGold value" });
-    }
-
-    await ensureNotPurchased(itemId);
-
-    const updated = await prisma.marketplaceItem.update({
-      where: { id: itemId },
-      data: { priceGold: price },
-    });
-
-    return res.json({
-      success: true,
-      message: "Marketplace item price updated",
-      data: serializeBigInt(updated),
-    });
-  } catch (err: any) {
-    console.error(err);
-    if (err.message === "ITEM_ALREADY_PURCHASED") {
-      return res.status(400).json({
-        success: false,
-        error: "Item already purchased, cannot update price",
-      });
-    }
-    return res.status(500).json({
-      success: false,
-      error: "Failed to update marketplace item price",
-    });
-  }
-}
-
+// 4) Ban user from making actions in the game
 export async function toggleUserBan(req: AdminAuthRequest, res: Response) {
   try {
     const { id, email, ban } = req.body;
@@ -1277,6 +480,7 @@ export async function toggleUserBan(req: AdminAuthRequest, res: Response) {
   }
 }
 
+// 5) Reply to customer complaints
 export async function replyToSupportTicket(
   req: AdminAuthRequest,
   res: Response,
@@ -1311,7 +515,6 @@ export async function replyToSupportTicket(
     const updated = await prisma.customerSupport.update({
       where: { id: ticketId },
       data: { adminReply, isReviewed: true, reviewedAt: new Date() },
-      select: { id: true, title: true, isReviewed: true, adminReply: true },
     });
 
     return res.json({
@@ -1324,5 +527,1302 @@ export async function replyToSupportTicket(
     return res
       .status(500)
       .json({ success: false, error: "Failed to reply to support ticket" });
+  }
+}
+
+// 6) Create sword level with synthesize & upgrade rules
+/*
+Example body:
+{
+  "name": "Dragon Blade",
+  "description": "Level 3 sword",
+  "buyingCost": 500,
+  "sellingCost": 250,
+  "upgradeCost": 300,
+  "synthesizeCost": 200,
+  "successRate": 45,
+  "isBuyingAllow": true,
+  "isSellingAllow": true,
+  "isSynthesizeAllow": true,
+  "materials": [
+    {
+      "materialId": 1,
+      "requiredQuantity": 10,
+      "dropPercentage": 40,
+      "minQuantity": 1,
+      "maxQuantity": 5
+    },
+    {
+      "materialId": 2,
+      "requiredQuantity": 50,
+      "dropPercentage": 60,
+      "minQuantity": 3,
+      "maxQuantity": 10
+    }
+  ]
+}
+*/
+export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
+  try {
+    const {
+      name,
+      description,
+      buyingCost,
+      sellingCost,
+      upgradeCost,
+      synthesizeCost,
+      successRate,
+      isBuyingAllow,
+      isSellingAllow,
+      isSynthesizeAllow,
+      materials,
+    } = req.body;
+
+    // ---------- VALIDATION - stop at first error ----------
+    if (!name || typeof name !== "string" || name.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        error: "Name is required and must be a non-empty string",
+      });
+    }
+
+    if (
+      !Array.isArray(materials) ||
+      materials.length < 1 ||
+      materials.length > 4
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Materials must be an array with 1 to 4 items",
+      });
+    }
+
+    if (
+      typeof successRate !== "number" ||
+      successRate < 0 ||
+      successRate > 100
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Success rate must be a number between 0 and 100",
+      });
+    }
+
+    if (
+      typeof buyingCost !== "number" ||
+      buyingCost <= 0 ||
+      typeof sellingCost !== "number" ||
+      sellingCost <= 0 ||
+      typeof upgradeCost !== "number" ||
+      upgradeCost <= 0 ||
+      typeof synthesizeCost !== "number" ||
+      synthesizeCost < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "All costs (buying, selling, upgrade) must be positive numbers",
+      });
+    }
+
+    // Material validations
+    const materialIds = materials.map((m) => m.materialId);
+    const uniqueIds = new Set(materialIds);
+
+    if (uniqueIds.size !== materialIds.length) {
+      return res.status(400).json({
+        success: false,
+        error: "Duplicate material IDs are not allowed",
+      });
+    }
+
+    const totalDrop = materials.reduce(
+      (sum, m) => sum + (Number(m.dropPercentage) || 0),
+      0,
+    );
+    if (totalDrop !== 100) {
+      return res.status(400).json({
+        success: false,
+        error: `Drop percentages must sum exactly to 100 (current sum: ${totalDrop})`,
+      });
+    }
+
+    for (let i = 0; i < materials.length; i++) {
+      const m = materials[i];
+
+      if (
+        typeof m.materialId !== "number" ||
+        !Number.isInteger(m.materialId) ||
+        m.materialId <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `Material at position ${i + 1}: materialId must be a positive integer`,
+        });
+      }
+
+      if (
+        typeof m.requiredQuantity !== "number" ||
+        !Number.isInteger(m.requiredQuantity) ||
+        m.requiredQuantity <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `Material ID ${m.materialId}: requiredQuantity must be a positive integer`,
+        });
+      }
+
+      if (
+        typeof m.dropPercentage !== "number" ||
+        !Number.isInteger(m.dropPercentage) ||
+        m.dropPercentage < 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `Material ID ${m.materialId}: dropPercentage must be a non-negative integer`,
+        });
+      }
+
+      if (
+        typeof m.minQuantity !== "number" ||
+        !Number.isInteger(m.minQuantity) ||
+        m.minQuantity <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `Material ID ${m.materialId}: minQuantity must be a positive integer`,
+        });
+      }
+
+      if (
+        typeof m.maxQuantity !== "number" ||
+        !Number.isInteger(m.maxQuantity) ||
+        m.maxQuantity <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `Material ID ${m.materialId}: maxQuantity must be a positive integer`,
+        });
+      }
+
+      if (m.maxQuantity < m.minQuantity) {
+        return res.status(400).json({
+          success: false,
+          error: `Material ID ${m.materialId}: maxQuantity must be >= minQuantity`,
+        });
+      }
+    }
+
+    // ---------- Verify all material IDs exist ----------
+    const existingMaterials = await prisma.material.findMany({
+      where: {
+        id: { in: materialIds },
+      },
+      select: { id: true },
+    });
+
+    const foundIds = new Set(existingMaterials.map((m) => m.id));
+    const missingIds = materialIds.filter((id) => !foundIds.has(id));
+
+    if (missingIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `The following material ID(s) do not exist: ${missingIds.join(", ")}`,
+      });
+    }
+
+    // ---------- LEVEL ----------
+    const maxLevel = await prisma.swordLevelDefinition.aggregate({
+      _max: { level: true },
+    });
+    const nextLevel = (maxLevel._max.level ?? -1) + 1;
+    if (nextLevel > 100) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Maximum sword level (100) reached" });
+    }
+
+    // ---------- IMAGE UPLOAD ----------
+    const file = (req as any).file;
+    if (!file) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Sword image is required" });
+    }
+
+    let image: string;
+    try {
+      const uploaded: any = await uploadToCloudinary(
+        file.buffer,
+        "sword-game/swords",
+      );
+      image = uploaded.secure_url;
+      if (!image) throw new Error("Upload returned no URL");
+    } catch (uploadErr) {
+      console.error("Image upload failed:", uploadErr);
+      return res
+        .status(500)
+        .json({ success: false, error: "Failed to upload sword image" });
+    }
+
+    // ---------- CREATE IN TRANSACTION ----------
+    const sword = await prisma.$transaction(async (tx) => {
+      const created = await tx.swordLevelDefinition.create({
+        data: {
+          level: nextLevel,
+          name: name.trim(),
+          description: description || null,
+          image,
+          buyingCost,
+          sellingCost,
+          upgradeCost,
+          synthesizeCost,
+          successRate,
+          isBuyingAllow:
+            typeof isBuyingAllow === "boolean" ? isBuyingAllow : true,
+          isSellingAllow:
+            typeof isSellingAllow === "boolean" ? isSellingAllow : true,
+          isSynthesizeAllow:
+            typeof isSynthesizeAllow === "boolean" ? isSynthesizeAllow : true,
+        },
+      });
+
+      // Synthesis requirements
+      await tx.swordSynthesisRequirement.createMany({
+        data: materials.map((m) => ({
+          swordLevelDefinitionId: created.id,
+          materialId: m.materialId,
+          requiredQuantity: m.requiredQuantity,
+        })),
+      });
+
+      // Upgrade drops
+      await tx.swordUpgradeDrop.createMany({
+        data: materials.map((m) => ({
+          swordLevelDefinitionId: created.id,
+          materialId: m.materialId,
+          dropPercentage: m.dropPercentage,
+          minQuantity: m.minQuantity,
+          maxQuantity: m.maxQuantity,
+        })),
+      });
+
+      return created;
+    });
+
+    // Fetch complete data with relations
+    const fullSword = await prisma.swordLevelDefinition.findUnique({
+      where: { id: sword.id },
+      include: {
+        synthesisRequirements: true,
+        upgradeDrops: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Sword created successfully",
+      data: serializeBigInt(fullSword),
+    });
+  } catch (err) {
+    console.error("Create sword error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Failed to create sword level" });
+  }
+}
+
+// 7) Update thhe sword definations
+export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
+  try {
+    const {
+      level,
+      name,
+      isImageChanged, // "yes" or anything else / missing
+      description,
+      buyingCost,
+      sellingCost,
+      upgradeCost,
+      synthesizeCost,
+      successRate,
+      isBuyingAllow,
+      isSellingAllow,
+      isSynthesizeAllow,
+    } = req.body;
+
+    // ---------- 1. Validation: need at least level or name to identify sword ----------
+    if (level === undefined && !name) {
+      return res.status(400).json({
+        success: false,
+        error: "Either 'level' or 'name' is required to identify the sword",
+      });
+    }
+
+    // ---------- 2. Find existing sword ----------
+    const existing = await prisma.swordLevelDefinition.findFirst({
+      where: {
+        OR: [
+          level !== undefined ? { level: Number(level) } : undefined,
+          name ? { name: name.trim() } : undefined,
+        ].filter(Boolean) as any,
+      },
+      include: {
+        synthesisRequirements: true,
+        upgradeDrops: true,
+      },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: "Sword level not found with the provided level or name",
+      });
+    }
+
+    // ---------- 3. Field validations ----------
+    if (
+      successRate !== undefined &&
+      (typeof successRate !== "number" || successRate < 0 || successRate > 100)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Success rate must be a number between 0 and 100 if provided",
+      });
+    }
+
+    if (
+      upgradeCost !== undefined &&
+      (typeof upgradeCost !== "number" || upgradeCost <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Upgrade cost must be a positive number if provided",
+      });
+    }
+
+    if (
+      sellingCost !== undefined &&
+      (typeof sellingCost !== "number" || sellingCost <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Selling cost must be a positive number if provided",
+      });
+    }
+
+    if (
+      buyingCost !== undefined &&
+      (typeof buyingCost !== "number" || buyingCost <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Buying cost must be a positive number if provided",
+      });
+    }
+
+    if (
+      synthesizeCost !== undefined &&
+      (typeof synthesizeCost !== "number" || synthesizeCost < 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Synthesize cost must be >= 0 if provided",
+      });
+    }
+
+    // ---------- 4. Image handling ----------
+    let newImageUrl: string | undefined;
+
+    const file = (req as any).file;
+
+    if (isImageChanged === "yes") {
+      if (!file) {
+        return res.status(400).json({
+          success: false,
+          error: "Sword image file is required when isImageChanged is 'yes'",
+        });
+      }
+
+      try {
+        const uploaded: any = await uploadToCloudinary(
+          file.buffer,
+          "sword-game/swords",
+        );
+        newImageUrl = uploaded.secure_url;
+
+        if (!newImageUrl || newImageUrl === "") {
+          throw new Error("Cloudinary returned empty URL");
+        }
+
+        // Delete old image if exists
+        if (existing.image) {
+          const oldPublicId = getPublicIdFromUrl(existing.image);
+          if (oldPublicId) {
+            await cloudinary.uploader.destroy(oldPublicId);
+          }
+        }
+      } catch (uploadErr) {
+        console.error("Image upload failed:", uploadErr);
+        return res.status(500).json({
+          success: false,
+          error: "Failed to upload new sword image",
+        });
+      }
+    }
+
+    // ---------- 5. Prepare update data ----------
+    const updateData: any = {};
+
+    if (newImageUrl) updateData.image = newImageUrl;
+    if (description !== undefined) updateData.description = description || null;
+    if (buyingCost !== undefined) updateData.buyingCost = buyingCost;
+    if (sellingCost !== undefined) updateData.sellingCost = sellingCost;
+    if (upgradeCost !== undefined) updateData.upgradeCost = upgradeCost;
+    if (synthesizeCost !== undefined)
+      updateData.synthesizeCost = synthesizeCost;
+    if (successRate !== undefined) updateData.successRate = successRate;
+    if (isBuyingAllow !== undefined) updateData.isBuyingAllow = !!isBuyingAllow;
+    if (isSellingAllow !== undefined)
+      updateData.isSellingAllow = !!isSellingAllow;
+    if (isSynthesizeAllow !== undefined)
+      updateData.isSynthesizeAllow = !!isSynthesizeAllow;
+
+    // If name is provided and different → update (but check uniqueness if changed)
+    if (name !== undefined && name.trim() !== existing.name) {
+      const nameExists = await prisma.swordLevelDefinition.findFirst({
+        where: { name: name.trim(), id: { not: existing.id } },
+      });
+      if (nameExists) {
+        return res.status(400).json({
+          success: false,
+          error: "Another sword level already uses this name",
+        });
+      }
+      updateData.name = name.trim();
+    }
+
+    // If nothing to update
+    if (Object.keys(updateData).length === 0) {
+      return res.json({
+        success: true,
+        message: "No changes provided - sword remains unchanged",
+        data: serializeBigInt(existing),
+      });
+    }
+
+    // ---------- 6. Update ----------
+    const updated = await prisma.swordLevelDefinition.update({
+      where: { id: existing.id },
+      data: updateData,
+      include: {
+        synthesisRequirements: true,
+        upgradeDrops: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Sword level updated successfully",
+      data: serializeBigInt(updated),
+    });
+  } catch (err) {
+    console.error("updateSwordLevel error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to update sword level",
+    });
+  }
+}
+
+// 8) Update synthesize requirements only (quantities of EXISTING materials)
+// Body example:
+// {
+//   "level": 5,
+//   "materials": [
+//     { "materialId": 1, "requiredQuantity": 15 },
+//     { "materialId": 2, "requiredQuantity": 60 }
+//   ]
+// }
+// → Only updates quantities for materials already linked to this sword
+// → Cannot add new materials or remove existing ones
+export async function updateSynthesizeRequirements(
+  req: AdminAuthRequest,
+  res: Response,
+) {
+  try {
+    const { level, materials } = req.body;
+
+    if (level === undefined) {
+      return res
+        .status(400)
+        .json({ success: false, error: "level is required in body" });
+    }
+
+    if (!Array.isArray(materials) || materials.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Materials array is required and cannot be empty",
+      });
+    }
+
+    const materialIds = materials.map((m: any) => m.materialId);
+    const uniqueIds = new Set(materialIds);
+
+    if (uniqueIds.size !== materialIds.length) {
+      return res.status(400).json({
+        success: false,
+        error: "Duplicate material IDs are not allowed",
+      });
+    }
+
+    // Validate input format
+    for (const m of materials) {
+      if (
+        typeof m.materialId !== "number" ||
+        !Number.isInteger(m.materialId) ||
+        m.materialId <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid materialId: ${m.materialId || "missing"}`,
+        });
+      }
+      if (
+        typeof m.requiredQuantity !== "number" ||
+        !Number.isInteger(m.requiredQuantity) ||
+        m.requiredQuantity <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `requiredQuantity must be positive integer for material ${m.materialId}`,
+        });
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Find the sword
+      const sword = await findSwordByLevel(tx, level);
+
+      // 2. Get currently attached synthesis materials for this sword
+      const currentRequirements = await tx.swordSynthesisRequirement.findMany({
+        where: { swordLevelDefinitionId: sword.id },
+        select: { materialId: true, requiredQuantity: true },
+      });
+
+      const currentMaterialIds = new Set(
+        currentRequirements.map((r) => r.materialId),
+      );
+
+      // 3. Check that ALL provided materialIds are already attached
+      const providedNotAttached = materialIds.filter(
+        (id) => !currentMaterialIds.has(id),
+      );
+      if (providedNotAttached.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Cannot add new materials in this endpoint. The following material IDs are not currently attached: ${providedNotAttached.join(", ")}`,
+        });
+      }
+
+      // 4. Check that no existing materials were omitted (i.e. no removal allowed here)
+      const attachedNotProvided = [...currentMaterialIds].filter(
+        (id) => !materialIds.includes(id),
+      );
+      if (attachedNotProvided.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Cannot remove materials in this endpoint. Missing IDs that are currently attached: ${attachedNotProvided.join(", ")}`,
+        });
+      }
+
+      // 5. All IDs match → safe to update quantities
+      for (const m of materials) {
+        await tx.swordSynthesisRequirement.update({
+          where: {
+            swordLevelDefinitionId_materialId: {
+              swordLevelDefinitionId: sword.id,
+              materialId: m.materialId,
+            },
+          },
+          data: {
+            requiredQuantity: m.requiredQuantity,
+          },
+        });
+      }
+
+      // 6. Touch updatedAt on parent
+      await tx.swordLevelDefinition.update({
+        where: { id: sword.id },
+        data: { successRate: sword.successRate }, // dummy update to trigger @updatedAt
+      });
+    });
+
+    // 7. Return full updated sword with relations
+    const fullSword = await prisma.swordLevelDefinition.findUnique({
+      where: { level: Number(level) },
+      include: {
+        synthesisRequirements: true,
+        upgradeDrops: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Sword Synthesize data is updated",
+      data: serializeBigInt(fullSword),
+    });
+  } catch (err: any) {
+    console.error("Update synthesize requirements error:", err);
+    return res.status(400).json({
+      success: false,
+      error: err.message || "Failed to update synthesize requirements",
+    });
+  }
+}
+
+// 9) Update upgrade drops only (percent, min/max quantities of EXISTING materials)
+// Body example:
+// {
+//   "level": 5,
+//   "materials": [
+//     { "materialId": 1, "dropPercentage": 35, "minQuantity": 2, "maxQuantity": 8 },
+//     { "materialId": 3, "dropPercentage": 65, "minQuantity": 1, "maxQuantity": 5 }
+//   ]
+// }
+// → Only updates values for materials already linked to this sword
+// → Cannot add new materials or remove existing ones
+export async function updateUpgradeDrops(req: AdminAuthRequest, res: Response) {
+  try {
+    const { level, materials } = req.body;
+
+    if (level === undefined) {
+      return res
+        .status(400)
+        .json({ success: false, error: "level is required in body" });
+    }
+
+    if (!Array.isArray(materials) || materials.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Materials array is required and cannot be empty",
+      });
+    }
+
+    const materialIds = materials.map((m: any) => m.materialId);
+    const uniqueIds = new Set(materialIds);
+
+    if (uniqueIds.size !== materialIds.length) {
+      return res.status(400).json({
+        success: false,
+        error: "Duplicate material IDs are not allowed",
+      });
+    }
+
+    let totalDrop = 0;
+    for (const m of materials) {
+      if (
+        typeof m.materialId !== "number" ||
+        !Number.isInteger(m.materialId) ||
+        m.materialId <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid materialId: ${m.materialId || "missing"}`,
+        });
+      }
+      if (
+        typeof m.dropPercentage !== "number" ||
+        !Number.isInteger(m.dropPercentage) ||
+        m.dropPercentage < 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `dropPercentage must be non-negative integer for material ${m.materialId}`,
+        });
+      }
+      if (
+        typeof m.minQuantity !== "number" ||
+        !Number.isInteger(m.minQuantity) ||
+        m.minQuantity <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `minQuantity must be positive integer for material ${m.materialId}`,
+        });
+      }
+      if (
+        typeof m.maxQuantity !== "number" ||
+        !Number.isInteger(m.maxQuantity) ||
+        m.maxQuantity <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `maxQuantity must be positive integer for material ${m.materialId}`,
+        });
+      }
+      if (m.maxQuantity < m.minQuantity) {
+        return res.status(400).json({
+          success: false,
+          error: `maxQuantity >= minQuantity required for material ${m.materialId}`,
+        });
+      }
+      totalDrop += m.dropPercentage;
+    }
+
+    if (totalDrop !== 100) {
+      return res.status(400).json({
+        success: false,
+        error: `Drop percentages must sum exactly to 100 (current: ${totalDrop})`,
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Find the sword
+      const sword = await findSwordByLevel(tx, level);
+
+      // 2. Get currently attached upgrade drops for this sword
+      const currentDrops = await tx.swordUpgradeDrop.findMany({
+        where: { swordLevelDefinitionId: sword.id },
+        select: {
+          materialId: true,
+          dropPercentage: true,
+          minQuantity: true,
+          maxQuantity: true,
+        },
+      });
+
+      const currentMaterialIds = new Set(currentDrops.map((d) => d.materialId));
+
+      // 3. Check that ALL provided materialIds are already attached (no new additions)
+      const providedNotAttached = materialIds.filter(
+        (id) => !currentMaterialIds.has(id),
+      );
+      if (providedNotAttached.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Cannot add new materials in this endpoint. The following material IDs are not currently attached: ${providedNotAttached.join(", ")}`,
+        });
+      }
+
+      // 4. Check that no existing drops were omitted (no removal allowed here)
+      const attachedNotProvided = [...currentMaterialIds].filter(
+        (id) => !materialIds.includes(id),
+      );
+      if (attachedNotProvided.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Cannot remove materials in this endpoint. Missing IDs that are currently attached: ${attachedNotProvided.join(", ")}`,
+        });
+      }
+
+      // 5. All IDs match → safe to update existing drops
+      for (const m of materials) {
+        await tx.swordUpgradeDrop.update({
+          where: {
+            swordLevelDefinitionId_materialId: {
+              swordLevelDefinitionId: sword.id,
+              materialId: m.materialId,
+            },
+          },
+          data: {
+            dropPercentage: m.dropPercentage,
+            minQuantity: m.minQuantity,
+            maxQuantity: m.maxQuantity,
+          },
+        });
+      }
+
+      // 6. Touch updatedAt on parent
+      await tx.swordLevelDefinition.update({
+        where: { id: sword.id },
+        data: { successRate: sword.successRate }, // dummy update to trigger @updatedAt
+      });
+    });
+
+    // 7. Return full updated sword with relations
+    const fullSword = await prisma.swordLevelDefinition.findUnique({
+      where: { level: Number(level) },
+      include: {
+        synthesisRequirements: true,
+        upgradeDrops: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: serializeBigInt(fullSword),
+    });
+  } catch (err: any) {
+    console.error("Update upgrade drops error:", err);
+    return res.status(400).json({
+      success: false,
+      error: err.message || "Failed to update upgrade drops",
+    });
+  }
+}
+
+// 10) Update both synthesize + upgrade drops at once (FULL REPLACE)
+// Body example:
+// {
+//   "level": 5,
+//   "materials": [
+//     { "materialId": 1, "requiredQuantity": 15, "dropPercentage": 35, "minQuantity": 2, "maxQuantity": 8 },
+//     { "materialId": 5, "requiredQuantity": 20, "dropPercentage": 25, "minQuantity": 1, "maxQuantity": 5 },
+//     { "materialId": 6, "requiredQuantity": 10, "dropPercentage": 20, "minQuantity": 3, "maxQuantity": 10 },
+//     { "materialId": 2, "requiredQuantity": 8,  "dropPercentage": 20, "minQuantity": 1, "maxQuantity": 4 }
+//   ]
+// }
+// → Completely replaces old list with new one
+// → Can add new materials, remove old ones, change quantities/percentages
+// → No duplicates allowed
+export async function updateSwordMaterials(
+  req: AdminAuthRequest,
+  res: Response,
+) {
+  try {
+    const { level, materials } = req.body;
+
+    if (level === undefined) {
+      return res
+        .status(400)
+        .json({ success: false, error: "level is required in body" });
+    }
+
+    if (
+      !Array.isArray(materials) ||
+      materials.length < 1 ||
+      materials.length > 4
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Materials must be an array with 1 to 4 items",
+      });
+    }
+
+    const materialIds = materials.map((m: any) => m.materialId);
+    const uniqueIds = new Set(materialIds);
+
+    if (uniqueIds.size !== materialIds.length) {
+      return res.status(400).json({
+        success: false,
+        error: "Duplicate material IDs are not allowed",
+      });
+    }
+
+    let totalDrop = 0;
+    for (const m of materials) {
+      // Validate materialId
+      if (
+        typeof m.materialId !== "number" ||
+        !Number.isInteger(m.materialId) ||
+        m.materialId <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid materialId: ${m.materialId || "missing"}`,
+        });
+      }
+
+      // Validate requiredQuantity
+      if (
+        typeof m.requiredQuantity !== "number" ||
+        !Number.isInteger(m.requiredQuantity) ||
+        m.requiredQuantity <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `requiredQuantity must be positive integer for material ${m.materialId}`,
+        });
+      }
+
+      // Validate dropPercentage
+      if (
+        typeof m.dropPercentage !== "number" ||
+        !Number.isInteger(m.dropPercentage) ||
+        m.dropPercentage < 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `dropPercentage must be non-negative integer for material ${m.materialId}`,
+        });
+      }
+
+      // Validate minQuantity & maxQuantity
+      if (
+        typeof m.minQuantity !== "number" ||
+        !Number.isInteger(m.minQuantity) ||
+        m.minQuantity <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `minQuantity must be positive integer for material ${m.materialId}`,
+        });
+      }
+
+      if (
+        typeof m.maxQuantity !== "number" ||
+        !Number.isInteger(m.maxQuantity) ||
+        m.maxQuantity <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `maxQuantity must be positive integer for material ${m.materialId}`,
+        });
+      }
+
+      if (m.maxQuantity < m.minQuantity) {
+        return res.status(400).json({
+          success: false,
+          error: `maxQuantity >= minQuantity required for material ${m.materialId}`,
+        });
+      }
+
+      totalDrop += m.dropPercentage;
+    }
+
+    if (totalDrop !== 100) {
+      return res.status(400).json({
+        success: false,
+        error: `Drop percentages must sum exactly to 100 (current: ${totalDrop})`,
+      });
+    }
+
+    // Check all material IDs exist in Material table
+    const existingMaterials = await prisma.material.findMany({
+      where: { id: { in: materialIds } },
+      select: { id: true },
+    });
+    const foundIds = new Set(existingMaterials.map((m) => m.id));
+    const missingIds = materialIds.filter((id: bigint) => !foundIds.has(id));
+    if (missingIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Material ID(s) do not exist: ${missingIds.join(", ")}`,
+      });
+    }
+
+    // Perform the full replace in transaction
+    await prisma.$transaction(async (tx) => {
+      const sword = await findSwordByLevel(tx, level);
+
+      // Delete all existing synthesize requirements
+      await tx.swordSynthesisRequirement.deleteMany({
+        where: { swordLevelDefinitionId: sword.id },
+      });
+
+      // Delete all existing upgrade drops
+      await tx.swordUpgradeDrop.deleteMany({
+        where: { swordLevelDefinitionId: sword.id },
+      });
+
+      // Create new synthesize requirements
+      await tx.swordSynthesisRequirement.createMany({
+        data: materials.map((m: any) => ({
+          swordLevelDefinitionId: sword.id,
+          materialId: m.materialId,
+          requiredQuantity: m.requiredQuantity,
+        })),
+      });
+
+      // Create new upgrade drops
+      await tx.swordUpgradeDrop.createMany({
+        data: materials.map((m: any) => ({
+          swordLevelDefinitionId: sword.id,
+          materialId: m.materialId,
+          dropPercentage: m.dropPercentage,
+          minQuantity: m.minQuantity,
+          maxQuantity: m.maxQuantity,
+        })),
+      });
+
+      // Trigger updatedAt on parent
+      await tx.swordLevelDefinition.update({
+        where: { id: sword.id },
+        data: { successRate: sword.successRate }, // dummy update
+      });
+    });
+
+    // Fetch and return full updated sword
+    const fullSword = await prisma.swordLevelDefinition.findUnique({
+      where: { level: Number(level) },
+      include: {
+        synthesisRequirements: true,
+        upgradeDrops: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: serializeBigInt(fullSword),
+    });
+  } catch (err: any) {
+    console.error("Update sword materials error:", err);
+    return res.status(400).json({
+      success: false,
+      error: err.message || "Failed to update sword materials",
+    });
+  }
+}
+
+// 11) Create Gift (Admin)
+// Body example:
+// {
+//   "email": "user@example.com",           // or "userId": "123"
+//   "note": "Happy birthday!",
+//   "items": [
+//     { "type": "GOLD", "amount": 5000 },
+//     { "type": "TRUST_POINTS", "amount": 200 },
+//     { "type": "MATERIAL", "materialId": 17, "materialQuantity": 50 },
+//     { "type": "SWORD", "swordLevel": 5 },
+//     { "type": "SHIELD", "amount": 10 }
+//   ]
+// }
+export async function createGift(req: AdminAuthRequest, res: Response) {
+  try {
+    const { email, userId, items, note } = req.body;
+    let receiverId: bigint;
+    let receiverUser;
+
+    // ---------- Resolve User ----------
+    if (userId) {
+      receiverUser = await prisma.user.findUnique({
+        where: { id: BigInt(userId) },
+        select: { id: true, isBanned: true },
+      });
+      if (!receiverUser) {
+        return res
+          .status(404)
+          .json({ success: false, error: "User not found with this userId" });
+      }
+    } else if (email) {
+      receiverUser = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, isBanned: true },
+      });
+      if (!receiverUser) {
+        return res
+          .status(404)
+          .json({ success: false, error: "User not found with this email" });
+      }
+    } else {
+      return res
+        .status(400)
+        .json({ success: false, error: "Provide userId or email" });
+    }
+
+    // BANNED USER CHECK
+    if (receiverUser.isBanned) {
+      return res
+        .status(403)
+        .json({ success: false, error: "Cannot send gifts to a banned user" });
+    }
+    receiverId = receiverUser.id;
+
+    // ---------- Validate Items ----------
+    if (!Array.isArray(items) || items.length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, error: "At least one gift item is required" });
+    }
+
+    // ---------- Validate & Verify Each Item ----------
+    for (const item of items) {
+      if (!Object.values(GiftItemType).includes(item.type)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid gift item type: ${item.type}`,
+        });
+      }
+
+      // GOLD, TRUST_POINTS, SHIELD → require amount > 0
+      if (
+        ["GOLD", "TRUST_POINTS", "SHIELD"].includes(item.type) &&
+        (!item.amount || typeof item.amount !== "number" || item.amount <= 0)
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `${item.type} requires a positive amount`,
+        });
+      }
+
+      // MATERIAL → require materialId & materialQuantity > 0
+      if (item.type === GiftItemType.MATERIAL) {
+        if (
+          !item.materialId ||
+          typeof item.materialId !== "number" ||
+          !Number.isInteger(item.materialId)
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "Material gift requires valid materialId (integer)",
+          });
+        }
+        if (
+          !item.materialQuantity ||
+          typeof item.materialQuantity !== "number" ||
+          !Number.isInteger(item.materialQuantity) ||
+          item.materialQuantity <= 0
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "Material gift requires positive materialQuantity",
+          });
+        }
+
+        const materialExists = await prisma.material.findUnique({
+          where: { id: BigInt(item.materialId) },
+          select: { id: true },
+        });
+        if (!materialExists) {
+          return res.status(404).json({
+            success: false,
+            error: `Material not found (id=${item.materialId})`,
+          });
+        }
+      }
+
+      // SWORD → require swordLevel (integer)
+      if (item.type === GiftItemType.SWORD) {
+        if (
+          item.swordLevel === undefined ||
+          typeof item.swordLevel !== "number" ||
+          !Number.isInteger(item.swordLevel) ||
+          item.swordLevel < 0
+        ) {
+          return res.status(400).json({
+            success: false,
+            error:
+              "Sword gift requires valid swordLevel (non-negative integer)",
+          });
+        }
+
+        const swordLevelExists = await prisma.swordLevelDefinition.findUnique({
+          where: { level: item.swordLevel },
+          select: { id: true },
+        });
+        if (!swordLevelExists) {
+          return res.status(404).json({
+            success: false,
+            error: `Sword level not found (level=${item.swordLevel})`,
+          });
+        }
+      }
+    }
+
+    // ---------- Create Gift ----------
+    const gift = await prisma.userGift.create({
+      data: {
+        receiverId,
+        note: note || null,
+        items: {
+          create: items.map((item: any) => ({
+            type: item.type,
+            amount: item.amount ? item.amount : null, // GOLD, TRUST_POINTS, SHIELD
+            materialId: item.materialId ? BigInt(item.materialId) : null,
+            materialQuantity: item.materialQuantity
+              ? item.materialQuantity
+              : null,
+            swordLevel: item.swordLevel ?? null,
+          })),
+        },
+      },
+      include: { items: true },
+    });
+
+    return res.json({
+      success: true,
+      message: "Gift created successfully",
+      data: serializeBigInt(gift),
+    });
+  } catch (err) {
+    console.error("createGift error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Failed to create gift" });
+  }
+}
+
+// 12) Cancel Gift (only if PENDING)
+export async function cancelGift(req: AdminAuthRequest, res: Response) {
+  try {
+    const { giftId } = req.body;
+
+    if (!giftId || isNaN(Number(giftId))) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Valid giftId is required" });
+    }
+
+    const gift = await prisma.userGift.findUnique({
+      where: { id: BigInt(giftId) },
+      select: { status: true },
+    });
+
+    if (!gift) {
+      return res.status(404).json({ success: false, error: "Gift not found" });
+    }
+
+    if (gift.status !== GiftStatus.PENDING) {
+      return res.status(400).json({
+        success: false,
+        error: "Only pending gifts can be cancelled",
+      });
+    }
+
+    const updated = await prisma.userGift.update({
+      where: { id: BigInt(giftId) },
+      data: { status: GiftStatus.CANCELLED },
+    });
+
+    return res.json({
+      success: true,
+      message: "Gift cancelled successfully",
+      data: serializeBigInt(updated),
+    });
+  } catch (err) {
+    console.error("cancelGift error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Failed to cancel gift" });
+  }
+}
+
+// 13) Delete Gift (only if PENDING)
+export async function deleteGift(req: AdminAuthRequest, res: Response) {
+  try {
+    const { giftId } = req.body;
+
+    if (!giftId || isNaN(Number(giftId))) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Valid giftId is required" });
+    }
+
+    const gift = await prisma.userGift.findUnique({
+      where: { id: BigInt(giftId) },
+      select: { status: true },
+    });
+
+    if (!gift) {
+      return res.status(404).json({ success: false, error: "Gift not found" });
+    }
+
+    if (gift.status !== GiftStatus.PENDING) {
+      return res.status(400).json({
+        success: false,
+        error: "Only pending gifts can be deleted",
+      });
+    }
+
+    await prisma.$transaction([
+      prisma.userGiftItem.deleteMany({ where: { giftId: BigInt(giftId) } }),
+      prisma.userGift.delete({ where: { id: BigInt(giftId) } }),
+    ]);
+
+    return res.json({ success: true, message: "Gift deleted successfully" });
+  } catch (err) {
+    console.error("deleteGift error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Failed to delete gift" });
   }
 }
