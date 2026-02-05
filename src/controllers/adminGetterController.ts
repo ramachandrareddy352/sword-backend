@@ -9,25 +9,26 @@ import { serializeBigInt } from "../services/serializeBigInt";
 export const getAllUsers = async (req: AdminAuthRequest, res: Response) => {
   try {
     const {
-      sortByBanned, // 'true' | 'false' string
+      sortByBanned, // 'true' | 'false' (filter only)
       sortGold, // 'asc' | 'desc'
       sortTrustPoints, // 'asc' | 'desc'
-      sortMissionsDone, // 'asc' | 'desc'
-      sortRegisteredDate, // 'asc' | 'desc'
-      sortAdsViewed, // 'asc' | 'desc'
+      sortTotalShields, // 'asc' | 'desc'
+      sortTotalAdsViewed, // 'asc' | 'desc'
+      sortTotalMissionsDone, // 'asc' | 'desc'
+      sortRegisteredDate, // 'asc' | 'desc' (createdAt)
     } = req.query;
 
     const pagination = getPagination(req.query);
 
-    // If page <= 0 → return empty result with metadata
+    // If pagination invalid → early return
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "There are no users in game",
+        error: "Invalid pagination parameters",
       });
     }
 
-    // Build filter (only for banned status)
+    // Build WHERE clause (only for banned filter)
     const where: any = {};
     if (
       sortByBanned !== undefined &&
@@ -36,42 +37,63 @@ export const getAllUsers = async (req: AdminAuthRequest, res: Response) => {
       where.isBanned = sortByBanned === "true";
     }
 
-    // Build sorting
+    // Build ORDER BY array
     const orderBy: any[] = [];
+
+    // Registered date (createdAt)
     if (
       sortRegisteredDate &&
       ["asc", "desc"].includes(sortRegisteredDate as string)
     ) {
       orderBy.push({ createdAt: sortRegisteredDate });
     }
+
+    // Gold
     if (sortGold && ["asc", "desc"].includes(sortGold as string)) {
       orderBy.push({ gold: sortGold });
     }
+
+    // Trust Points
     if (
       sortTrustPoints &&
       ["asc", "desc"].includes(sortTrustPoints as string)
     ) {
       orderBy.push({ trustPoints: sortTrustPoints });
     }
+
+    // Total Shields
     if (
-      sortMissionsDone &&
-      ["asc", "desc"].includes(sortMissionsDone as string)
+      sortTotalShields &&
+      ["asc", "desc"].includes(sortTotalShields as string)
     ) {
-      orderBy.push({ totalMissionsDone: sortMissionsDone });
-    }
-    if (sortAdsViewed && ["asc", "desc"].includes(sortAdsViewed as string)) {
-      orderBy.push({ totalAdsViewed: sortAdsViewed });
+      orderBy.push({ totalShields: sortTotalShields });
     }
 
-    // Default sort if nothing provided (newest first)
+    // Total Ads Viewed
+    if (
+      sortTotalAdsViewed &&
+      ["asc", "desc"].includes(sortTotalAdsViewed as string)
+    ) {
+      orderBy.push({ totalAdsViewed: sortTotalAdsViewed });
+    }
+
+    // Total Missions Done
+    if (
+      sortTotalMissionsDone &&
+      ["asc", "desc"].includes(sortTotalMissionsDone as string)
+    ) {
+      orderBy.push({ totalMissionsDone: sortTotalMissionsDone });
+    }
+
+    // Default sort: newest users first
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
 
-    // Get total count
+    // Get total count (with optional banned filter)
     const totalUsers = await prisma.user.count({ where });
 
-    // Fetch paginated users
+    // Fetch paginated users with full basic details
     const users = await prisma.user.findMany({
       where,
       orderBy,
@@ -81,35 +103,38 @@ export const getAllUsers = async (req: AdminAuthRequest, res: Response) => {
         id: true,
         email: true,
         name: true,
+        profileLogo: true,
         gold: true,
         trustPoints: true,
+        totalShields: true,
+        totalAdsViewed: true,
+        oneDayAdsViewed: true,
+        totalMissionsDone: true,
+        todayMissionsDone: true,
         createdAt: true,
         lastReviewed: true,
         lastLoginAt: true,
-        emailVerified: true,
-        oneDayAdsViewed: true,
-        totalAdsViewed: true,
-        totalMissionsDone: true,
         isBanned: true,
         anvilSwordId: true,
-        anvilShieldId: true,
+        soundOn: true,
       },
     });
 
+    // If no users match criteria
     if (users.length === 0) {
       return res.status(200).json({
         success: true,
-        message: "There are no users in Game",
+        message: "No users found matching the criteria",
         data: [],
-        page: Number(req.query.page || 0),
-        limit: Number(req.query.limit || 20),
+        page: pagination.page,
+        limit: pagination.limit,
         total: 0,
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Users data fetched successfully",
+      message: "Users fetched successfully",
       data: serializeBigInt(users),
       page: pagination.page,
       limit: pagination.limit,
@@ -124,129 +149,7 @@ export const getAllUsers = async (req: AdminAuthRequest, res: Response) => {
   }
 };
 
-// 2) Admin GET all users' materials with sorting (power, gold cost), optional rarity filter, pagination
-export const getAllUsersMaterials = async (
-  req: AdminAuthRequest,
-  res: Response,
-) => {
-  try {
-    const {
-      sortCreatedAt, // 'asc' | 'desc'
-      sortPower, // 'asc' | 'desc'
-      sortGoldCost, // 'asc' | 'desc'
-      rarity, // 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'MYTHIC' (filter)
-      sold, // true | false
-    } = req.query;
-
-    const pagination = getPagination(req.query);
-    if (!pagination) {
-      return res.status(400).json({
-        success: false,
-        error: "There are no materails in the game",
-      });
-    }
-
-    // Validate rarity if provided
-    const validRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
-    let filterRarity: MaterialRarity | undefined;
-    if (rarity) {
-      const upperRarity = (rarity as string).toUpperCase();
-      if (!validRarities.includes(upperRarity)) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Invalid rarity value. Must be one of: " + validRarities.join(", "),
-        });
-      }
-      filterRarity = upperRarity as MaterialRarity;
-    }
-
-    // Build where clause
-    const where: any = {};
-    if (filterRarity) {
-      where.material = { rarity: filterRarity };
-    }
-    // SOLD FILTER
-    if (sold === "true") {
-      where.soldedQuantity = { gt: 0 };
-    }
-    if (sold === "false") {
-      where.soldedQuantity = 0;
-    }
-
-    // Build orderBy
-    const orderBy: any[] = [];
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ material: { createdAt: sortCreatedAt } });
-    }
-    if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
-      orderBy.push({ material: { power: sortPower } });
-    }
-    if (sortGoldCost && ["asc", "desc"].includes(sortGoldCost as string)) {
-      orderBy.push({ material: { cost: sortGoldCost } });
-    }
-    // Default sort if none: createdAt desc
-    if (orderBy.length === 0) {
-      orderBy.push({ createdAt: "desc" });
-    }
-
-    // Get total count
-    const totalItems = await prisma.userMaterial.count({ where });
-
-    // Fetch data
-    const materials = await prisma.userMaterial.findMany({
-      where,
-      orderBy,
-      skip: pagination.skip,
-      take: pagination.take,
-      select: {
-        userId: true,
-        quantity: true,
-        soldedQuantity: true,
-        createdAt: true,
-        updatedAt: true,
-        user: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            isBanned: true,
-            gold: true,
-            trustPoints: true,
-          },
-        },
-        material: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            description: true,
-            image: true,
-            cost: true,
-            power: true,
-            rarity: true,
-          },
-        },
-      },
-    });
-
-    return res.status(200).json({
-      success: true,
-      data: serializeBigInt(materials),
-      total: totalItems,
-      page: pagination.page,
-      limit: pagination.limit,
-    });
-  } catch (error) {
-    console.error("getAllUsersMaterials error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 3) Admin GET all users' swords with sorting (level, power), pagination
-// 3) Admin GET all users' swords with sorting (level, power), pagination
+// 2) Admin GET all users' swords with sorting (level, power, isBroken, isSolded), pagination
 export const getAllUsersSwords = async (
   req: AdminAuthRequest,
   res: Response,
@@ -255,10 +158,8 @@ export const getAllUsersSwords = async (
     const {
       sortCreatedAt, // 'asc' | 'desc'
       sortLevel, // 'asc' | 'desc'
-      sortPower, // 'asc' | 'desc'
-      sold, // 'true' | 'false' | undefined (all)
-      page = 1,
-      limit = 20,
+      sold, // 'true' | 'false' | undefined (filter isSolded)
+      broken, // 'true' | 'false' | undefined (filter isBroken)
     } = req.query;
 
     const pagination = getPagination(req.query);
@@ -273,27 +174,31 @@ export const getAllUsersSwords = async (
     const where: any = {};
 
     // Sold filter
-    if (sold === "true") where.isSolded = true;
-    if (sold === "false") where.isSolded = false;
-    // undefined → show all
+    if (sold === "true") {
+      where.isSolded = true;
+    } else if (sold === "false") {
+      where.isSolded = false;
+    }
+
+    // Broken filter
+    if (broken === "true") {
+      where.isBroken = true;
+    } else if (broken === "false") {
+      where.isBroken = false;
+    }
 
     // Build orderBy array (multiple sorts supported)
     const orderBy: any[] = [];
 
     // Direct fields on UserSword
     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ createdAt: sortCreatedAt }); // ← FIXED: no nesting
+      orderBy.push({ createdAt: sortCreatedAt });
     }
     if (sortLevel && ["asc", "desc"].includes(sortLevel as string)) {
       orderBy.push({ level: sortLevel });
     }
 
-    // Nested relation fields
-    if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
-      orderBy.push({ swordLevelDefinition: { power: sortPower } });
-    }
-
-    // Default sort if none provided
+    // Default sort if none provided: newest first
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
@@ -301,7 +206,7 @@ export const getAllUsersSwords = async (
     // Get total count
     const totalItems = await prisma.userSword.count({ where });
 
-    // Fetch swords with user details
+    // Fetch swords with user & sword definition details
     const swords = await prisma.userSword.findMany({
       where,
       orderBy,
@@ -313,6 +218,7 @@ export const getAllUsersSwords = async (
         level: true,
         isOnAnvil: true,
         isSolded: true,
+        isBroken: true,
         createdAt: true,
         updatedAt: true,
         user: {
@@ -320,6 +226,7 @@ export const getAllUsersSwords = async (
             id: true,
             email: true,
             name: true,
+            profileLogo: true,
             isBanned: true,
             gold: true,
             trustPoints: true,
@@ -327,13 +234,13 @@ export const getAllUsersSwords = async (
         },
         swordLevelDefinition: {
           select: {
-            level: true,
             name: true,
             image: true,
             description: true,
-            power: true,
             upgradeCost: true,
             sellingCost: true,
+            buyingCost: true,
+            synthesizeCost: true,
             successRate: true,
           },
         },
@@ -356,81 +263,76 @@ export const getAllUsersSwords = async (
   }
 };
 
-// 4) Admin GET all users' shields with optional rarity filter + sorting (rarity, power, cost), pagination
-export const getAllUsersShields = async (
+// 3) Admin GET all users' materials with sorting (power, gold cost), optional rarity filter, pagination
+export const getAllUsersMaterials = async (
   req: AdminAuthRequest,
   res: Response,
 ) => {
   try {
     const {
       sortCreatedAt, // 'asc' | 'desc'
-      rarity, // optional: 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'MYTHIC'
-      sortRarity, // 'asc' | 'desc'
-      sortPower, // 'asc' | 'desc'
-      sortCost, // 'asc' | 'desc'
-      sold, // true | false
+      rarity, // 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'MYTHIC' (filter)
+      sold, // 'true' | 'false' (filter soldedQuantity > 0 or = 0)
     } = req.query;
 
     const pagination = getPagination(req.query);
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "There are no shields in the game",
+        error: "Invalid pagination parameters",
       });
     }
 
-    // Optional rarity filter + validation
+    // Validate rarity if provided
+    const validRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
     let filterRarity: MaterialRarity | undefined;
     if (rarity) {
-      const upper = (rarity as string).toUpperCase();
-      const valid = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
-      if (!valid.includes(upper)) {
+      const upperRarity = (rarity as string).toUpperCase();
+      if (!validRarities.includes(upperRarity)) {
         return res.status(400).json({
           success: false,
-          error: `Invalid rarity. Allowed: ${valid.join(", ")}`,
+          error: `Invalid rarity value. Must be one of: ${validRarities.join(", ")}`,
         });
       }
-      filterRarity = upper as MaterialRarity;
+      filterRarity = upperRarity as MaterialRarity;
     }
 
     // Build where clause
     const where: any = {};
     if (filterRarity) {
-      where.shield = { rarity: filterRarity };
+      where.material = { rarity: filterRarity };
     }
-
-    // SOLD FILTER
-    if (sold === "true") where.soldedQuantity = { gt: 0 };
-    if (sold === "false") where.soldedQuantity = 0;
+    if (sold === "true") {
+      where.soldedQuantity = { gt: 0 };
+    }
+    if (sold === "false") {
+      where.soldedQuantity = 0;
+    }
 
     // Build orderBy
     const orderBy: any[] = [];
+
     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ material: { createdAt: sortCreatedAt } });
+      orderBy.push({ createdAt: sortCreatedAt });
     }
-    if (sortRarity && ["asc", "desc"].includes(sortRarity as string)) {
-      orderBy.push({ shield: { rarity: sortRarity } });
-    }
-    if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
-      orderBy.push({ shield: { power: sortPower } });
-    }
-    if (sortCost && ["asc", "desc"].includes(sortCost as string)) {
-      orderBy.push({ shield: { cost: sortCost } });
-    }
+
+    // Default sort: newest first
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
 
-    const totalItems = await prisma.userShield.count({ where });
+    // Get total count
+    const totalItems = await prisma.userMaterial.count({ where });
 
-    const shields = await prisma.userShield.findMany({
+    // Fetch data
+    const materials = await prisma.userMaterial.findMany({
       where,
       orderBy,
       skip: pagination.skip,
       take: pagination.take,
       select: {
         userId: true,
-        quantity: true,
+        unsoldQuantity: true,
         soldedQuantity: true,
         createdAt: true,
         updatedAt: true,
@@ -444,15 +346,15 @@ export const getAllUsersShields = async (
             trustPoints: true,
           },
         },
-        shield: {
+        material: {
           select: {
             id: true,
             code: true,
             name: true,
             description: true,
             image: true,
-            cost: true,
-            power: true,
+            buyingCost: true,
+            sellingCost: true,
             rarity: true,
           },
         },
@@ -461,31 +363,57 @@ export const getAllUsersShields = async (
 
     return res.status(200).json({
       success: true,
-      message: "Users shields fetched successfully",
-      data: serializeBigInt(shields),
+      message: "Users' materials fetched successfully",
+      data: serializeBigInt(materials),
       total: totalItems,
       page: pagination.page,
       limit: pagination.limit,
     });
   } catch (error) {
-    console.error("getAllUsersShields error:", error);
+    console.error("getAllUsersMaterials error:", error);
     return res
       .status(500)
       .json({ success: false, error: "Internal server error" });
   }
 };
 
-// 5) Admin GET all users' gifts with optional status filter, optional itemType filter (gifts containing that item type), sorting (createdAt, status), pagination
-// Example: in adminGetterController or wherever getAllUsersGifts is defined
+// 4) admin config data
+export const getAdminConfig = async (_req: AdminAuthRequest, res: Response) => {
+  try {
+    // Fetch the single AdminConfig row (id is fixed to 1 as per your schema)
+    const config = await prisma.adminConfig.findUnique({
+      where: { id: 1 }, // BigInt literal (1n),
+    });
+
+    if (!config) {
+      return res.status(404).json({
+        success: false,
+        error: "Admin configuration not found",
+      });
+    }
+
+    // Return the config data (convert BigInt to string for safe JSON)
+    return res.status(200).json({
+      success: true,
+      message: "Admin configuration retrieved successfully",
+      data: serializeBigInt(config),
+    });
+  } catch (error) {
+    console.error("getAdminConfig error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to fetch admin configuration",
+    });
+  }
+};
+
+// 5) Admin GET all users' gifts with optional status filter, optional itemType filter, sorting (createdAt, status), pagination
 export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
   try {
     const {
       status, // optional: "PENDING" | "CLAIMED" | "CANCELLED"
-      itemType, // NEW: filter by GiftItemType (GOLD, TRUST_POINTS, MATERIAL, SWORD, SHIELD)
+      itemType, // optional: "GOLD" | "TRUST_POINTS" | "MATERIAL" | "SWORD" | "SHIELD"
       sortCreatedAt, // "asc" | "desc"
-      sortItemType, // NEW: "asc" | "desc" — sort by first item's type
-      page = 1,
-      limit = 12,
     } = req.query;
 
     const pagination = getPagination(req.query);
@@ -507,7 +435,7 @@ export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
       where.status = status;
     }
 
-    // Item Type filter (has at least one item of this type)
+    // Item Type filter (gifts that contain at least one item of this type)
     if (
       itemType &&
       ["GOLD", "TRUST_POINTS", "MATERIAL", "SWORD", "SHIELD"].includes(
@@ -521,14 +449,13 @@ export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
       };
     }
 
-    // Build orderBy (for direct fields)
+    // Build orderBy (for direct fields on UserGift)
     const orderBy: any[] = [];
 
     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
       orderBy.push({ createdAt: sortCreatedAt });
     }
-
-    // Default sort if none provided
+    // Default sort: newest first
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
@@ -544,8 +471,9 @@ export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
           select: {
             id: true,
             type: true,
-            amount: true,
-            // Material full details
+            amount: true, // used for GOLD, TRUST_POINTS, SHIELD
+            materialId: true,
+            materialQunatity: true,
             material: {
               select: {
                 id: true,
@@ -553,14 +481,11 @@ export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
                 code: true,
                 image: true,
                 description: true,
-                cost: true,
-                power: true,
+                buyingCost: true,
+                sellingCost: true,
                 rarity: true,
               },
             },
-            materialId: true,
-            materialRarity: true,
-            // Sword full details
             swordLevel: true,
             swordLevelDefinition: {
               select: {
@@ -569,27 +494,11 @@ export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
                 name: true,
                 image: true,
                 description: true,
-                power: true,
                 upgradeCost: true,
                 sellingCost: true,
                 successRate: true,
               },
             },
-            // Shield full details
-            shield: {
-              select: {
-                id: true,
-                name: true,
-                code: true,
-                image: true,
-                description: true,
-                cost: true,
-                power: true,
-                rarity: true,
-              },
-            },
-            shieldId: true,
-            shieldRarity: true,
           },
         },
         user: {
@@ -605,28 +514,13 @@ export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
       },
     });
 
-    // NEW: In-memory sort by first item's type (if requested)
-    let finalGifts = gifts;
-    if (sortItemType && ["asc", "desc"].includes(sortItemType as string)) {
-      finalGifts = [...gifts].sort((a, b) => {
-        const typeA = a.items[0]?.type || "NONE";
-        const typeB = b.items[0]?.type || "NONE";
-
-        if (sortItemType === "asc") {
-          return typeA.localeCompare(typeB);
-        } else {
-          return typeB.localeCompare(typeA);
-        }
-      });
-    }
-
-    // Total count (before in-memory sort)
+    // Total count
     const totalItems = await prisma.userGift.count({ where });
 
     return res.status(200).json({
       success: true,
       message: "Gifts fetched successfully",
-      data: serializeBigInt(finalGifts),
+      data: serializeBigInt(gifts),
       total: totalItems,
       page: pagination.page,
       limit: pagination.limit,
@@ -772,6 +666,7 @@ export const getAllUsersVouchers = async (
           select: {
             id: true,
             email: true,
+            profileLogo: true,
             name: true,
             isBanned: true,
             gold: true,
@@ -797,48 +692,7 @@ export const getAllUsersVouchers = async (
   }
 };
 
-// 8) admin config data
-export const getAdminConfig = async (req: AdminAuthRequest, res: Response) => {
-  try {
-    // Fetch the single AdminConfig row (id is fixed to 1 as per your schema)
-    const config = await prisma.adminConfig.findUnique({
-      where: { id: 1 }, // BigInt literal (1n)
-      select: {
-        id: true,
-        maxDailyAds: true,
-        maxDailyMissions: true,
-        defaultTrustPoints: true,
-        minVoucherGold: true,
-        maxVoucherGold: true,
-        voucherExpiryDays: true,
-        expiryallowVoucherCancel: true,
-        adminEmailId: true,
-        updatedAt: true,
-      },
-    });
-
-    if (!config) {
-      return res.status(404).json({
-        success: false,
-        error: "Admin configuration not found",
-      });
-    }
-
-    // Return the config data (convert BigInt to string for safe JSON)
-    return res.status(200).json({
-      success: true,
-      message: "Admin configuration retrieved successfully",
-      data: serializeBigInt(config),
-    });
-  } catch (error) {
-    console.error("getAdminConfig error:", error);
-    return res.status(500).json({
-      success: false,
-      error: "Failed to fetch admin configuration",
-    });
-  }
-};
-
+// 8) verify weaher user is a registered one or not
 export const checkUserByEmail = async (
   req: AdminAuthRequest,
   res: Response,
@@ -864,7 +718,6 @@ export const checkUserByEmail = async (
         email: true,
         name: true,
         isBanned: true,
-        emailVerified: true,
         createdAt: true,
       },
     });
@@ -883,16 +736,7 @@ export const checkUserByEmail = async (
       success: true,
       exists: true,
       message: "User found",
-      data: {
-        id: user.id.toString(), // convert BigInt to string for JSON
-        email: user.email,
-        name: user.name || "Unnamed User",
-        isBanned: user.isBanned,
-        emailVerified: user.emailVerified,
-        createdAt: user.createdAt.toISOString(),
-        // gold: user.gold ? Number(user.gold) : undefined,
-        // trustPoints: user.trustPoints,
-      },
+      data: serializeBigInt(user),
     });
   } catch (err: any) {
     console.error("[checkUserByEmail] Error:", err);

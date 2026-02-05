@@ -3,7 +3,12 @@ import prisma from "../database/client";
 import { generateSecureCode } from "../services/generateCode";
 import { handleUserError, userGuard } from "../services/queryHelpers";
 import type { UserAuthRequest } from "../middleware/userAuth";
-import { VoucherStatus, MarketplaceItemType } from "@prisma/client";
+import {
+  VoucherStatus,
+  MarketplaceItemType,
+  SupportCategory,
+  SupportPriority,
+} from "@prisma/client";
 import type { MaterialType, ShieldType } from "@prisma/client";
 import { serializeBigInt } from "../services/serializeBigInt";
 
@@ -28,47 +33,73 @@ export const toggleSound = async (req: UserAuthRequest, res: Response) => {
     handleUserError(err, res);
   }
 };
-
-// 2) Create Voucher
+/// NOTE: CHECK USER IS BANNED OR NOT, BEFORE THE ACTIONS
+// 2) Create Voucher (User creates a voucher by locking gold)
 export const createVoucher = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
     const { goldAmount } = req.body;
 
-    const user = await userGuard(userId);
+    if (!goldAmount || typeof goldAmount !== "number" || goldAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "goldAmount must be a positive number",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { gold: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: "User not found" });
+    }
+
+    const amount = Math.floor(goldAmount); // ensure integer
 
     const config = await prisma.adminConfig.findUnique({
       where: { id: BigInt(1) },
+      select: { minVoucherGold: true, maxVoucherGold: true },
     });
+
     if (!config) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Admin config data not found" });
+      return res.status(500).json({
+        success: false,
+        error: "Admin configuration not found",
+      });
     }
 
-    const amount = BigInt(goldAmount);
     if (amount < config.minVoucherGold || amount > config.maxVoucherGold) {
       return res.status(400).json({
         success: false,
-        error: `Amount must be between ${config.minVoucherGold} and ${config.maxVoucherGold}`,
+        error: `Voucher amount must be between ${config.minVoucherGold} and ${config.maxVoucherGold}`,
       });
     }
 
     if (user.gold < amount) {
-      throw new Error("INSUFFICIENT_GOLD");
+      return res.status(400).json({
+        success: false,
+        error: "Insufficient gold balance",
+      });
     }
 
     let code: string;
     let voucher;
+
+    // Retry loop for unique code (up to 10 attempts)
     for (let attempt = 0; attempt < 10; attempt++) {
-      code = generateSecureCode(12);
+      code = generateSecureCode(12); // your helper function
+
       try {
         voucher = await prisma.$transaction(async (tx) => {
+          // Deduct gold
           await tx.user.update({
             where: { id: userId },
             data: { gold: { decrement: amount } },
           });
 
+          // Create voucher
           return tx.userVoucher.create({
             data: {
               userId,
@@ -78,21 +109,27 @@ export const createVoucher = async (req: UserAuthRequest, res: Response) => {
             },
           });
         });
-        break;
+
+        break; // Success → exit loop
       } catch (err: any) {
-        if (err.code !== "P2002") throw err;
+        if (err.code === "P2002") {
+          // Unique constraint violation (code already exists) → retry
+          continue;
+        }
+        throw err; // Other error → fail
       }
     }
 
     if (!voucher) {
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to generate unique code" });
+      return res.status(500).json({
+        success: false,
+        error: "Failed to generate unique voucher code after retries",
+      });
     }
 
     return res.json({
       success: true,
-      message: "Voucher created successfully",
+      message: "Voucher created successfully. Use this code for shopping.",
       data: serializeBigInt(voucher),
     });
   } catch (err: any) {
@@ -100,27 +137,39 @@ export const createVoucher = async (req: UserAuthRequest, res: Response) => {
   }
 };
 
-// 3) Cancel Voucher
+// 3) Cancel Voucher (refund gold if pending)
 export const cancelVoucher = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
     const { voucherId } = req.body;
 
-    if (!voucherId)
-      return res
-        .status(400)
-        .json({ success: false, error: "Voucher ID required" });
-
-    await userGuard(userId);
+    if (!voucherId || isNaN(Number(voucherId))) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid voucher ID required",
+      });
+    }
 
     const voucher = await prisma.userVoucher.findUnique({
       where: { id: BigInt(voucherId) },
+      select: {
+        userId: true,
+        goldAmount: true,
+        status: true,
+      },
     });
 
-    if (!voucher || voucher.userId !== userId) {
+    if (!voucher) {
       return res
         .status(404)
         .json({ success: false, error: "Voucher not found" });
+    }
+
+    if (voucher.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: "You can only cancel your own vouchers",
+      });
     }
 
     if (voucher.status !== VoucherStatus.PENDING) {
@@ -131,13 +180,15 @@ export const cancelVoucher = async (req: UserAuthRequest, res: Response) => {
     }
 
     await prisma.$transaction(async (tx) => {
+      // Refund gold
       await tx.user.update({
         where: { id: userId },
         data: { gold: { increment: voucher.goldAmount } },
       });
 
+      // Cancel voucher
       await tx.userVoucher.update({
-        where: { id: voucher.id },
+        where: { id: BigInt(voucherId) },
         data: {
           status: VoucherStatus.CANCELLED,
           cancelledAt: new Date(),
@@ -147,14 +198,14 @@ export const cancelVoucher = async (req: UserAuthRequest, res: Response) => {
 
     return res.json({
       success: true,
-      message: "Voucher cancelled, gold refunded",
+      message: "Voucher cancelled successfully. Gold refunded.",
     });
   } catch (err: any) {
     handleUserError(err, res);
   }
 };
 
-// 4) Create Customer Support Complaint (No ban check)
+// 4) Create Customer Support Complaint
 export const createComplaint = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -162,34 +213,53 @@ export const createComplaint = async (req: UserAuthRequest, res: Response) => {
       title,
       content,
       message,
-      category = "OTHER",
-      priority = "NORMAL",
+      category = SupportCategory.OTHER,
+      priority = SupportPriority.NORMAL,
     } = req.body;
 
-    if (!title || title.length < 5) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Title must be at least 5 characters" });
+    // Basic validation
+    if (!title || typeof title !== "string" || title.trim().length < 5) {
+      return res.status(400).json({
+        success: false,
+        error: "Title must be at least 5 characters",
+      });
     }
-    if (!content || content.length < 5) {
+
+    if (!content || typeof content !== "string" || content.trim().length < 5) {
       return res.status(400).json({
         success: false,
         error: "Content must be at least 5 characters",
       });
     }
-    if (!message || message.length < 10) {
+
+    if (!message || typeof message !== "string" || message.trim().length < 10) {
       return res.status(400).json({
         success: false,
         error: "Message must be at least 10 characters",
       });
     }
 
+    // Validate category & priority enums
+    if (!Object.values(SupportCategory).includes(category)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid category. Allowed: ${Object.values(SupportCategory).join(", ")}`,
+      });
+    }
+
+    if (!Object.values(SupportPriority).includes(priority)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid priority. Allowed: ${Object.values(SupportPriority).join(", ")}`,
+      });
+    }
+
     const complaint = await prisma.customerSupport.create({
       data: {
         userId,
-        title,
-        content,
-        message,
+        title: title.trim(),
+        content: content.trim(),
+        message: message.trim(),
         category,
         priority,
       },
@@ -197,7 +267,7 @@ export const createComplaint = async (req: UserAuthRequest, res: Response) => {
 
     return res.json({
       success: true,
-      message: "Complaint submitted successfully",
+      message: "Complaint submitted successfully. We'll review it soon.",
       data: serializeBigInt(complaint),
     });
   } catch (err: any) {
@@ -214,34 +284,43 @@ export const updateComplaint = async (req: UserAuthRequest, res: Response) => {
     const userId = BigInt(req.user.userId);
     const { complaintId, title, content, message } = req.body;
 
-    if (!complaintId) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Complaint ID required" });
+    if (!complaintId || isNaN(Number(complaintId))) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid complaint ID required",
+      });
     }
 
     if (!title && !content && !message) {
       return res.status(400).json({
         success: false,
-        error: "Provide at least one field to update",
+        error:
+          "Provide at least one field to update (title, content, or message)",
       });
     }
 
-    if (title && title.length < 5) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Title must be at least 5 characters" });
-    }
-    if (content && content.length < 5) {
+    // Validate lengths if provided
+    if (title && (typeof title !== "string" || title.trim().length < 5)) {
       return res.status(400).json({
         success: false,
-        error: "Content must be at least 5 characters",
+        error: "Title must be at least 5 characters if provided",
       });
     }
-    if (message && message.length < 10) {
+
+    if (content && (typeof content !== "string" || content.trim().length < 5)) {
       return res.status(400).json({
         success: false,
-        error: "Message must be at least 10 characters",
+        error: "Content must be at least 5 characters if provided",
+      });
+    }
+
+    if (
+      message &&
+      (typeof message !== "string" || message.trim().length < 10)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Message must be at least 10 characters if provided",
       });
     }
 
@@ -251,30 +330,23 @@ export const updateComplaint = async (req: UserAuthRequest, res: Response) => {
       });
 
       if (!complaint) {
-        return res
-          .status(404)
-          .json({ success: false, error: "Complaint not found" });
+        throw new Error("COMPLAINT_NOT_FOUND");
       }
 
       if (complaint.userId !== userId) {
-        return res.status(403).json({
-          success: false,
-          error: "You can only update your own complaints",
-        });
+        throw new Error("NOT_YOUR_COMPLAINT");
       }
 
       if (complaint.isReviewed) {
-        return res
-          .status(403)
-          .json({ success: false, error: "Cannot update reviewed complaint" });
+        throw new Error("COMPLAINT_REVIEWED");
       }
 
       return tx.customerSupport.update({
-        where: { id: complaint.id },
+        where: { id: BigInt(complaintId) },
         data: {
-          title: title ?? complaint.title,
-          content: content ?? complaint.content,
-          message: message ?? complaint.message,
+          title: title ? title.trim() : complaint.title,
+          content: content ? content.trim() : complaint.content,
+          message: message ? message.trim() : complaint.message,
           updatedAt: new Date(),
         },
         select: {
@@ -283,6 +355,7 @@ export const updateComplaint = async (req: UserAuthRequest, res: Response) => {
           content: true,
           message: true,
           updatedAt: true,
+          isReviewed: true,
         },
       });
     });
@@ -290,9 +363,27 @@ export const updateComplaint = async (req: UserAuthRequest, res: Response) => {
     return res.json({
       success: true,
       message: "Complaint updated successfully",
-      complaint: serializeBigInt(updated),
+      data: serializeBigInt(updated),
     });
   } catch (err: any) {
+    if (err.message === "COMPLAINT_NOT_FOUND") {
+      return res
+        .status(404)
+        .json({ success: false, error: "Complaint not found" });
+    }
+    if (err.message === "NOT_YOUR_COMPLAINT") {
+      return res.status(403).json({
+        success: false,
+        error: "You can only update your own complaints",
+      });
+    }
+    if (err.message === "COMPLAINT_REVIEWED") {
+      return res.status(403).json({
+        success: false,
+        error: "Cannot update a complaint that has been reviewed",
+      });
+    }
+
     console.error("updateComplaint error:", err);
     return res
       .status(500)
@@ -306,38 +397,36 @@ export const deleteComplaint = async (req: UserAuthRequest, res: Response) => {
     const userId = BigInt(req.user.userId);
     const { complaintId } = req.body;
 
-    if (!complaintId) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Complaint ID required" });
+    if (!complaintId || isNaN(Number(complaintId))) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid complaint ID required",
+      });
     }
 
     await prisma.$transaction(async (tx) => {
       const complaint = await tx.customerSupport.findUnique({
         where: { id: BigInt(complaintId) },
+        select: {
+          userId: true,
+          isReviewed: true,
+        },
       });
 
       if (!complaint) {
-        return res
-          .status(404)
-          .json({ success: false, error: "Complaint not found" });
+        throw new Error("COMPLAINT_NOT_FOUND");
       }
 
       if (complaint.userId !== userId) {
-        return res.status(403).json({
-          success: false,
-          error: "You can only delete your own complaints",
-        });
+        throw new Error("NOT_YOUR_COMPLAINT");
       }
 
       if (complaint.isReviewed) {
-        return res
-          .status(403)
-          .json({ success: false, error: "Cannot delete reviewed complaint" });
+        throw new Error("COMPLAINT_REVIEWED");
       }
 
       await tx.customerSupport.delete({
-        where: { id: complaint.id },
+        where: { id: BigInt(complaintId) },
       });
     });
 
@@ -346,6 +435,24 @@ export const deleteComplaint = async (req: UserAuthRequest, res: Response) => {
       message: "Complaint deleted successfully",
     });
   } catch (err: any) {
+    if (err.message === "COMPLAINT_NOT_FOUND") {
+      return res
+        .status(404)
+        .json({ success: false, error: "Complaint not found" });
+    }
+    if (err.message === "NOT_YOUR_COMPLAINT") {
+      return res.status(403).json({
+        success: false,
+        error: "You can only delete your own complaints",
+      });
+    }
+    if (err.message === "COMPLAINT_REVIEWED") {
+      return res.status(403).json({
+        success: false,
+        error: "Cannot delete a complaint that has been reviewed",
+      });
+    }
+
     console.error("deleteComplaint error:", err);
     return res
       .status(500)

@@ -2,24 +2,20 @@ import type { Request, Response } from "express";
 import prisma from "../database/client";
 import { getPagination } from "../services/queryHelpers";
 import { serializeBigInt } from "../services/serializeBigInt";
-import { MarketplaceItemType } from "@prisma/client";
 
-// 1. GET /public/swords - All sword definitions
+// 1) All sword definitions (paginated, basic info + optional relations)
 export const getAllSwords = async (req: Request, res: Response) => {
   try {
     const {
       sortLevel, // 'asc' | 'desc'
-      sortPower, // 'asc' | 'desc'
-      sortUpgradeCost, // 'asc' | 'desc'
-      sortSellingCost, // 'asc' | 'desc'
-      sortCreatedAt, // 'asc' | 'desc'
+      includeRelations, // 'true' to include synthesisRequirements & upgradeDrops (default false for performance)
     } = req.query;
 
     const pagination = getPagination(req.query);
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "No swords found for in the game",
+        error: "Invalid pagination parameters",
       });
     }
 
@@ -29,28 +25,10 @@ export const getAllSwords = async (req: Request, res: Response) => {
     if (sortLevel && ["asc", "desc"].includes(sortLevel as string)) {
       orderBy.push({ level: sortLevel });
     }
-    if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
-      orderBy.push({ power: sortPower });
-    }
-    if (
-      sortUpgradeCost &&
-      ["asc", "desc"].includes(sortUpgradeCost as string)
-    ) {
-      orderBy.push({ upgradeCost: sortUpgradeCost });
-    }
-    if (
-      sortSellingCost &&
-      ["asc", "desc"].includes(sortSellingCost as string)
-    ) {
-      orderBy.push({ sellingCost: sortSellingCost });
-    }
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ createdAt: sortCreatedAt });
-    }
 
-    // Default sort if nothing provided
+    // Default sort
     if (orderBy.length === 0) {
-      orderBy.push({ createdAt: "desc" });
+      orderBy.push({ level: "asc" });
     }
 
     const total = await prisma.swordLevelDefinition.count();
@@ -66,12 +44,47 @@ export const getAllSwords = async (req: Request, res: Response) => {
         image: true,
         description: true,
         upgradeCost: true,
+        buyingCost: true,
         sellingCost: true,
+        synthesizeCost: true,
         successRate: true,
-        power: true,
+        isBuyingAllow: true,
+        isSellingAllow: true,
+        isSynthesizeAllow: true,
         createdAt: true,
         updatedAt: true,
       },
+      // Optionally include relations if requested (can be heavy for large lists)
+      ...(includeRelations === "true" && {
+        include: {
+          synthesisRequirements: {
+            select: {
+              material: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  description: true,
+                  rarity: true,
+                  image: true,
+                  sellingCost: true,
+                  buyingCost: true,
+                  isBuyingAllow: true,
+                  isSellingAllow: true,
+                },
+              },
+              requiredQuantity: true,
+            },
+          },
+          upgradeDrops: {
+            select: {
+              dropPercentage: true,
+              minQuantity: true,
+              maxQuantity: true,
+            },
+          },
+        },
+      }),
     });
 
     if (swords.length === 0) {
@@ -101,13 +114,99 @@ export const getAllSwords = async (req: Request, res: Response) => {
   }
 };
 
-// 2. GET /public/materials - All material types
+// 2) Single sword by level or name (full details with relations)
+export const getSword = async (req: Request, res: Response) => {
+  try {
+    const { level, name } = req.query;
+
+    if (!level && !name) {
+      return res.status(400).json({
+        success: false,
+        error: "Provide either 'level' or 'name' query parameter",
+      });
+    }
+
+    let sword;
+    if (level) {
+      sword = await prisma.swordLevelDefinition.findUnique({
+        where: { level: Number(level) },
+        include: {
+          synthesisRequirements: {
+            select: {
+              material: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  description: true,
+                  rarity: true,
+                  image: true,
+                  sellingCost: true,
+                  buyingCost: true,
+                  isBuyingAllow: true,
+                  isSellingAllow: true,
+                },
+              },
+              requiredQuantity: true,
+            },
+          },
+          upgradeDrops: {
+            select: {
+              dropPercentage: true,
+              minQuantity: true,
+              maxQuantity: true,
+            },
+          },
+        },
+      });
+    } else if (name) {
+      sword = await prisma.swordLevelDefinition.findUnique({
+        where: { name: name as string },
+        include: {
+          synthesisRequirements: {
+            select: {
+              material: true,
+              requiredQuantity: true,
+            },
+          },
+          upgradeDrops: {
+            select: {
+              material: true,
+              dropPercentage: true,
+              minQuantity: true,
+              maxQuantity: true,
+            },
+          },
+        },
+      });
+    }
+
+    if (!sword) {
+      return res
+        .status(404)
+        .json({ success: false, error: "Sword not found in the game" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Sword details fetched successfully",
+      data: serializeBigInt(sword),
+    });
+  } catch (error) {
+    console.error("getSword error:", error);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 3) All materials (paginated, basic info)
 export const getAllMaterials = async (req: Request, res: Response) => {
   try {
     const {
-      sortCost, // 'asc' | 'desc'
-      sortPower, // 'asc' | 'desc'
-      sortCode, // 'asc' | 'desc'
+      rarity, // optional filter: COMMON | RARE | EPIC | LEGENDARY | MYTHIC
+      sortBuyingCost, // 'asc' | 'desc'
+      sortSellingCost, // 'asc' | 'desc'
       sortCreatedAt, // 'asc' | 'desc'
     } = req.query;
 
@@ -115,32 +214,53 @@ export const getAllMaterials = async (req: Request, res: Response) => {
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "No materials found for  in the game",
+        error: "Invalid pagination parameters",
       });
     }
 
+    // Build where clause for rarity filter
+    const where: any = {};
+
+    if (rarity) {
+      const validRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
+      const upperRarity = (rarity as string).toUpperCase();
+
+      if (!validRarities.includes(upperRarity)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid rarity value. Allowed: ${validRarities.join(", ")}`,
+        });
+      }
+
+      where.rarity = upperRarity;
+    }
+
+    // Build orderBy array
     const orderBy: any[] = [];
 
-    if (sortCost && ["asc", "desc"].includes(sortCost as string)) {
-      orderBy.push({ cost: sortCost });
+    if (sortBuyingCost && ["asc", "desc"].includes(sortBuyingCost as string)) {
+      orderBy.push({ buyingCost: sortBuyingCost });
     }
-    if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
-      orderBy.push({ power: sortPower });
-    }
-    if (sortCode && ["asc", "desc"].includes(sortCode as string)) {
-      orderBy.push({ code: sortCode });
+    if (
+      sortSellingCost &&
+      ["asc", "desc"].includes(sortSellingCost as string)
+    ) {
+      orderBy.push({ sellingCost: sortSellingCost });
     }
     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
       orderBy.push({ createdAt: sortCreatedAt });
     }
 
+    // Default sort if nothing provided
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
 
-    const total = await prisma.materialType.count();
+    // Count total (with filter applied)
+    const total = await prisma.material.count({ where });
 
-    const materials = await prisma.materialType.findMany({
+    const materials = await prisma.material.findMany({
+      where,
       orderBy,
       skip: pagination.skip,
       take: pagination.take,
@@ -150,9 +270,11 @@ export const getAllMaterials = async (req: Request, res: Response) => {
         name: true,
         description: true,
         image: true,
-        cost: true,
-        power: true,
         rarity: true,
+        buyingCost: true,
+        sellingCost: true,
+        isBuyingAllow: true,
+        isSellingAllow: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -161,7 +283,9 @@ export const getAllMaterials = async (req: Request, res: Response) => {
     if (materials.length === 0) {
       return res.status(200).json({
         success: true,
-        message: "No materials found in the game",
+        message: rarity
+          ? `No ${rarity} materials found in the game`
+          : "No materials found in the game",
         data: [],
         total,
         page: pagination.page,
@@ -185,159 +309,7 @@ export const getAllMaterials = async (req: Request, res: Response) => {
   }
 };
 
-// 3. GET /public/shields - All shield types
-export const getAllShields = async (req: Request, res: Response) => {
-  try {
-    const {
-      sortCost, // 'asc' | 'desc'
-      sortPower, // 'asc' | 'desc'
-      sortCode, // 'asc' | 'desc'
-      sortCreatedAt, // 'asc' | 'desc'
-    } = req.query;
-
-    const pagination = getPagination(req.query);
-    if (!pagination) {
-      return res.status(400).json({
-        success: false,
-        error: "No shields found for in the game",
-      });
-    }
-
-    const orderBy: any[] = [];
-
-    if (sortCost && ["asc", "desc"].includes(sortCost as string)) {
-      orderBy.push({ cost: sortCost });
-    }
-    if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
-      orderBy.push({ power: sortPower });
-    }
-    if (sortCode && ["asc", "desc"].includes(sortCode as string)) {
-      orderBy.push({ code: sortCode });
-    }
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ createdAt: sortCreatedAt });
-    }
-
-    if (orderBy.length === 0) {
-      orderBy.push({ createdAt: "desc" });
-    }
-
-    const total = await prisma.shieldType.count();
-
-    const shields = await prisma.shieldType.findMany({
-      orderBy,
-      skip: pagination.skip,
-      take: pagination.take,
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        description: true,
-        image: true,
-        cost: true,
-        power: true,
-        rarity: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-
-    if (shields.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: "No shields found in the game",
-        data: [],
-        total,
-        page: pagination.page,
-        limit: pagination.limit,
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Shields fetched successfully",
-      data: serializeBigInt(shields),
-      total,
-      page: pagination.page,
-      limit: pagination.limit,
-    });
-  } catch (error) {
-    console.error("getAllShields error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 4. GET /public/sword - Single sword by level or name
-export const getSword = async (req: Request, res: Response) => {
-  try {
-    const { level, name } = req.query;
-
-    if (!level && !name) {
-      return res.status(400).json({
-        success: false,
-        error: "Provide either 'level' or 'name' query parameter",
-      });
-    }
-
-    let sword;
-    if (level) {
-      sword = await prisma.swordLevelDefinition.findUnique({
-        where: { level: Number(level) },
-        select: {
-          id: true,
-          level: true,
-          name: true,
-          image: true,
-          description: true,
-          upgradeCost: true,
-          sellingCost: true,
-          successRate: true,
-          power: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-    } else if (name) {
-      sword = await prisma.swordLevelDefinition.findUnique({
-        where: { name: name as string },
-        select: {
-          id: true,
-          level: true,
-          name: true,
-          image: true,
-          description: true,
-          upgradeCost: true,
-          sellingCost: true,
-          successRate: true,
-          power: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-    }
-
-    if (!sword) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Sword not found in the game" });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Sword fetched successfully",
-      data: serializeBigInt(sword),
-    });
-  } catch (error) {
-    console.error("getSword error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 5. GET /public/material - Single material by id, code or name
+// 4) Single material by id, code or name
 export const getMaterial = async (req: Request, res: Response) => {
   try {
     const { id, code, name } = req.query;
@@ -351,7 +323,7 @@ export const getMaterial = async (req: Request, res: Response) => {
 
     let material;
     if (id) {
-      material = await prisma.materialType.findUnique({
+      material = await prisma.material.findUnique({
         where: { id: BigInt(id as string) },
         select: {
           id: true,
@@ -359,15 +331,17 @@ export const getMaterial = async (req: Request, res: Response) => {
           name: true,
           description: true,
           image: true,
-          cost: true,
-          power: true,
           rarity: true,
+          buyingCost: true,
+          sellingCost: true,
+          isBuyingAllow: true,
+          isSellingAllow: true,
           createdAt: true,
           updatedAt: true,
         },
       });
     } else if (code) {
-      material = await prisma.materialType.findUnique({
+      material = await prisma.material.findUnique({
         where: { code: code as string },
         select: {
           id: true,
@@ -375,15 +349,17 @@ export const getMaterial = async (req: Request, res: Response) => {
           name: true,
           description: true,
           image: true,
-          cost: true,
-          power: true,
           rarity: true,
+          buyingCost: true,
+          sellingCost: true,
+          isBuyingAllow: true,
+          isSellingAllow: true,
           createdAt: true,
           updatedAt: true,
         },
       });
     } else if (name) {
-      material = await prisma.materialType.findUnique({
+      material = await prisma.material.findUnique({
         where: { name: name as string },
         select: {
           id: true,
@@ -391,9 +367,11 @@ export const getMaterial = async (req: Request, res: Response) => {
           name: true,
           description: true,
           image: true,
-          cost: true,
-          power: true,
           rarity: true,
+          buyingCost: true,
+          sellingCost: true,
+          isBuyingAllow: true,
+          isSellingAllow: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -419,99 +397,16 @@ export const getMaterial = async (req: Request, res: Response) => {
   }
 };
 
-// 6. GET /public/shield - Single shield by id, code or name
-export const getShield = async (req: Request, res: Response) => {
-  try {
-    const { id, code, name } = req.query;
-
-    if (!id && !code && !name) {
-      return res.status(400).json({
-        success: false,
-        error: "Provide 'id', 'code' or 'name' query parameter",
-      });
-    }
-
-    let shield;
-    if (id) {
-      shield = await prisma.shieldType.findUnique({
-        where: { id: BigInt(id as string) },
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          description: true,
-          image: true,
-          cost: true,
-          power: true,
-          rarity: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-    } else if (code) {
-      shield = await prisma.shieldType.findUnique({
-        where: { code: code as string },
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          description: true,
-          image: true,
-          cost: true,
-          power: true,
-          rarity: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-    } else if (name) {
-      shield = await prisma.shieldType.findUnique({
-        where: { name: name as string },
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          description: true,
-          image: true,
-          cost: true,
-          power: true,
-          rarity: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-    }
-
-    if (!shield) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Shield not found in the game" });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Shield fetched successfully",
-      data: serializeBigInt(shield),
-    });
-  } catch (error) {
-    console.error("getShield error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 7)
+// 5) Updated leaderboard with new fields
 export const getLeaderboard = async (req: Request, res: Response) => {
   try {
     // ── Safe extraction of sortBy ───────────────────────────────────────
-    let sortBy: string = "createdAt"; // default
+    let sortBy: string = "totalSwords"; // default to missions or gold, etc.
     const sortByRaw = req.query.sortBy;
 
     if (typeof sortByRaw === "string" && sortByRaw.trim()) {
       sortBy = sortByRaw.trim();
     } else if (Array.isArray(sortByRaw) && sortByRaw.length > 0) {
-      // take first value if someone sent multiple (common frontend mistake)
       sortBy = String(sortByRaw[0]).trim();
     }
 
@@ -522,12 +417,12 @@ export const getLeaderboard = async (req: Request, res: Response) => {
       "totalShields",
       "gold",
       "trustPoints",
-      "totalPower",
+      "totalAdsViewed",
+      "totalMissionsDone",
       "createdAt",
     ] as const;
 
     if (!validSortFields.includes(sortBy as any)) {
-      // type assertion safe here
       return res.status(400).json({
         success: false,
         error: `Invalid sortBy field. Allowed: ${validSortFields.join(", ")}`,
@@ -548,11 +443,11 @@ export const getLeaderboard = async (req: Request, res: Response) => {
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "No data found in the game",
+        error: "Invalid pagination parameters",
       });
     }
 
-    // ── Fetch users (unchanged) ──────────────────────────────────────────
+    // ── Fetch users (non-banned) ─────────────────────────────────────────
     const users = await prisma.user.findMany({
       where: { isBanned: false },
       select: {
@@ -561,39 +456,31 @@ export const getLeaderboard = async (req: Request, res: Response) => {
         createdAt: true,
         gold: true,
         trustPoints: true,
+        totalShields: true,
+        totalAdsViewed: true,
+        totalMissionsDone: true,
         swords: {
-          where: { isSolded: false },
-          select: { swordLevelDefinition: { select: { power: true } } },
+          where: { isSolded: false, isBroken: false },
+          select: { id: true }, // just count
         },
         materials: {
-          select: {
-            quantity: true,
-            material: { select: { power: true } },
-          },
-        },
-        shields: {
-          select: {
-            quantity: true,
-            shield: { select: { power: true } },
-          },
+          select: { unsoldQuantity: true },
         },
       },
     });
 
-    // ── Compute leaderboard data (unchanged) ─────────────────────────────
+    // ── Compute leaderboard data ─────────────────────────────────────────
     const leaderboardData = users.map((u) => ({
       userId: u.id.toString(),
       name: u.name,
       createdAt: u.createdAt,
       gold: Number(u.gold),
       trustPoints: u.trustPoints,
+      totalShields: u.totalShields,
+      totalAdsViewed: u.totalAdsViewed,
+      totalMissionsDone: u.totalMissionsDone,
       totalSwords: u.swords.length,
-      totalMaterials: u.materials.reduce((sum, m) => sum + m.quantity, 0),
-      totalShields: u.shields.reduce((sum, s) => sum + s.quantity, 0),
-      totalPower:
-        u.swords.reduce((sum, s) => sum + s.swordLevelDefinition.power, 0) +
-        u.materials.reduce((sum, m) => sum + m.material.power * m.quantity, 0) +
-        u.shields.reduce((sum, s) => sum + s.shield.power * s.quantity, 0),
+      totalMaterials: u.materials.reduce((sum, m) => sum + m.unsoldQuantity, 0),
     }));
 
     // ── Sort ─────────────────────────────────────────────────────────────
@@ -601,7 +488,6 @@ export const getLeaderboard = async (req: Request, res: Response) => {
       let valA: number | Date;
       let valB: number | Date;
 
-      // Type-safe access — we already validated sortBy
       if (sortBy === "createdAt") {
         valA = a.createdAt;
         valB = b.createdAt;
@@ -627,7 +513,7 @@ export const getLeaderboard = async (req: Request, res: Response) => {
       total: leaderboardData.length,
       page: pagination.page,
       limit: pagination.limit,
-      message: "Leaderboard data fetched successfully",
+      message: "Leaderboard fetched successfully",
     });
   } catch (err) {
     console.error("getLeaderboard error:", err);
@@ -637,180 +523,553 @@ export const getLeaderboard = async (req: Request, res: Response) => {
   }
 };
 
-// 8) all marketplace items
-export const getAllMarketplaceItems = async (req: Request, res: Response) => {
-  try {
-    const { itemType, isActive, isPurchased, sortPriceGold, sortCreatedAt } =
-      req.query;
-
-    /* ---------------- WHERE CLAUSE ---------------- */
-    const where: any = {};
-
-    if (itemType) {
-      const allowedTypes = ["SWORD", "MATERIAL", "SHIELD"];
-      if (!allowedTypes.includes(String(itemType))) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid itemType. Allowed: ${allowedTypes.join(", ")}`,
-        });
-      }
-      where.itemType = itemType;
-    }
-    if (isActive !== undefined) {
-      where.isActive = isActive === "true";
-    }
-    if (isPurchased !== undefined) {
-      where.isPurchased = isPurchased === "true";
-    }
-
-    /* ---------------- ORDER BY ---------------- */
-    const orderBy: any[] = [];
-
-    if (sortCreatedAt && ["asc", "desc"].includes(String(sortCreatedAt))) {
-      orderBy.push({ createdAt: sortCreatedAt });
-    }
-    if (sortPriceGold && ["asc", "desc"].includes(String(sortPriceGold))) {
-      orderBy.push({ priceGold: sortPriceGold });
-    }
-
-    // Default sort → latest first
-    if (orderBy.length === 0) {
-      orderBy.push({ createdAt: "desc" });
-    }
-
-    /* ---------------- QUERY ---------------- */
-    const items = await prisma.marketplaceItem.findMany({
-      where,
-      orderBy,
-      include: {
-        swordLevelDefinition: true,
-        material: true,
-        shieldType: true,
-      },
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Marketplace items fetched successfully",
-      data: serializeBigInt(items),
-      total: items.length,
-    });
-  } catch (error) {
-    console.error("getAllMarketplaceItems error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 9) Admin GET all marketplace purchases — optional itemType filter
-export const getAllMarketplacePurchases = async (
-  req: Request,
-  res: Response,
-) => {
+// 6)  solded swords list
+export const getPurchasedSwords = async (req: Request, res: Response) => {
   try {
     const {
-      type, // optional: 'SWORD' | 'MATERIAL' | 'SHIELD'
-      sortType,
-      sortPriceGold,
-      sortPurchasedAt,
+      sortPurchasedAt, // 'asc' | 'desc' (default: desc)
+      sortPriceGold, // 'asc' | 'desc' (price per sword)
+      sortLevel, // 'asc' | 'desc' (sword level)
     } = req.query;
 
     const pagination = getPagination(req.query);
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "No marketplace purchases found",
+        error: "Invalid pagination parameters",
       });
     }
 
-    // Optional type filter + validation
-    let filterType: MarketplaceItemType | undefined;
-    if (type) {
-      const upper = (type as string).toUpperCase();
-      const valid = ["SWORD", "MATERIAL", "SHIELD"];
-      if (!valid.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid item type. Allowed: ${valid.join(", ")}`,
-        });
-      }
-      filterType = upper as MarketplaceItemType;
-    }
-
-    const where: any = {};
-    if (filterType) {
-      where.marketplaceItem = { itemType: filterType };
-    }
-
     const orderBy: any[] = [];
-    if (sortType && ["asc", "desc"].includes(sortType as string)) {
-      orderBy.push({ marketplaceItem: { itemType: sortType } });
-    }
-    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
-      orderBy.push({ priceGold: sortPriceGold });
-    }
+
+    // Purchased at (time)
     if (
       sortPurchasedAt &&
       ["asc", "desc"].includes(sortPurchasedAt as string)
     ) {
       orderBy.push({ purchasedAt: sortPurchasedAt });
     }
+
+    // Price gold (per sword)
+    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+
+    // Sword level
+    if (sortLevel && ["asc", "desc"].includes(sortLevel as string)) {
+      orderBy.push({
+        swordLevelDefinition: { level: sortLevel },
+      });
+    }
+
+    // Default: newest first
     if (orderBy.length === 0) {
       orderBy.push({ purchasedAt: "desc" });
     }
 
-    const totalItems = await prisma.marketplacePurchase.count({ where });
+    const total = await prisma.swordMarketplacePurchase.count();
 
-    const purchases = await prisma.marketplacePurchase.findMany({
-      where,
+    const purchases = await prisma.swordMarketplacePurchase.findMany({
       orderBy,
       skip: pagination.skip,
       take: pagination.take,
-      include: {
+      select: {
+        id: true,
         user: {
           select: {
             id: true,
-            email: true,
             name: true,
+            email: true,
+            profileLogo: true,
             isBanned: true,
             gold: true,
             trustPoints: true,
           },
         },
-        marketplaceItem: {
+        swordLevelDefinition: {
           select: {
-            id: true,
-            itemType: true,
-            priceGold: true,
-            isActive: true,
-            isPurchased: true,
-            createdAt: true,
-            updatedAt: true,
-            swordLevelDefinition: {
-              select: { level: true, name: true, image: true, power: true },
-            },
-            material: {
-              select: { name: true, rarity: true, image: true, cost: true },
-            },
-            shieldType: {
-              select: { name: true, rarity: true, image: true, cost: true },
-            },
+            level: true,
+            name: true,
+            image: true,
+            successRate: true,
           },
         },
+        priceGold: true,
+        purchasedAt: true,
       },
     });
 
-    return res.status(200).json({
+    return res.json({
       success: true,
-      message: "Maretplace purchases fetched successfully",
+      message: "Purchased swords list fetched successfully",
       data: serializeBigInt(purchases),
-      total: totalItems,
+      total,
       page: pagination.page,
       limit: pagination.limit,
     });
-  } catch (error) {
-    console.error("getAllMarketplacePurchases error:", error);
+  } catch (err) {
+    console.error("getPurchasedSwords error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 7)  solded materials list
+export const getPurchasedMaterials = async (req: Request, res: Response) => {
+  try {
+    const {
+      sortPurchasedAt = "desc", // 'asc' | 'desc'
+      sortPriceGold, // 'asc' | 'desc'
+      sortMaterialId, // 'asc' | 'desc'
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const orderBy: any[] = [];
+
+    // Purchased at
+    if (["asc", "desc"].includes(sortPurchasedAt as string)) {
+      orderBy.push({ purchasedAt: sortPurchasedAt });
+    }
+
+    // Price gold (total)
+    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+
+    // Material ID
+    if (sortMaterialId && ["asc", "desc"].includes(sortMaterialId as string)) {
+      orderBy.push({ materialId: sortMaterialId });
+    }
+
+    // Default: newest first
+    if (orderBy.length === 0) {
+      orderBy.push({ purchasedAt: "desc" });
+    }
+
+    const total = await prisma.materialMarketplacePurchase.count();
+
+    const purchases = await prisma.materialMarketplacePurchase.findMany({
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      select: {
+        id: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            profileLogo: true,
+            isBanned: true,
+            gold: true,
+            trustPoints: true,
+          },
+        },
+        material: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            description: true,
+            rarity: true,
+            image: true,
+          },
+        },
+        quantity: true,
+        priceGold: true,
+        purchasedAt: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Purchased materials list fetched successfully",
+      data: serializeBigInt(purchases),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error("getPurchasedMaterials error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 8)  solded shields list
+export const getPurchasedShields = async (req: Request, res: Response) => {
+  try {
+    const {
+      sortPurchasedAt = "desc", // 'asc' | 'desc'
+      sortPriceGold, // 'asc' | 'desc' — total
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const orderBy: any[] = [];
+
+    // Purchased at
+    if (["asc", "desc"].includes(sortPurchasedAt as string)) {
+      orderBy.push({ purchasedAt: sortPurchasedAt });
+    }
+
+    // Price gold (total)
+    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+
+    // Default: newest first
+    if (orderBy.length === 0) {
+      orderBy.push({ purchasedAt: "desc" });
+    }
+
+    const total = await prisma.shieldMarketplacePurchase.count();
+
+    const purchases = await prisma.shieldMarketplacePurchase.findMany({
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      select: {
+        id: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            profileLogo: true,
+            isBanned: true,
+            gold: true,
+            trustPoints: true,
+            totalShields: true,
+          },
+        },
+        quantity: true,
+        priceGold: true,
+        purchasedAt: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Purchased shields list fetched successfully",
+      data: serializeBigInt(purchases),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error("getPurchasedShields error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 9)  solded single user swords list
+export const getUserPurchasedSwords = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.query;
+
+    if (!email || typeof email !== "string" || !email.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Email query parameter is required",
+      });
+    }
+
+    const trimmedEmail = email.trim();
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email: trimmedEmail },
+      select: { id: true, name: true, email: true, profileLogo: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found with this email",
+      });
+    }
+
+    const { sortPurchasedAt = "desc", sortPriceGold, sortLevel } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const orderBy: any[] = [];
+
+    if (["asc", "desc"].includes(sortPurchasedAt as string)) {
+      orderBy.push({ purchasedAt: sortPurchasedAt });
+    }
+    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+    if (sortLevel && ["asc", "desc"].includes(sortLevel as string)) {
+      orderBy.push({
+        swordLevelDefinition: { level: sortLevel },
+      });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ purchasedAt: "desc" });
+    }
+
+    const total = await prisma.swordMarketplacePurchase.count({
+      where: { userId: user.id },
+    });
+
+    const purchases = await prisma.swordMarketplacePurchase.findMany({
+      where: { userId: user.id },
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      select: {
+        id: true,
+        swordLevelDefinition: {
+          select: {
+            level: true,
+            name: true,
+            image: true,
+            successRate: true,
+          },
+        },
+        priceGold: true,
+        purchasedAt: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "User's purchased swords fetched successfully",
+      user: {
+        id: user.id.toString(),
+        name: user.name,
+        email: user.email,
+        profileLogo: user.profileLogo,
+      },
+      data: serializeBigInt(purchases),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error("getUserPurchasedSwords error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 10)  solded single user materials list
+export const getUserPurchasedMaterials = async (
+  req: Request,
+  res: Response,
+) => {
+  try {
+    const { email } = req.query;
+
+    if (!email || typeof email !== "string" || !email.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Email query parameter is required",
+      });
+    }
+
+    const trimmedEmail = email.trim();
+
+    const user = await prisma.user.findUnique({
+      where: { email: trimmedEmail },
+      select: { id: true, name: true, email: true, profileLogo: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found with this email",
+      });
+    }
+
+    const {
+      sortPurchasedAt = "desc",
+      sortPriceGold,
+      sortMaterialId,
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const orderBy: any[] = [];
+
+    if (["asc", "desc"].includes(sortPurchasedAt as string)) {
+      orderBy.push({ purchasedAt: sortPurchasedAt });
+    }
+    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+    if (sortMaterialId && ["asc", "desc"].includes(sortMaterialId as string)) {
+      orderBy.push({ materialId: sortMaterialId });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ purchasedAt: "desc" });
+    }
+
+    const total = await prisma.materialMarketplacePurchase.count({
+      where: { userId: user.id },
+    });
+
+    const purchases = await prisma.materialMarketplacePurchase.findMany({
+      where: { userId: user.id },
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      select: {
+        id: true,
+        material: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            rarity: true,
+            image: true,
+          },
+        },
+        quantity: true,
+        priceGold: true,
+        purchasedAt: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "User's purchased materials fetched successfully",
+      user: {
+        id: user.id.toString(),
+        name: user.name,
+        email: user.email,
+        profileLogo: user.profileLogo,
+      },
+      data: serializeBigInt(purchases),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error("getUserPurchasedMaterials error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 11)  solded single user shields list
+export const getUserPurchasedShields = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.query;
+
+    if (!email || typeof email !== "string" || !email.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: "Email query parameter is required",
+      });
+    }
+
+    const trimmedEmail = email.trim();
+
+    const user = await prisma.user.findUnique({
+      where: { email: trimmedEmail },
+      select: { id: true, name: true, email: true, profileLogo: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found with this email",
+      });
+    }
+
+    const { sortPurchasedAt = "desc", sortPriceGold } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const orderBy: any[] = [];
+
+    if (["asc", "desc"].includes(sortPurchasedAt as string)) {
+      orderBy.push({ purchasedAt: sortPurchasedAt });
+    }
+    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ purchasedAt: "desc" });
+    }
+
+    const total = await prisma.shieldMarketplacePurchase.count({
+      where: { userId: user.id },
+    });
+
+    const purchases = await prisma.shieldMarketplacePurchase.findMany({
+      where: { userId: user.id },
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      select: {
+        id: true,
+        quantity: true,
+        priceGold: true,
+        purchasedAt: true,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "User's purchased shields fetched successfully",
+      user: {
+        id: user.id.toString(),
+        name: user.name,
+        email: user.email,
+        profileLogo: user.profileLogo,
+      },
+      data: serializeBigInt(purchases),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error("getUserPurchasedShields error:", err);
     return res
       .status(500)
       .json({ success: false, error: "Internal server error" });

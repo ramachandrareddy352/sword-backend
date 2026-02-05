@@ -1,11 +1,12 @@
 import type { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
-import prismaClient from "../database/client";
+import prisma from "../database/client";
 import redis from "../config/redis";
 import bcrypt from "bcrypt";
 import { sendEmail } from "../services/generateOTP";
 import { generateSecureCode } from "../services/generateCode";
+import { serializeBigInt } from "../services/serializeBigInt";
 
 export async function sendVerification(req: Request, res: Response) {
   try {
@@ -45,7 +46,7 @@ export async function sendVerification(req: Request, res: Response) {
     }
 
     /* ---------- CHECK EXISTING USER ---------- */
-    const existing = await prismaClient.user.findUnique({
+    const existing = await prisma.user.findUnique({
       where: { email },
     });
     if (existing) {
@@ -95,7 +96,7 @@ export async function verifyRegistration(req: Request, res: Response) {
     if (!email || !code) {
       return res.status(400).json({
         success: false,
-        error: "Email and code are required",
+        error: "Email and verification code are required",
       });
     }
 
@@ -113,77 +114,84 @@ export async function verifyRegistration(req: Request, res: Response) {
     if (!tempData) {
       return res.status(400).json({
         success: false,
-        error: "Registration session expired",
+        error: "Registration session expired. Please try again.",
       });
     }
 
     const { name, password } = JSON.parse(tempData);
 
-    /* ---------- FETCH ADMIN CONFIG ---------- */
-    const config = await prismaClient.adminConfig.findUnique({
+    /* ---------- FETCH ADMIN CONFIG (DEFAULT VALUES) ---------- */
+    const config = await prisma.adminConfig.findUnique({
       where: { id: BigInt(1) },
-      select: { defaultTrustPoints: true },
+      select: {
+        defaultGold: true,
+        defaultTrustPoints: true,
+      },
     });
 
-    const trustPoints = config?.defaultTrustPoints ?? 100;
-
-    /* ---------- FETCH DEFAULT SWORD & SHIELD ---------- */
-    const levelZeroSword = await prismaClient.swordLevelDefinition.findUnique({
-      where: { id: BigInt(1) },
-    });
-
-    const defaultShield = await prismaClient.shieldType.findUnique({
-      where: { id: BigInt(1) },
-    });
-
-    if (!levelZeroSword || !defaultShield) {
-      return res.status(500).json({
+    if (!config) {
+      return res.status(400).json({
         success: false,
-        error: "Starter items missing. Contact admin.",
+        error: "Admin config data is not present",
       });
     }
 
-    /* ---------- TRANSACTION ---------- */
-    const user = await prismaClient.$transaction(async (tx) => {
+    // Use config values or fallback if config missing
+    const defaultGold = config.defaultGold;
+    const defaultTrustPoints = config.defaultTrustPoints;
+
+    /* ---------- FETCH DEFAULT LEVEL 0 SWORD ---------- */
+    const levelZeroSword = await prisma.swordLevelDefinition.findFirst({
+      where: { level: 0 }, // Assuming level 0 is the starter sword
+      select: {
+        id: true,
+        level: true,
+      },
+    });
+
+    if (!levelZeroSword) {
+      return res.status(500).json({
+        success: false,
+        error: "Starter sword (level 0) not found. Contact admin.",
+      });
+    }
+
+    /* ---------- CREATE USER + DEFAULT SWORD IN TRANSACTION ---------- */
+    const user = await prisma.$transaction(async (tx) => {
+      // Create new user with config defaults
       const newUser = await tx.user.create({
         data: {
           email,
           name,
-          gold: 5000,
-          password,
-          trustPoints,
-          emailVerified: true,
+          password, // already hashed before storing in Redis
+          gold: defaultGold,
+          trustPoints: defaultTrustPoints,
           lastReviewed: new Date(),
           lastLoginAt: new Date(),
         },
       });
 
+      // Generate unique sword code
       const swordCode = generateSecureCode(12);
 
-      await tx.userSword.create({
+      // Create default level 0 sword on anvil
+      const createdSword = await tx.userSword.create({
         data: {
           code: swordCode,
           userId: newUser.id,
           level: levelZeroSword.level,
           isOnAnvil: true,
           swordLevelDefinitionId: levelZeroSword.id,
+          isSolded: false,
+          isBroken: false,
         },
       });
 
-      await tx.userShield.create({
-        data: {
-          userId: newUser.id,
-          shieldId: defaultShield.id,
-          quantity: 1,
-          isOnAnvil: true,
-        },
-      });
-
+      // Update user's anvilSwordId
       await tx.user.update({
         where: { id: newUser.id },
         data: {
-          anvilSwordId: levelZeroSword.id,
-          anvilShieldId: defaultShield.id,
+          anvilSwordId: createdSword.id,
         },
       });
 
@@ -194,7 +202,7 @@ export async function verifyRegistration(req: Request, res: Response) {
     await redis.del(`verify:otp:${email}`);
     await redis.del(`verify:data:${email}`);
 
-    /* ---------- CREATE SESSION ---------- */
+    /* ---------- CREATE SESSION & JWT ---------- */
     const jti = uuidv4();
     const token = jwt.sign(
       { userId: user.id.toString(), jti },
@@ -202,23 +210,20 @@ export async function verifyRegistration(req: Request, res: Response) {
       { expiresIn: "60m" },
     );
 
+    // Store session in Redis (1 hour expiry)
     await redis.set(`session:${jti}`, user.id.toString(), { EX: 3600 });
 
     return res.json({
       success: true,
-      message: "Registration successful",
+      message: "Registration successful! Welcome to the game.",
       token,
-      data: {
-        id: user.id.toString(),
-        email: user.email,
-        name: user.name,
-      },
+      data: serializeBigInt(user),
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("verifyRegistration error:", err);
     return res.status(500).json({
       success: false,
-      error: "Internal server error",
+      error: "Registration failed. Please try again later.",
     });
   }
 }
@@ -232,8 +237,8 @@ export async function login(req: Request, res: Response) {
         .json({ success: false, error: "Email and password are required" });
     }
 
-    const user = await prismaClient.user.findUnique({ where: { email } });
-    if (!user || !user.emailVerified) {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
       return res.status(401).json({
         success: false,
         error: "Invalid credentials or email not verified",
@@ -255,7 +260,7 @@ export async function login(req: Request, res: Response) {
     );
     await redis.set(`session:${jti}`, user.id.toString(), { EX: 3600 }); // 15 minutes
 
-    await prismaClient.user.update({
+    await prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
     });
@@ -287,7 +292,7 @@ export async function forgotPassword(req: Request, res: Response) {
         .json({ success: false, error: "Email is required" });
     }
 
-    const user = await prismaClient.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       return res.status(404).json({ success: false, error: "User not found" });
     }
@@ -331,7 +336,7 @@ export async function resetPassword(req: Request, res: Response) {
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
-    await prismaClient.user.update({
+    await prisma.user.update({
       where: { email },
       data: { password: hashedPassword },
     });

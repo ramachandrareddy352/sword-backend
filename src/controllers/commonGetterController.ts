@@ -1,51 +1,74 @@
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import prisma from "../database/client";
 import { resolveUser } from "../services/queryHelpers";
 import { serializeBigInt } from "../services/serializeBigInt";
 
-// =================== COMMON ROUTES =================== //
-// 1) get complete information about the user using his id or email
-export const getUserFullDetails = async (req: any, res: Response) => {
+// 1) Get complete user details (admin only) by email or id
+export const getUserFullDetails = async (req: Request, res: Response) => {
   try {
-    const { email } = req.query;
+    const { email, userId } = req.query;
 
-    if (!email) {
+    if (!email && !userId) {
       return res.status(400).json({
         success: false,
-        error: "UserId is required",
+        error: "Provide either 'email' or 'userId' query parameter",
       });
     }
 
-    // Use helper to find user (throws USER_NOT_FOUND if missing)
-    const user = await resolveUser({
-      id: undefined,
-      email: email ? String(email) : undefined,
-    });
+    // Find user by email or id
+    let user;
+    if (userId) {
+      user = await prisma.user.findUnique({
+        where: { id: BigInt(userId as string) },
+      });
+    } else if (email) {
+      user = await prisma.user.findUnique({
+        where: { email: email as string },
+      });
+    }
 
-    // Core user data (safe fields only)
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    // Core user data (safe fields only for admin)
     const safeUser = {
-      id: user.id,
+      id: user.id.toString(),
       email: user.email,
       name: user.name,
+      profileLogo: user.profileLogo,
       gold: user.gold,
       trustPoints: user.trustPoints,
+      totalShields: user.totalShields,
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt,
       lastReviewed: user.lastReviewed,
-      emailVerified: user.emailVerified,
       oneDayAdsViewed: user.oneDayAdsViewed,
       totalAdsViewed: user.totalAdsViewed,
+      todayMissionsDone: user.todayMissionsDone,
       totalMissionsDone: user.totalMissionsDone,
       isBanned: user.isBanned,
-      anvilSwordId: user.anvilSwordId,
-      anvilShieldId: user.anvilShieldId,
       soundOn: user.soundOn,
+      anvilSwordId: user.anvilSwordId,
     };
 
     // Vouchers
     const vouchers = await prisma.userVoucher.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        code: true,
+        goldAmount: true,
+        status: true,
+        redeemedAt: true,
+        cancelledAt: true,
+        expiresAt: true,
+        createdAt: true,
+      },
     });
 
     // Swords with level definition
@@ -58,7 +81,6 @@ export const getUserFullDetails = async (req: any, res: Response) => {
             name: true,
             image: true,
             description: true,
-            power: true,
             upgradeCost: true,
             sellingCost: true,
             successRate: true,
@@ -68,113 +90,140 @@ export const getUserFullDetails = async (req: any, res: Response) => {
       orderBy: { createdAt: "desc" },
     });
 
-    // Materials
+    // Materials with material details
     const materials = await prisma.userMaterial.findMany({
       where: { userId: user.id },
       include: {
         material: {
           select: {
+            id: true,
             code: true,
             name: true,
             description: true,
             image: true,
-            cost: true,
-            power: true,
             rarity: true,
+            buyingCost: true,
+            sellingCost: true,
           },
         },
       },
       orderBy: { createdAt: "desc" },
     });
 
-    // Shields
-    const shields = await prisma.userShield.findMany({
-      where: { userId: user.id },
-      include: {
-        shield: {
-          select: {
-            code: true,
-            name: true,
-            description: true,
-            image: true,
-            cost: true,
-            power: true,
-            rarity: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    // Gifts + items
+    // Gifts with items (full details)
     const gifts = await prisma.userGift.findMany({
       where: { receiverId: user.id },
       include: {
-        items: true, // all fields
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    // Marketplace purchases
-    const marketplacePurchases = await prisma.marketplacePurchase.findMany({
-      where: { userId: user.id },
-      include: {
-        marketplaceItem: {
-          select: {
-            id: true,
-            itemType: true,
-            priceGold: true,
-            isActive: true,
-            isPurchased: true,
-            createdAt: true,
-            updatedAt: true,
-
-            // Sword — if purchased a sword
+        items: {
+          include: {
+            material: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                rarity: true,
+                image: true,
+              },
+            },
             swordLevelDefinition: {
               select: {
                 level: true,
                 name: true,
                 image: true,
                 description: true,
-                power: true,
-                upgradeCost: true,
-                sellingCost: true,
-                successRate: true,
-              },
-            },
-
-            // Material — if purchased a material
-            material: {
-              select: {
-                code: true,
-                name: true,
-                description: true,
-                image: true,
-                cost: true,
-                power: true,
-                rarity: true,
-              },
-            },
-
-            // Shield — if purchased a shield
-            shieldType: {
-              select: {
-                code: true,
-                name: true,
-                description: true,
-                image: true,
-                cost: true,
-                power: true,
-                rarity: true,
               },
             },
           },
         },
       },
-      orderBy: { purchasedAt: "desc" },
+      orderBy: { createdAt: "desc" },
     });
 
-    // Customer support tickets
+    // Sword Marketplace Purchases
+    const swordMarketplacePurchases =
+      await prisma.swordMarketplacePurchase.findMany({
+        where: { userId: user.id },
+        include: {
+          swordLevelDefinition: {
+            select: {
+              level: true,
+              name: true,
+              image: true,
+              description: true,
+              successRate: true,
+            },
+          },
+          userSword: {
+            select: {
+              code: true,
+              isSolded: true,
+              isBroken: true,
+            },
+          },
+        },
+        orderBy: { purchasedAt: "desc" },
+      });
+
+    // Material Marketplace Purchases
+    const materialMarketplacePurchases =
+      await prisma.materialMarketplacePurchase.findMany({
+        where: { userId: user.id },
+        include: {
+          material: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              rarity: true,
+              image: true,
+            },
+          },
+        },
+        orderBy: { purchasedAt: "desc" },
+      });
+
+    // Shield Marketplace Purchases
+    const shieldMarketplacePurchases =
+      await prisma.shieldMarketplacePurchase.findMany({
+        where: { userId: user.id },
+        orderBy: { purchasedAt: "desc" },
+      });
+
+    // Sword Synthesis History
+    const synthesisHistories = await prisma.swordSynthesisHistory.findMany({
+      where: { userId: user.id },
+      include: {
+        swordLevelDefinition: {
+          select: {
+            level: true,
+            name: true,
+          },
+        },
+        createdSword: {
+          select: {
+            code: true,
+            level: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Sword Upgrade History
+    const upgradeHistories = await prisma.swordUpgradeHistory.findMany({
+      where: { userId: user.id },
+      include: {
+        sword: {
+          select: {
+            code: true,
+            level: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Customer Support Tickets
     const customerSupports = await prisma.customerSupport.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
@@ -182,16 +231,31 @@ export const getUserFullDetails = async (req: any, res: Response) => {
 
     return res.status(200).json({
       success: true,
-      message: "User data fetched successfully",
+      message: "User full details fetched successfully",
       user: serializeBigInt(safeUser),
       vouchers: { list: serializeBigInt(vouchers), total: vouchers.length },
       swords: { list: serializeBigInt(swords), total: swords.length },
       materials: { list: serializeBigInt(materials), total: materials.length },
-      shields: { list: serializeBigInt(shields), total: shields.length },
       gifts: { list: serializeBigInt(gifts), total: gifts.length },
-      marketplacePurchases: {
-        list: serializeBigInt(marketplacePurchases),
-        total: marketplacePurchases.length,
+      swordMarketplacePurchases: {
+        list: serializeBigInt(swordMarketplacePurchases),
+        total: swordMarketplacePurchases.length,
+      },
+      materialMarketplacePurchases: {
+        list: serializeBigInt(materialMarketplacePurchases),
+        total: materialMarketplacePurchases.length,
+      },
+      shieldMarketplacePurchases: {
+        list: serializeBigInt(shieldMarketplacePurchases),
+        total: shieldMarketplacePurchases.length,
+      },
+      synthesisHistories: {
+        list: serializeBigInt(synthesisHistories),
+        total: synthesisHistories.length,
+      },
+      upgradeHistories: {
+        list: serializeBigInt(upgradeHistories),
+        total: upgradeHistories.length,
       },
       customerSupports: {
         list: serializeBigInt(customerSupports),
@@ -199,21 +263,6 @@ export const getUserFullDetails = async (req: any, res: Response) => {
       },
     });
   } catch (error: any) {
-    console.error(error);
-    if (error.message === "USER_NOT_FOUND") {
-      return res.status(404).json({
-        success: false,
-        error: "User not found",
-      });
-    }
-
-    if (error.message === "IDENTIFIER_REQUIRED") {
-      return res.status(400).json({
-        success: false,
-        error: "UserId is required",
-      });
-    }
-
     console.error("getUserFullDetails error:", error);
     return res.status(500).json({
       success: false,
@@ -222,794 +271,794 @@ export const getUserFullDetails = async (req: any, res: Response) => {
   }
 };
 
-// 2) Returns only main user table fields (no relations)
-export const getUserBasicInfo = async (req: any, res: Response) => {
-  try {
-    const userId = BigInt(req.user.userId);
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "UserId is required",
-      });
-    }
-
-    const user = await resolveUser({
-      id: userId ? String(userId) : undefined,
-      email: undefined,
-    });
-
-    const safeUser = {
-      id: userId,
-      email: user.email,
-      name: user.name,
-      gold: user.gold,
-      trustPoints: user.trustPoints,
-      createdAt: user.createdAt,
-      lastLoginAt: user.lastLoginAt,
-      lastReviewed: user.lastReviewed,
-      emailVerified: user.emailVerified,
-      oneDayAdsViewed: user.oneDayAdsViewed,
-      totalAdsViewed: user.totalAdsViewed,
-      totalMissionsDone: user.totalMissionsDone,
-      isBanned: user.isBanned,
-      anvilSwordId: user.anvilSwordId,
-      anvilShieldId: user.anvilShieldId,
-      soundOn: user.soundOn,
-    };
-
-    return res.status(200).json({
-      success: true,
-      message: "Fetched user basic details successfully",
-      data: serializeBigInt(safeUser),
-    });
-  } catch (err: any) {
-    if (err.message === "USER_NOT_FOUND") {
-      return res.status(404).json({ success: false, error: "User not found" });
-    }
-    console.error(err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 3) Only user's swords list + total count
-export const getUserSwords = async (req: any, res: Response) => {
-  try {
-    const userId = BigInt(req.user.userId);
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "UserId is required",
-      });
-    }
-
-    const {
-      sortCreatedAt,
-      sortPower,
-      sortUpgradeCost,
-      sortSellingCost,
-      sortSuccessRate,
-      sold,
-    } = req.query;
-
-    await resolveUser({
-      id: userId ? String(userId) : undefined,
-      email: undefined,
-    });
-
-    /* ---------------- WHERE ---------------- */
-    const where: any = {
-      userId: userId,
-    };
-
-    if (sold === "true") where.isSolded = true;
-    if (sold === "false") where.isSolded = false;
-
-    /* ---------------- ORDER BY ---------------- */
-    const orderBy: any[] = [];
-
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ createdAt: sortCreatedAt });
-    }
-
-    if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
-      orderBy.push({ swordLevelDefinition: { power: sortPower } });
-    }
-
-    if (
-      sortUpgradeCost &&
-      ["asc", "desc"].includes(sortUpgradeCost as string)
-    ) {
-      orderBy.push({
-        swordLevelDefinition: { upgradeCost: sortUpgradeCost },
-      });
-    }
-
-    if (
-      sortSellingCost &&
-      ["asc", "desc"].includes(sortSellingCost as string)
-    ) {
-      orderBy.push({
-        swordLevelDefinition: { sellingCost: sortSellingCost },
-      });
-    }
-
-    if (
-      sortSuccessRate &&
-      ["asc", "desc"].includes(sortSuccessRate as string)
-    ) {
-      orderBy.push({
-        swordLevelDefinition: { successRate: sortSuccessRate },
-      });
-    }
-
-    if (orderBy.length === 0) {
-      orderBy.push({ createdAt: "desc" });
-    }
-
-    /* ---------------- FETCH ---------------- */
-    const swords = await prisma.userSword.findMany({
-      where,
-      include: {
-        swordLevelDefinition: {
-          select: {
-            level: true,
-            name: true,
-            image: true,
-            power: true,
-            upgradeCost: true,
-            sellingCost: true,
-            successRate: true,
-          },
-        },
-      },
-      orderBy,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Fetched User swords details successfully",
-      data: serializeBigInt(swords),
-      total: swords.length,
-    });
-  } catch (err: any) {
-    if (err.message === "USER_NOT_FOUND") {
-      return res.status(404).json({ success: false, error: "User not found" });
-    }
-    console.error("getUserSwords error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 4) only user's materials list + total count
-export const getUserMaterials = async (req: any, res: Response) => {
-  try {
-    const userId = BigInt(req.user.userId);
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "UserId is required",
-      });
-    }
-
-    const { sortCreatedAt, sortCost, sortPower, rarity, sold } = req.query;
-
-    await resolveUser({
-      id: userId ? String(userId) : undefined,
-      email: undefined,
-    });
-
-    const allowedRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
-    let filterRarity: string | undefined;
-
-    if (rarity) {
-      const upper = String(rarity).toUpperCase();
-      if (!allowedRarities.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid rarity. Allowed: ${allowedRarities.join(", ")}`,
-        });
-      }
-      filterRarity = upper;
-    }
-
-    /* ---------------- WHERE ---------------- */
-    const where: any = {
-      userId: userId,
-    };
-
-    if (filterRarity) {
-      where.material = { rarity: filterRarity };
-    }
-
-    if (sold === "true") where.soldedQuantity = { gt: 0 };
-    if (sold === "false") where.soldedQuantity = 0;
-
-    /* ---------------- ORDER BY ---------------- */
-    const orderBy: any[] = [];
-
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ createdAt: sortCreatedAt });
-    }
-
-    if (sortCost && ["asc", "desc"].includes(sortCost as string)) {
-      orderBy.push({ material: { cost: sortCost } });
-    }
-
-    if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
-      orderBy.push({ material: { power: sortPower } });
-    }
-
-    if (orderBy.length === 0) {
-      orderBy.push({ createdAt: "desc" });
-    }
-
-    /* ---------------- FETCH ---------------- */
-    const materials = await prisma.userMaterial.findMany({
-      where,
-      include: {
-        material: {
-          select: {
-            code: true,
-            name: true,
-            image: true,
-            cost: true,
-            power: true,
-            rarity: true,
-          },
-        },
-      },
-      orderBy,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Fetched User materials details successfully",
-      data: serializeBigInt(materials),
-      total: materials.length,
-    });
-  } catch (err: any) {
-    if (err.message === "USER_NOT_FOUND") {
-      return res.status(404).json({ success: false, error: "User not found" });
-    }
-    console.error("getUserMaterials error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 5) only user's shields list + total count
-export const getUserShields = async (req: any, res: Response) => {
-  try {
-    const userId = BigInt(req.user.userId);
-
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "UserId is required",
-      });
-    }
-
-    const {
-      sortCreatedAt,
-      sortCost,
-      sortPower,
-      rarity,
-      sold, // NEW
-    } = req.query;
-
-    await resolveUser({
-      id: userId ? String(userId) : undefined,
-      email: undefined,
-    });
-
-    const allowedRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
-    let filterRarity: string | undefined;
-
-    if (rarity) {
-      const upper = String(rarity).toUpperCase();
-      if (!allowedRarities.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid rarity. Allowed: ${allowedRarities.join(", ")}`,
-        });
-      }
-      filterRarity = upper;
-    }
-
-    /* ---------------- WHERE ---------------- */
-    const where: any = {
-      userId: userId,
-    };
-
-    if (filterRarity) {
-      where.shield = { rarity: filterRarity };
-    }
-
-    if (sold === "true") where.soldedQuantity = { gt: 0 };
-    if (sold === "false") where.soldedQuantity = 0;
-
-    /* ---------------- ORDER BY ---------------- */
-    const orderBy: any[] = [];
-
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ createdAt: sortCreatedAt });
-    }
-
-    if (sortCost && ["asc", "desc"].includes(sortCost as string)) {
-      orderBy.push({ shield: { cost: sortCost } });
-    }
-
-    if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
-      orderBy.push({ shield: { power: sortPower } });
-    }
-
-    if (orderBy.length === 0) {
-      orderBy.push({ createdAt: "desc" });
-    }
-
-    /* ---------------- FETCH ---------------- */
-    const shields = await prisma.userShield.findMany({
-      where,
-      include: {
-        shield: {
-          select: {
-            code: true,
-            name: true,
-            image: true,
-            cost: true,
-            power: true,
-            rarity: true,
-          },
-        },
-      },
-      orderBy,
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Fetched User shields details successfully",
-      data: serializeBigInt(shields),
-      total: shields.length,
-    });
-  } catch (err: any) {
-    if (err.message === "USER_NOT_FOUND") {
-      return res.status(404).json({ success: false, error: "User not found" });
-    }
-    console.error("getUserShields error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 6) Only user's gift list + total count
-export const getUserGifts = async (req: any, res: Response) => {
-  try {
-    const userId = BigInt(req.user.userId);
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "UserId is required",
-      });
-    }
-
-    const { status, type, sortCreatedAt } = req.query;
-
-    await resolveUser({
-      id: userId ? String(userId) : undefined,
-      email: undefined,
-    });
-
-    /* ---------------- ENUM VALIDATION ---------------- */
-    const validStatuses = ["PENDING", "CLAIMED", "CANCELLED"];
-    const validTypes = ["GOLD", "TRUST_POINTS", "MATERIAL", "SWORD", "SHIELD"];
-
-    let filterStatus: string | undefined;
-    if (status) {
-      const upper = String(status).toUpperCase();
-      if (!validStatuses.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid status. Allowed: ${validStatuses.join(", ")}`,
-        });
-      }
-      filterStatus = upper;
-    }
-
-    let filterType: string | undefined;
-    if (type) {
-      const upper = String(type).toUpperCase();
-      if (!validTypes.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid gift type. Allowed: ${validTypes.join(", ")}`,
-        });
-      }
-      filterType = upper;
-    }
-
-    /* ---------------- WHERE CLAUSE ---------------- */
-    const where: any = {
-      receiverId: userId,
-    };
-
-    if (filterStatus) {
-      where.status = filterStatus;
-    }
-
-    if (filterType) {
-      where.items = {
-        some: {
-          type: filterType,
-        },
-      };
-    }
-
-    /* ---------------- ORDER BY ---------------- */
-    let orderBy: any | undefined;
-
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy = { createdAt: sortCreatedAt };
-    }
-
-    /* ---------------- FETCH ---------------- */
-    const gifts = await prisma.userGift.findMany({
-      where,
-      include: {
-        items: {
-          select: {
-            type: true,
-            amount: true,
-            materialId: true,
-            materialRarity: true,
-            swordLevel: true,
-            shieldId: true,
-            shieldRarity: true,
-            material: true,
-            shield: true,
-            swordLevelDefinition: true,
-          },
-        },
-      },
-      ...(orderBy ? { orderBy } : {}), // ✅ apply only if provided
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Fetched User gifts details successfully",
-      data: serializeBigInt(gifts),
-      total: gifts.length,
-    });
-  } catch (err: any) {
-    if (err.message === "USER_NOT_FOUND") {
-      return res.status(404).json({ success: false, error: "User not found" });
-    }
-    console.error("getUserGifts error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 7) only user's vouchers list + total count
-export const getUserVouchers = async (req: any, res: Response) => {
-  try {
-    const userId = BigInt(req.user.userId);
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "UserId is required",
-      });
-    }
-
-    const { status, sortCreatedAt, sortGoldAmount } = req.query;
-
-    await resolveUser({
-      id: userId ? String(userId) : undefined,
-      email: undefined,
-    });
-
-    /* ---------------- VALIDATION ---------------- */
-    const validStatuses = ["PENDING", "REDEEMED", "CANCELLED", "EXPIRED"];
-
-    let filterStatus: string | undefined;
-    if (status) {
-      const upper = String(status).toUpperCase();
-      if (!validStatuses.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid voucher status. Allowed: ${validStatuses.join(", ")}`,
-        });
-      }
-      filterStatus = upper;
-    }
-
-    /* ---------------- WHERE CLAUSE ---------------- */
-    const where: any = {
-      userId: userId,
-    };
-
-    if (filterStatus) {
-      where.status = filterStatus;
-    }
-
-    /* ---------------- ORDER BY ---------------- */
-    const orderBy: any[] = [];
-
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ createdAt: sortCreatedAt });
-    }
-
-    if (sortGoldAmount && ["asc", "desc"].includes(sortGoldAmount as string)) {
-      orderBy.push({ goldAmount: sortGoldAmount });
-    }
-
-    // If no sort provided → Prisma default order
-    const vouchers = await prisma.userVoucher.findMany({
-      where,
-      ...(orderBy.length > 0 ? { orderBy } : {}),
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Fetched User voucher details successfully",
-      data: serializeBigInt(vouchers),
-      total: vouchers.length,
-    });
-  } catch (err: any) {
-    if (err.message === "USER_NOT_FOUND") {
-      return res.status(404).json({ success: false, error: "User not found" });
-    }
-    console.error("getUserVouchers error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 8) only user's customer support list + total count
-export const getUserCustomerSupports = async (req: any, res: Response) => {
-  try {
-    const userId = BigInt(req.user.userId);
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "UserId is required",
-      });
-    }
-
-    const { isReviewed, category, priority, sortCreatedAt } = req.query;
-
-    await resolveUser({
-      id: userId ? String(userId) : undefined,
-      email: undefined,
-    });
-
-    /* ---------------- VALIDATION ---------------- */
-    const validCategories = [
-      "GAME_BUG",
-      "PAYMENT",
-      "ACCOUNT",
-      "BAN_APPEAL",
-      "SUGGESTION",
-      "OTHER",
-    ];
-
-    const validPriorities = ["LOW", "NORMAL", "HIGH", "CRITICAL"];
-
-    let filterIsReviewed: boolean | undefined;
-    if (isReviewed !== undefined) {
-      if (isReviewed !== "true" && isReviewed !== "false") {
-        return res.status(400).json({
-          success: false,
-          error: "isReviewed must be true or false",
-        });
-      }
-      filterIsReviewed = isReviewed === "true";
-    }
-
-    let filterCategory: string | undefined;
-    if (category) {
-      const upper = String(category).toUpperCase();
-      if (!validCategories.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid category. Allowed: ${validCategories.join(", ")}`,
-        });
-      }
-      filterCategory = upper;
-    }
-
-    let filterPriority: string | undefined;
-    if (priority) {
-      const upper = String(priority).toUpperCase();
-      if (!validPriorities.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid priority. Allowed: ${validPriorities.join(", ")}`,
-        });
-      }
-      filterPriority = upper;
-    }
-
-    /* ---------------- WHERE CLAUSE ---------------- */
-    const where: any = {
-      userId: userId,
-    };
-
-    if (filterIsReviewed !== undefined) {
-      where.isReviewed = filterIsReviewed;
-    }
-
-    if (filterCategory) {
-      where.category = filterCategory;
-    }
-
-    if (filterPriority) {
-      where.priority = filterPriority;
-    }
-
-    /* ---------------- ORDER BY ---------------- */
-    const orderBy: any[] = [];
-
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ createdAt: sortCreatedAt });
-    }
-
-    const complaints = await prisma.customerSupport.findMany({
-      where,
-      ...(orderBy.length > 0 ? { orderBy } : {}),
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Fetched User complaints details successfully",
-      data: serializeBigInt(complaints),
-      total: complaints.length,
-    });
-  } catch (err: any) {
-    if (err.message === "USER_NOT_FOUND") {
-      return res.status(404).json({ success: false, error: "User not found" });
-    }
-    console.error("getUserCustomerSupports error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
-  }
-};
-
-// 9) only user's marketplace pucrchases list + total count
-export const getUserMarketplacePurchases = async (req: any, res: Response) => {
-  try {
-    const userId = BigInt(req.user.userId);
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        error: "UserId is required",
-      });
-    }
-
-    const { itemType, sortCreatedAt, sortPriceGold } = req.query;
-
-    await resolveUser({
-      id: userId ? String(userId) : undefined,
-      email: undefined,
-    });
-
-    /* ---------------- VALIDATION ---------------- */
-    const validItemTypes = ["SWORD", "MATERIAL", "SHIELD"];
-
-    let filterItemType: string | undefined;
-    if (itemType) {
-      const upper = String(itemType).toUpperCase();
-      if (!validItemTypes.includes(upper)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid itemType. Allowed: ${validItemTypes.join(", ")}`,
-        });
-      }
-      filterItemType = upper;
-    }
-
-    /* ---------------- WHERE CLAUSE ---------------- */
-    const where: any = {
-      userId: userId,
-    };
-
-    if (filterItemType) {
-      where.marketplaceItem = {
-        itemType: filterItemType,
-      };
-    }
-
-    /* ---------------- ORDER BY ---------------- */
-    const orderBy: any[] = [];
-
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
-      orderBy.push({ purchasedAt: sortCreatedAt });
-    }
-
-    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
-      orderBy.push({ priceGold: sortPriceGold });
-    }
-
-    // default sorting (only if nothing provided)
-    if (orderBy.length === 0) {
-      orderBy.push({ purchasedAt: "desc" });
-    }
-
-    const purchases = await prisma.marketplacePurchase.findMany({
-      where,
-      orderBy,
-      include: {
-        marketplaceItem: {
-          select: {
-            id: true,
-            itemType: true,
-            priceGold: true,
-            createdAt: true,
-            swordLevelDefinition: {
-              select: {
-                level: true,
-                name: true,
-                image: true,
-                description: true,
-                power: true,
-                upgradeCost: true,
-                sellingCost: true,
-                successRate: true,
-              },
-            },
-            material: {
-              select: {
-                name: true,
-                image: true,
-                description: true,
-                power: true,
-                cost: true,
-                rarity: true,
-              },
-            },
-            shieldType: {
-              select: {
-                name: true,
-                image: true,
-                description: true,
-                power: true,
-                cost: true,
-                rarity: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: "Fetched User marketplace details successfully",
-      data: serializeBigInt(purchases),
-      total: purchases.length,
-    });
-  } catch (err: any) {
-    if (err.message === "USER_NOT_FOUND") {
-      return res.status(404).json({
-        success: false,
-        error: "User not found",
-      });
-    }
-    console.error("getUserMarketplacePurchases error:", err);
-    return res.status(500).json({
-      success: false,
-      error: "Internal server error",
-    });
-  }
-};
+// // 2) Returns only main user table fields (no relations)
+// export const getUserBasicInfo = async (req: any, res: Response) => {
+//   try {
+//     const userId = BigInt(req.user.userId);
+
+//     if (!userId) {
+//       return res.status(400).json({
+//         success: false,
+//         error: "UserId is required",
+//       });
+//     }
+
+//     const user = await resolveUser({
+//       id: userId ? String(userId) : undefined,
+//       email: undefined,
+//     });
+
+//     const safeUser = {
+//       id: userId,
+//       email: user.email,
+//       name: user.name,
+//       gold: user.gold,
+//       trustPoints: user.trustPoints,
+//       createdAt: user.createdAt,
+//       lastLoginAt: user.lastLoginAt,
+//       lastReviewed: user.lastReviewed,
+//       emailVerified: user.emailVerified,
+//       oneDayAdsViewed: user.oneDayAdsViewed,
+//       totalAdsViewed: user.totalAdsViewed,
+//       totalMissionsDone: user.totalMissionsDone,
+//       isBanned: user.isBanned,
+//       anvilSwordId: user.anvilSwordId,
+//       anvilShieldId: user.anvilShieldId,
+//       soundOn: user.soundOn,
+//     };
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Fetched user basic details successfully",
+//       data: serializeBigInt(safeUser),
+//     });
+//   } catch (err: any) {
+//     if (err.message === "USER_NOT_FOUND") {
+//       return res.status(404).json({ success: false, error: "User not found" });
+//     }
+//     console.error(err);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: "Internal server error" });
+//   }
+// };
+
+// // 3) Only user's swords list + total count
+// export const getUserSwords = async (req: any, res: Response) => {
+//   try {
+//     const userId = BigInt(req.user.userId);
+
+//     if (!userId) {
+//       return res.status(400).json({
+//         success: false,
+//         error: "UserId is required",
+//       });
+//     }
+
+//     const {
+//       sortCreatedAt,
+//       sortPower,
+//       sortUpgradeCost,
+//       sortSellingCost,
+//       sortSuccessRate,
+//       sold,
+//     } = req.query;
+
+//     await resolveUser({
+//       id: userId ? String(userId) : undefined,
+//       email: undefined,
+//     });
+
+//     /* ---------------- WHERE ---------------- */
+//     const where: any = {
+//       userId: userId,
+//     };
+
+//     if (sold === "true") where.isSolded = true;
+//     if (sold === "false") where.isSolded = false;
+
+//     /* ---------------- ORDER BY ---------------- */
+//     const orderBy: any[] = [];
+
+//     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+//       orderBy.push({ createdAt: sortCreatedAt });
+//     }
+
+//     if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
+//       orderBy.push({ swordLevelDefinition: { power: sortPower } });
+//     }
+
+//     if (
+//       sortUpgradeCost &&
+//       ["asc", "desc"].includes(sortUpgradeCost as string)
+//     ) {
+//       orderBy.push({
+//         swordLevelDefinition: { upgradeCost: sortUpgradeCost },
+//       });
+//     }
+
+//     if (
+//       sortSellingCost &&
+//       ["asc", "desc"].includes(sortSellingCost as string)
+//     ) {
+//       orderBy.push({
+//         swordLevelDefinition: { sellingCost: sortSellingCost },
+//       });
+//     }
+
+//     if (
+//       sortSuccessRate &&
+//       ["asc", "desc"].includes(sortSuccessRate as string)
+//     ) {
+//       orderBy.push({
+//         swordLevelDefinition: { successRate: sortSuccessRate },
+//       });
+//     }
+
+//     if (orderBy.length === 0) {
+//       orderBy.push({ createdAt: "desc" });
+//     }
+
+//     /* ---------------- FETCH ---------------- */
+//     const swords = await prisma.userSword.findMany({
+//       where,
+//       include: {
+//         swordLevelDefinition: {
+//           select: {
+//             level: true,
+//             name: true,
+//             image: true,
+//             power: true,
+//             upgradeCost: true,
+//             sellingCost: true,
+//             successRate: true,
+//           },
+//         },
+//       },
+//       orderBy,
+//     });
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Fetched User swords details successfully",
+//       data: serializeBigInt(swords),
+//       total: swords.length,
+//     });
+//   } catch (err: any) {
+//     if (err.message === "USER_NOT_FOUND") {
+//       return res.status(404).json({ success: false, error: "User not found" });
+//     }
+//     console.error("getUserSwords error:", err);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: "Internal server error" });
+//   }
+// };
+
+// // 4) only user's materials list + total count
+// export const getUserMaterials = async (req: any, res: Response) => {
+//   try {
+//     const userId = BigInt(req.user.userId);
+
+//     if (!userId) {
+//       return res.status(400).json({
+//         success: false,
+//         error: "UserId is required",
+//       });
+//     }
+
+//     const { sortCreatedAt, sortCost, sortPower, rarity, sold } = req.query;
+
+//     await resolveUser({
+//       id: userId ? String(userId) : undefined,
+//       email: undefined,
+//     });
+
+//     const allowedRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
+//     let filterRarity: string | undefined;
+
+//     if (rarity) {
+//       const upper = String(rarity).toUpperCase();
+//       if (!allowedRarities.includes(upper)) {
+//         return res.status(400).json({
+//           success: false,
+//           error: `Invalid rarity. Allowed: ${allowedRarities.join(", ")}`,
+//         });
+//       }
+//       filterRarity = upper;
+//     }
+
+//     /* ---------------- WHERE ---------------- */
+//     const where: any = {
+//       userId: userId,
+//     };
+
+//     if (filterRarity) {
+//       where.material = { rarity: filterRarity };
+//     }
+
+//     if (sold === "true") where.soldedQuantity = { gt: 0 };
+//     if (sold === "false") where.soldedQuantity = 0;
+
+//     /* ---------------- ORDER BY ---------------- */
+//     const orderBy: any[] = [];
+
+//     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+//       orderBy.push({ createdAt: sortCreatedAt });
+//     }
+
+//     if (sortCost && ["asc", "desc"].includes(sortCost as string)) {
+//       orderBy.push({ material: { cost: sortCost } });
+//     }
+
+//     if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
+//       orderBy.push({ material: { power: sortPower } });
+//     }
+
+//     if (orderBy.length === 0) {
+//       orderBy.push({ createdAt: "desc" });
+//     }
+
+//     /* ---------------- FETCH ---------------- */
+//     const materials = await prisma.userMaterial.findMany({
+//       where,
+//       include: {
+//         material: {
+//           select: {
+//             code: true,
+//             name: true,
+//             image: true,
+//             cost: true,
+//             power: true,
+//             rarity: true,
+//           },
+//         },
+//       },
+//       orderBy,
+//     });
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Fetched User materials details successfully",
+//       data: serializeBigInt(materials),
+//       total: materials.length,
+//     });
+//   } catch (err: any) {
+//     if (err.message === "USER_NOT_FOUND") {
+//       return res.status(404).json({ success: false, error: "User not found" });
+//     }
+//     console.error("getUserMaterials error:", err);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: "Internal server error" });
+//   }
+// };
+
+// // 5) only user's shields list + total count
+// export const getUserShields = async (req: any, res: Response) => {
+//   try {
+//     const userId = BigInt(req.user.userId);
+
+//     if (!userId) {
+//       return res.status(400).json({
+//         success: false,
+//         error: "UserId is required",
+//       });
+//     }
+
+//     const {
+//       sortCreatedAt,
+//       sortCost,
+//       sortPower,
+//       rarity,
+//       sold, // NEW
+//     } = req.query;
+
+//     await resolveUser({
+//       id: userId ? String(userId) : undefined,
+//       email: undefined,
+//     });
+
+//     const allowedRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
+//     let filterRarity: string | undefined;
+
+//     if (rarity) {
+//       const upper = String(rarity).toUpperCase();
+//       if (!allowedRarities.includes(upper)) {
+//         return res.status(400).json({
+//           success: false,
+//           error: `Invalid rarity. Allowed: ${allowedRarities.join(", ")}`,
+//         });
+//       }
+//       filterRarity = upper;
+//     }
+
+//     /* ---------------- WHERE ---------------- */
+//     const where: any = {
+//       userId: userId,
+//     };
+
+//     if (filterRarity) {
+//       where.shield = { rarity: filterRarity };
+//     }
+
+//     if (sold === "true") where.soldedQuantity = { gt: 0 };
+//     if (sold === "false") where.soldedQuantity = 0;
+
+//     /* ---------------- ORDER BY ---------------- */
+//     const orderBy: any[] = [];
+
+//     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+//       orderBy.push({ createdAt: sortCreatedAt });
+//     }
+
+//     if (sortCost && ["asc", "desc"].includes(sortCost as string)) {
+//       orderBy.push({ shield: { cost: sortCost } });
+//     }
+
+//     if (sortPower && ["asc", "desc"].includes(sortPower as string)) {
+//       orderBy.push({ shield: { power: sortPower } });
+//     }
+
+//     if (orderBy.length === 0) {
+//       orderBy.push({ createdAt: "desc" });
+//     }
+
+//     /* ---------------- FETCH ---------------- */
+//     const shields = await prisma.userShield.findMany({
+//       where,
+//       include: {
+//         shield: {
+//           select: {
+//             code: true,
+//             name: true,
+//             image: true,
+//             cost: true,
+//             power: true,
+//             rarity: true,
+//           },
+//         },
+//       },
+//       orderBy,
+//     });
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Fetched User shields details successfully",
+//       data: serializeBigInt(shields),
+//       total: shields.length,
+//     });
+//   } catch (err: any) {
+//     if (err.message === "USER_NOT_FOUND") {
+//       return res.status(404).json({ success: false, error: "User not found" });
+//     }
+//     console.error("getUserShields error:", err);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: "Internal server error" });
+//   }
+// };
+
+// // 6) Only user's gift list + total count
+// export const getUserGifts = async (req: any, res: Response) => {
+//   try {
+//     const userId = BigInt(req.user.userId);
+//     if (!userId) {
+//       return res.status(400).json({
+//         success: false,
+//         error: "UserId is required",
+//       });
+//     }
+
+//     const { status, type, sortCreatedAt } = req.query;
+
+//     await resolveUser({
+//       id: userId ? String(userId) : undefined,
+//       email: undefined,
+//     });
+
+//     /* ---------------- ENUM VALIDATION ---------------- */
+//     const validStatuses = ["PENDING", "CLAIMED", "CANCELLED"];
+//     const validTypes = ["GOLD", "TRUST_POINTS", "MATERIAL", "SWORD", "SHIELD"];
+
+//     let filterStatus: string | undefined;
+//     if (status) {
+//       const upper = String(status).toUpperCase();
+//       if (!validStatuses.includes(upper)) {
+//         return res.status(400).json({
+//           success: false,
+//           error: `Invalid status. Allowed: ${validStatuses.join(", ")}`,
+//         });
+//       }
+//       filterStatus = upper;
+//     }
+
+//     let filterType: string | undefined;
+//     if (type) {
+//       const upper = String(type).toUpperCase();
+//       if (!validTypes.includes(upper)) {
+//         return res.status(400).json({
+//           success: false,
+//           error: `Invalid gift type. Allowed: ${validTypes.join(", ")}`,
+//         });
+//       }
+//       filterType = upper;
+//     }
+
+//     /* ---------------- WHERE CLAUSE ---------------- */
+//     const where: any = {
+//       receiverId: userId,
+//     };
+
+//     if (filterStatus) {
+//       where.status = filterStatus;
+//     }
+
+//     if (filterType) {
+//       where.items = {
+//         some: {
+//           type: filterType,
+//         },
+//       };
+//     }
+
+//     /* ---------------- ORDER BY ---------------- */
+//     let orderBy: any | undefined;
+
+//     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+//       orderBy = { createdAt: sortCreatedAt };
+//     }
+
+//     /* ---------------- FETCH ---------------- */
+//     const gifts = await prisma.userGift.findMany({
+//       where,
+//       include: {
+//         items: {
+//           select: {
+//             type: true,
+//             amount: true,
+//             materialId: true,
+//             materialRarity: true,
+//             swordLevel: true,
+//             shieldId: true,
+//             shieldRarity: true,
+//             material: true,
+//             shield: true,
+//             swordLevelDefinition: true,
+//           },
+//         },
+//       },
+//       ...(orderBy ? { orderBy } : {}), // ✅ apply only if provided
+//     });
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Fetched User gifts details successfully",
+//       data: serializeBigInt(gifts),
+//       total: gifts.length,
+//     });
+//   } catch (err: any) {
+//     if (err.message === "USER_NOT_FOUND") {
+//       return res.status(404).json({ success: false, error: "User not found" });
+//     }
+//     console.error("getUserGifts error:", err);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: "Internal server error" });
+//   }
+// };
+
+// // 7) only user's vouchers list + total count
+// export const getUserVouchers = async (req: any, res: Response) => {
+//   try {
+//     const userId = BigInt(req.user.userId);
+//     if (!userId) {
+//       return res.status(400).json({
+//         success: false,
+//         error: "UserId is required",
+//       });
+//     }
+
+//     const { status, sortCreatedAt, sortGoldAmount } = req.query;
+
+//     await resolveUser({
+//       id: userId ? String(userId) : undefined,
+//       email: undefined,
+//     });
+
+//     /* ---------------- VALIDATION ---------------- */
+//     const validStatuses = ["PENDING", "REDEEMED", "CANCELLED", "EXPIRED"];
+
+//     let filterStatus: string | undefined;
+//     if (status) {
+//       const upper = String(status).toUpperCase();
+//       if (!validStatuses.includes(upper)) {
+//         return res.status(400).json({
+//           success: false,
+//           error: `Invalid voucher status. Allowed: ${validStatuses.join(", ")}`,
+//         });
+//       }
+//       filterStatus = upper;
+//     }
+
+//     /* ---------------- WHERE CLAUSE ---------------- */
+//     const where: any = {
+//       userId: userId,
+//     };
+
+//     if (filterStatus) {
+//       where.status = filterStatus;
+//     }
+
+//     /* ---------------- ORDER BY ---------------- */
+//     const orderBy: any[] = [];
+
+//     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+//       orderBy.push({ createdAt: sortCreatedAt });
+//     }
+
+//     if (sortGoldAmount && ["asc", "desc"].includes(sortGoldAmount as string)) {
+//       orderBy.push({ goldAmount: sortGoldAmount });
+//     }
+
+//     // If no sort provided → Prisma default order
+//     const vouchers = await prisma.userVoucher.findMany({
+//       where,
+//       ...(orderBy.length > 0 ? { orderBy } : {}),
+//     });
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Fetched User voucher details successfully",
+//       data: serializeBigInt(vouchers),
+//       total: vouchers.length,
+//     });
+//   } catch (err: any) {
+//     if (err.message === "USER_NOT_FOUND") {
+//       return res.status(404).json({ success: false, error: "User not found" });
+//     }
+//     console.error("getUserVouchers error:", err);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: "Internal server error" });
+//   }
+// };
+
+// // 8) only user's customer support list + total count
+// export const getUserCustomerSupports = async (req: any, res: Response) => {
+//   try {
+//     const userId = BigInt(req.user.userId);
+//     if (!userId) {
+//       return res.status(400).json({
+//         success: false,
+//         error: "UserId is required",
+//       });
+//     }
+
+//     const { isReviewed, category, priority, sortCreatedAt } = req.query;
+
+//     await resolveUser({
+//       id: userId ? String(userId) : undefined,
+//       email: undefined,
+//     });
+
+//     /* ---------------- VALIDATION ---------------- */
+//     const validCategories = [
+//       "GAME_BUG",
+//       "PAYMENT",
+//       "ACCOUNT",
+//       "BAN_APPEAL",
+//       "SUGGESTION",
+//       "OTHER",
+//     ];
+
+//     const validPriorities = ["LOW", "NORMAL", "HIGH", "CRITICAL"];
+
+//     let filterIsReviewed: boolean | undefined;
+//     if (isReviewed !== undefined) {
+//       if (isReviewed !== "true" && isReviewed !== "false") {
+//         return res.status(400).json({
+//           success: false,
+//           error: "isReviewed must be true or false",
+//         });
+//       }
+//       filterIsReviewed = isReviewed === "true";
+//     }
+
+//     let filterCategory: string | undefined;
+//     if (category) {
+//       const upper = String(category).toUpperCase();
+//       if (!validCategories.includes(upper)) {
+//         return res.status(400).json({
+//           success: false,
+//           error: `Invalid category. Allowed: ${validCategories.join(", ")}`,
+//         });
+//       }
+//       filterCategory = upper;
+//     }
+
+//     let filterPriority: string | undefined;
+//     if (priority) {
+//       const upper = String(priority).toUpperCase();
+//       if (!validPriorities.includes(upper)) {
+//         return res.status(400).json({
+//           success: false,
+//           error: `Invalid priority. Allowed: ${validPriorities.join(", ")}`,
+//         });
+//       }
+//       filterPriority = upper;
+//     }
+
+//     /* ---------------- WHERE CLAUSE ---------------- */
+//     const where: any = {
+//       userId: userId,
+//     };
+
+//     if (filterIsReviewed !== undefined) {
+//       where.isReviewed = filterIsReviewed;
+//     }
+
+//     if (filterCategory) {
+//       where.category = filterCategory;
+//     }
+
+//     if (filterPriority) {
+//       where.priority = filterPriority;
+//     }
+
+//     /* ---------------- ORDER BY ---------------- */
+//     const orderBy: any[] = [];
+
+//     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+//       orderBy.push({ createdAt: sortCreatedAt });
+//     }
+
+//     const complaints = await prisma.customerSupport.findMany({
+//       where,
+//       ...(orderBy.length > 0 ? { orderBy } : {}),
+//     });
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Fetched User complaints details successfully",
+//       data: serializeBigInt(complaints),
+//       total: complaints.length,
+//     });
+//   } catch (err: any) {
+//     if (err.message === "USER_NOT_FOUND") {
+//       return res.status(404).json({ success: false, error: "User not found" });
+//     }
+//     console.error("getUserCustomerSupports error:", err);
+//     return res
+//       .status(500)
+//       .json({ success: false, error: "Internal server error" });
+//   }
+// };
+
+// // 9) only user's marketplace pucrchases list + total count
+// export const getUserMarketplacePurchases = async (req: any, res: Response) => {
+//   try {
+//     const userId = BigInt(req.user.userId);
+//     if (!userId) {
+//       return res.status(400).json({
+//         success: false,
+//         error: "UserId is required",
+//       });
+//     }
+
+//     const { itemType, sortCreatedAt, sortPriceGold } = req.query;
+
+//     await resolveUser({
+//       id: userId ? String(userId) : undefined,
+//       email: undefined,
+//     });
+
+//     /* ---------------- VALIDATION ---------------- */
+//     const validItemTypes = ["SWORD", "MATERIAL", "SHIELD"];
+
+//     let filterItemType: string | undefined;
+//     if (itemType) {
+//       const upper = String(itemType).toUpperCase();
+//       if (!validItemTypes.includes(upper)) {
+//         return res.status(400).json({
+//           success: false,
+//           error: `Invalid itemType. Allowed: ${validItemTypes.join(", ")}`,
+//         });
+//       }
+//       filterItemType = upper;
+//     }
+
+//     /* ---------------- WHERE CLAUSE ---------------- */
+//     const where: any = {
+//       userId: userId,
+//     };
+
+//     if (filterItemType) {
+//       where.marketplaceItem = {
+//         itemType: filterItemType,
+//       };
+//     }
+
+//     /* ---------------- ORDER BY ---------------- */
+//     const orderBy: any[] = [];
+
+//     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+//       orderBy.push({ purchasedAt: sortCreatedAt });
+//     }
+
+//     if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
+//       orderBy.push({ priceGold: sortPriceGold });
+//     }
+
+//     // default sorting (only if nothing provided)
+//     if (orderBy.length === 0) {
+//       orderBy.push({ purchasedAt: "desc" });
+//     }
+
+//     const purchases = await prisma.marketplacePurchase.findMany({
+//       where,
+//       orderBy,
+//       include: {
+//         marketplaceItem: {
+//           select: {
+//             id: true,
+//             itemType: true,
+//             priceGold: true,
+//             createdAt: true,
+//             swordLevelDefinition: {
+//               select: {
+//                 level: true,
+//                 name: true,
+//                 image: true,
+//                 description: true,
+//                 power: true,
+//                 upgradeCost: true,
+//                 sellingCost: true,
+//                 successRate: true,
+//               },
+//             },
+//             material: {
+//               select: {
+//                 name: true,
+//                 image: true,
+//                 description: true,
+//                 power: true,
+//                 cost: true,
+//                 rarity: true,
+//               },
+//             },
+//             shieldType: {
+//               select: {
+//                 name: true,
+//                 image: true,
+//                 description: true,
+//                 power: true,
+//                 cost: true,
+//                 rarity: true,
+//               },
+//             },
+//           },
+//         },
+//       },
+//     });
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Fetched User marketplace details successfully",
+//       data: serializeBigInt(purchases),
+//       total: purchases.length,
+//     });
+//   } catch (err: any) {
+//     if (err.message === "USER_NOT_FOUND") {
+//       return res.status(404).json({
+//         success: false,
+//         error: "User not found",
+//       });
+//     }
+//     console.error("getUserMarketplacePurchases error:", err);
+//     return res.status(500).json({
+//       success: false,
+//       error: "Internal server error",
+//     });
+//   }
+// };
