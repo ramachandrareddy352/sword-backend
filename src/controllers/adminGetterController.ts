@@ -748,3 +748,450 @@ export const checkUserByEmail = async (
     });
   }
 };
+
+// 9) Get complete user details (admin only) by email or id
+export const getUserFullDetails = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const { email, userId } = req.query;
+
+    if (!email && !userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Provide either 'email' or 'userId' query parameter",
+      });
+    }
+
+    // Find user by email or id
+    let user;
+    if (userId) {
+      user = await prisma.user.findUnique({
+        where: { id: BigInt(userId as string) },
+      });
+    } else if (email) {
+      user = await prisma.user.findUnique({
+        where: { email: email as string },
+      });
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    // Core user data (safe fields only for admin)
+    const safeUser = {
+      id: user.id.toString(),
+      email: user.email,
+      name: user.name,
+      profileLogo: user.profileLogo,
+      gold: user.gold,
+      trustPoints: user.trustPoints,
+      totalShields: user.totalShields,
+      createdAt: user.createdAt,
+      lastLoginAt: user.lastLoginAt,
+      lastReviewed: user.lastReviewed,
+      oneDayAdsViewed: user.oneDayAdsViewed,
+      totalAdsViewed: user.totalAdsViewed,
+      todayMissionsDone: user.todayMissionsDone,
+      totalMissionsDone: user.totalMissionsDone,
+      isBanned: user.isBanned,
+      soundOn: user.soundOn,
+      anvilSwordId: user.anvilSwordId,
+    };
+
+    // Vouchers
+    const vouchers = await prisma.userVoucher.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        code: true,
+        goldAmount: true,
+        status: true,
+        redeemedAt: true,
+        cancelledAt: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    });
+
+    // Swords with level definition
+    const swords = await prisma.userSword.findMany({
+      where: { userId: user.id },
+      include: {
+        swordLevelDefinition: {
+          select: {
+            level: true,
+            name: true,
+            image: true,
+            description: true,
+            upgradeCost: true,
+            sellingCost: true,
+            successRate: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Materials with material details
+    const materials = await prisma.userMaterial.findMany({
+      where: { userId: user.id },
+      include: {
+        material: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            description: true,
+            image: true,
+            rarity: true,
+            buyingCost: true,
+            sellingCost: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Gifts with items (full details)
+    const gifts = await prisma.userGift.findMany({
+      where: { receiverId: user.id },
+      include: {
+        items: {
+          include: {
+            material: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                rarity: true,
+                image: true,
+              },
+            },
+            swordLevelDefinition: {
+              select: {
+                level: true,
+                name: true,
+                image: true,
+                description: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Sword Marketplace Purchases
+    const swordMarketplacePurchases =
+      await prisma.swordMarketplacePurchase.findMany({
+        where: { userId: user.id },
+        include: {
+          swordLevelDefinition: {
+            select: {
+              level: true,
+              name: true,
+              image: true,
+              description: true,
+              successRate: true,
+            },
+          },
+          userSword: {
+            select: {
+              code: true,
+              isSolded: true,
+              isBroken: true,
+            },
+          },
+        },
+        orderBy: { purchasedAt: "desc" },
+      });
+
+    // Material Marketplace Purchases
+    const materialMarketplacePurchases =
+      await prisma.materialMarketplacePurchase.findMany({
+        where: { userId: user.id },
+        include: {
+          material: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              rarity: true,
+              image: true,
+            },
+          },
+        },
+        orderBy: { purchasedAt: "desc" },
+      });
+
+    // Shield Marketplace Purchases
+    const shieldMarketplacePurchases =
+      await prisma.shieldMarketplacePurchase.findMany({
+        where: { userId: user.id },
+        orderBy: { purchasedAt: "desc" },
+      });
+
+    // Sword Synthesis History
+    const synthesisHistories = await prisma.swordSynthesisHistory.findMany({
+      where: { userId: user.id },
+      include: {
+        swordLevelDefinition: {
+          select: {
+            level: true,
+            name: true,
+          },
+        },
+        createdSword: {
+          select: {
+            code: true,
+            level: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Sword Upgrade History
+    const upgradeHistories = await prisma.swordUpgradeHistory.findMany({
+      where: { userId: user.id },
+      include: {
+        sword: {
+          select: {
+            code: true,
+            level: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Customer Support Tickets
+    const customerSupports = await prisma.customerSupport.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "User full details fetched successfully",
+      user: serializeBigInt(safeUser),
+      vouchers: { list: serializeBigInt(vouchers), total: vouchers.length },
+      swords: { list: serializeBigInt(swords), total: swords.length },
+      materials: { list: serializeBigInt(materials), total: materials.length },
+      gifts: { list: serializeBigInt(gifts), total: gifts.length },
+      swordMarketplacePurchases: {
+        list: serializeBigInt(swordMarketplacePurchases),
+        total: swordMarketplacePurchases.length,
+      },
+      materialMarketplacePurchases: {
+        list: serializeBigInt(materialMarketplacePurchases),
+        total: materialMarketplacePurchases.length,
+      },
+      shieldMarketplacePurchases: {
+        list: serializeBigInt(shieldMarketplacePurchases),
+        total: shieldMarketplacePurchases.length,
+      },
+      synthesisHistories: {
+        list: serializeBigInt(synthesisHistories),
+        total: synthesisHistories.length,
+      },
+      upgradeHistories: {
+        list: serializeBigInt(upgradeHistories),
+        total: upgradeHistories.length,
+      },
+      customerSupports: {
+        list: serializeBigInt(customerSupports),
+        total: customerSupports.length,
+      },
+    });
+  } catch (error: any) {
+    console.error("getUserFullDetails error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+// 10) get all upgrade history
+export const getAllUsersUpgradeHistory = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const {
+      sortCreatedAt = "desc",
+      sortGoldSpent,
+      success,
+      minGoldSpent,
+      maxGoldSpent,
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    // ---------- WHERE FILTER ----------
+    const where: any = {};
+
+    if (success !== undefined) {
+      where.success = success === "true";
+    }
+
+    if (minGoldSpent !== undefined || maxGoldSpent !== undefined) {
+      where.goldSpent = {};
+      if (minGoldSpent !== undefined) {
+        where.goldSpent.gte = Number(minGoldSpent);
+      }
+      if (maxGoldSpent !== undefined) {
+        where.goldSpent.lte = Number(maxGoldSpent);
+      }
+    }
+
+    // ---------- ORDER BY ----------
+    const orderBy: any[] = [];
+
+    if (["asc", "desc"].includes(sortCreatedAt as string)) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+
+    if (["asc", "desc"].includes(sortGoldSpent as string)) {
+      orderBy.push({ goldSpent: sortGoldSpent });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ createdAt: "desc" });
+    }
+
+    // ---------- COUNT ----------
+    const total = await prisma.swordUpgradeHistory.count({ where });
+
+    // ---------- FETCH ----------
+    const history = await prisma.swordUpgradeHistory.findMany({
+      where,
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+          },
+        },
+        sword: {
+          select: {
+            id: true,
+            code: true,
+            level: true,
+            isBroken: true,
+          },
+        },
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "All users sword upgrade history fetched successfully",
+      data: serializeBigInt(history),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err: any) {
+    console.error("getAllUsersUpgradeHistory error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+// 11) get all synthesize history
+export const getAllUsersSynthesisHistory = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const { sortCreatedAt = "desc" } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    // ---------- ORDER BY ----------
+    const orderBy: any[] = [];
+
+    if (["asc", "desc"].includes(sortCreatedAt as string)) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ createdAt: "desc" });
+    }
+
+    // ---------- COUNT ----------
+    const total = await prisma.swordSynthesisHistory.count();
+
+    // ---------- FETCH ----------
+    const history = await prisma.swordSynthesisHistory.findMany({
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+          },
+        },
+        swordLevelDefinition: {
+          select: {
+            level: true,
+            name: true,
+            image: true,
+          },
+        },
+        createdSword: {
+          select: {
+            id: true,
+            code: true,
+            level: true,
+          },
+        },
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "All users sword synthesis history fetched successfully",
+      data: serializeBigInt(history),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err: any) {
+    console.error("getAllUsersSynthesisHistory error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};

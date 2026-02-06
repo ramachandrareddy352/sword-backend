@@ -1,8 +1,10 @@
 import type { Response } from "express";
 import prisma from "../database/client";
 import type { UserAuthRequest } from "../middleware/userAuth";
+import { serializeBigInt } from "../services/serializeBigInt";
+import { getPagination } from "../services/queryHelpers";
 
-// Get current user's rank across all leaderboard fields
+// 1) Get current user's rank across all leaderboard fields
 export const getUserRank = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
@@ -124,6 +126,1003 @@ export const getUserRank = async (req: UserAuthRequest, res: Response) => {
     });
   } catch (err) {
     console.error("getUserRank error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 2) Authenticated user sees their own swords
+export const getUserSwords = async (req: UserAuthRequest, res: Response) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const {
+      sortCreatedAt, // 'asc' | 'desc'
+      sortLevel, // 'asc' | 'desc'
+      sold, // 'true' | 'false' (filter isSolded)
+      broken, // 'true' | 'false' (filter isBroken)
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    // Build where clause
+    const where: any = {
+      userId,
+    };
+
+    // Sold filter
+    if (sold === "true") {
+      where.isSolded = true;
+    } else if (sold === "false") {
+      where.isSolded = false;
+    }
+
+    // Broken filter
+    if (broken === "true") {
+      where.isBroken = true;
+    } else if (broken === "false") {
+      where.isBroken = false;
+    }
+
+    // Build orderBy array
+    const orderBy: any[] = [];
+
+    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+    if (sortLevel && ["asc", "desc"].includes(sortLevel as string)) {
+      orderBy.push({ level: sortLevel });
+    }
+
+    // Default sort: newest first
+    if (orderBy.length === 0) {
+      orderBy.push({ createdAt: "desc" });
+    }
+
+    // Get total count for this user
+    const totalItems = await prisma.userSword.count({ where });
+
+    // Fetch swords
+    const swords = await prisma.userSword.findMany({
+      where,
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      select: {
+        id: true,
+        code: true,
+        level: true,
+        isOnAnvil: true,
+        isSolded: true,
+        isBroken: true,
+        createdAt: true,
+        updatedAt: true,
+        swordLevelDefinition: {
+          select: {
+            name: true,
+            image: true,
+            description: true,
+            upgradeCost: true,
+            sellingCost: true,
+            buyingCost: true,
+            synthesizeCost: true,
+            successRate: true,
+            isBuyingAllow: true,
+            isSellingAllow: true,
+            isSynthesizeAllow: true,
+          },
+        },
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Your swords fetched successfully",
+      data: serializeBigInt(swords),
+      total: totalItems,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err: any) {
+    console.error("getUserSwords error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 3) Returns only main user table fields (no relations)
+export const getUserBasicInfo = async (req: UserAuthRequest, res: Response) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    // Fetch user with only safe scalar fields
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        profileLogo: true,
+        gold: true,
+        trustPoints: true,
+        totalShields: true,
+        createdAt: true,
+        lastLoginAt: true,
+        lastReviewed: true,
+        oneDayAdsViewed: true,
+        totalAdsViewed: true,
+        oneDayShieldAdsViewed: true,
+        todayMissionsDone: true,
+        totalMissionsDone: true,
+        isShieldOn: true,
+        isBanned: true,
+        soundOn: true,
+        anvilSwordId: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Fetched user basic details successfully",
+      data: serializeBigInt(user),
+    });
+  } catch (err: any) {
+    console.error("getUserBasicInfo error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+// 4) Authenticated user sees their own materials
+export const getUserMaterials = async (req: UserAuthRequest, res: Response) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const {
+      sortCreatedAt, // 'asc' | 'desc'
+      sortBuyingCost, // 'asc' | 'desc'
+      sortSellingCost, // 'asc' | 'desc'
+      rarity, // 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'MYTHIC'
+      sold, // 'true' | 'false' (filter soldedQuantity)
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    // Validate rarity filter if provided
+    const validRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
+    let filterRarity: string | undefined;
+
+    if (rarity) {
+      const upper = String(rarity).toUpperCase();
+      if (!validRarities.includes(upper)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid rarity. Allowed: ${validRarities.join(", ")}`,
+        });
+      }
+      filterRarity = upper;
+    }
+
+    /* ---------------- WHERE ---------------- */
+    const where: any = {
+      userId,
+    };
+
+    if (filterRarity) {
+      where.material = { rarity: filterRarity };
+    }
+
+    if (sold === "true") {
+      where.soldedQuantity = { gt: 0 };
+    }
+    if (sold === "false") {
+      where.soldedQuantity = 0;
+    }
+
+    /* ---------------- ORDER BY ---------------- */
+    const orderBy: any[] = [];
+
+    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+
+    if (sortBuyingCost && ["asc", "desc"].includes(sortBuyingCost as string)) {
+      orderBy.push({ material: { buyingCost: sortBuyingCost } });
+    }
+
+    if (
+      sortSellingCost &&
+      ["asc", "desc"].includes(sortSellingCost as string)
+    ) {
+      orderBy.push({ material: { sellingCost: sortSellingCost } });
+    }
+
+    // Default sort: newest first
+    if (orderBy.length === 0) {
+      orderBy.push({ createdAt: "desc" });
+    }
+
+    /* ---------------- FETCH ---------------- */
+    const materials = await prisma.userMaterial.findMany({
+      where,
+      include: {
+        material: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            description: true,
+            image: true,
+            rarity: true,
+            buyingCost: true,
+            sellingCost: true,
+            isBuyingAllow: true,
+            isSellingAllow: true,
+          },
+        },
+      },
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Your materials fetched successfully",
+      data: serializeBigInt(materials),
+      total: materials.length,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err: any) {
+    console.error("getUserMaterials error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 5) get users all gifts
+export const getUserGifts = async (req: UserAuthRequest, res: Response) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const {
+      status, // "PENDING" | "CLAIMED" | "CANCELLED"
+      itemType, // "GOLD" | "TRUST_POINTS" | "MATERIAL" | "SWORD" | "SHIELD"
+      sortCreatedAt, // "asc" | "desc"
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    /* ---------------- ENUM VALIDATION ---------------- */
+    const validStatuses = ["PENDING", "CLAIMED", "CANCELLED"];
+    const validTypes = ["GOLD", "TRUST_POINTS", "MATERIAL", "SWORD", "SHIELD"];
+
+    let filterStatus: string | undefined;
+    if (status) {
+      const upper = String(status).toUpperCase();
+      if (!validStatuses.includes(upper)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid status. Allowed: ${validStatuses.join(", ")}`,
+        });
+      }
+      filterStatus = upper;
+    }
+
+    let filterType: string | undefined;
+    if (itemType) {
+      const upper = String(itemType).toUpperCase();
+      if (!validTypes.includes(upper)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid gift type. Allowed: ${validTypes.join(", ")}`,
+        });
+      }
+      filterType = upper;
+    }
+
+    /* ---------------- WHERE ---------------- */
+    const where: any = {
+      receiverId: userId,
+    };
+
+    if (filterStatus) {
+      where.status = filterStatus;
+    }
+
+    if (filterType) {
+      where.items = {
+        some: { type: filterType },
+      };
+    }
+
+    /* ---------------- ORDER BY ---------------- */
+    const orderBy: any[] = [];
+
+    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ createdAt: "desc" });
+    }
+
+    /* ---------------- FETCH ---------------- */
+    const gifts = await prisma.userGift.findMany({
+      where,
+      include: {
+        items: {
+          select: {
+            type: true,
+            amount: true, // GOLD, TRUST_POINTS, SHIELD
+            materialId: true,
+            materialQunatity: true,
+            swordLevel: true,
+            material: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                rarity: true,
+                image: true,
+                description: true,
+                buyingCost: true,
+                sellingCost: true,
+              },
+            },
+            swordLevelDefinition: {
+              select: {
+                level: true,
+                name: true,
+                image: true,
+                description: true,
+                upgradeCost: true,
+                sellingCost: true,
+                successRate: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Your gifts fetched successfully",
+      data: serializeBigInt(gifts),
+      total: gifts.length,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err: any) {
+    console.error("getUserGifts error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 6) User's own vouchers list + total count
+export const getUserVouchers = async (req: UserAuthRequest, res: Response) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const {
+      status, // "PENDING" | "REDEEMED" | "CANCELLED" | "EXPIRED"
+      sortCreatedAt, // "asc" | "desc"
+      sortGoldAmount, // "asc" | "desc"
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    /* ---------------- VALIDATION ---------------- */
+    const validStatuses = ["PENDING", "REDEEMED", "CANCELLED", "EXPIRED"];
+
+    let filterStatus: string | undefined;
+    if (status) {
+      const upper = String(status).toUpperCase();
+      if (!validStatuses.includes(upper)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid voucher status. Allowed: ${validStatuses.join(", ")}`,
+        });
+      }
+      filterStatus = upper;
+    }
+
+    /* ---------------- WHERE ---------------- */
+    const where: any = {
+      userId,
+    };
+
+    if (filterStatus) {
+      where.status = filterStatus;
+    }
+
+    /* ---------------- ORDER BY ---------------- */
+    const orderBy: any[] = [];
+
+    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+
+    if (sortGoldAmount && ["asc", "desc"].includes(sortGoldAmount as string)) {
+      orderBy.push({ goldAmount: sortGoldAmount });
+    }
+
+    /* ---------------- FETCH ---------------- */
+    const vouchers = await prisma.userVoucher.findMany({
+      where,
+      orderBy: orderBy.length > 0 ? orderBy : [{ createdAt: "desc" }],
+      skip: pagination.skip,
+      take: pagination.take,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Your vouchers fetched successfully",
+      data: serializeBigInt(vouchers),
+      total: vouchers.length,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err: any) {
+    console.error("getUserVouchers error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 7) User's own support complaints list + total count
+export const getUserCustomerSupports = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const {
+      isReviewed, // "true" | "false"
+      category, // GAME_BUG, PAYMENT, etc.
+      priority, // LOW, NORMAL, HIGH, CRITICAL
+      sortCreatedAt, // "asc" | "desc"
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    /* ---------------- VALIDATION ---------------- */
+    const validCategories = [
+      "GAME_BUG",
+      "PAYMENT",
+      "ACCOUNT",
+      "BAN_APPEAL",
+      "SUGGESTION",
+      "OTHER",
+    ];
+
+    const validPriorities = ["LOW", "NORMAL", "HIGH", "CRITICAL"];
+
+    let filterIsReviewed: boolean | undefined;
+    if (isReviewed !== undefined) {
+      if (isReviewed !== "true" && isReviewed !== "false") {
+        return res.status(400).json({
+          success: false,
+          error: "isReviewed must be 'true' or 'false'",
+        });
+      }
+      filterIsReviewed = isReviewed === "true";
+    }
+
+    let filterCategory: string | undefined;
+    if (category) {
+      const upper = String(category).toUpperCase();
+      if (!validCategories.includes(upper)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid category. Allowed: ${validCategories.join(", ")}`,
+        });
+      }
+      filterCategory = upper;
+    }
+
+    let filterPriority: string | undefined;
+    if (priority) {
+      const upper = String(priority).toUpperCase();
+      if (!validPriorities.includes(upper)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid priority. Allowed: ${validPriorities.join(", ")}`,
+        });
+      }
+      filterPriority = upper;
+    }
+
+    /* ---------------- WHERE ---------------- */
+    const where: any = {
+      userId,
+    };
+
+    if (filterIsReviewed !== undefined) {
+      where.isReviewed = filterIsReviewed;
+    }
+
+    if (filterCategory) {
+      where.category = filterCategory;
+    }
+
+    if (filterPriority) {
+      where.priority = filterPriority;
+    }
+
+    /* ---------------- ORDER BY ---------------- */
+    const orderBy: any[] = [];
+
+    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+
+    /* ---------------- FETCH ---------------- */
+    const complaints = await prisma.customerSupport.findMany({
+      where,
+      orderBy: orderBy.length > 0 ? orderBy : [{ createdAt: "desc" }],
+      skip: pagination.skip,
+      take: pagination.take,
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        message: true,
+        category: true,
+        priority: true,
+        isReviewed: true,
+        createdAt: true,
+        updatedAt: true,
+        reviewedAt: true,
+        adminReply: true,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Your support complaints fetched successfully",
+      data: serializeBigInt(complaints),
+      total: complaints.length,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err: any) {
+    console.error("getUserCustomerSupports error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 8)  solded single user swords list
+export const getUserPurchasedSwords = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const {
+      sortPurchasedAt = "desc", // 'asc' | 'desc'
+      sortPriceGold, // 'asc' | 'desc'
+      sortLevel, // 'asc' | 'desc'
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const orderBy: any[] = [];
+
+    if (["asc", "desc"].includes(sortPurchasedAt as string)) {
+      orderBy.push({ purchasedAt: sortPurchasedAt });
+    }
+    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+    if (sortLevel && ["asc", "desc"].includes(sortLevel as string)) {
+      orderBy.push({
+        swordLevelDefinition: { level: sortLevel },
+      });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ purchasedAt: "desc" });
+    }
+
+    const total = await prisma.swordMarketplacePurchase.count({
+      where: { userId },
+    });
+
+    const purchases = await prisma.swordMarketplacePurchase.findMany({
+      where: { userId },
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      select: {
+        id: true,
+        swordLevelDefinition: {
+          select: {
+            level: true,
+            name: true,
+            image: true,
+            successRate: true,
+          },
+        },
+        priceGold: true,
+        purchasedAt: true,
+      },
+    });
+
+    // Fetch minimal user info for context
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, profileLogo: true },
+    });
+
+    return res.json({
+      success: true,
+      message: "Your purchased swords fetched successfully",
+      user: user ? { name: user.name, profileLogo: user.profileLogo } : null,
+      data: serializeBigInt(purchases),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error("getUserPurchasedSwords error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 9)  solded single user materials list
+export const getUserPurchasedMaterials = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const {
+      sortPurchasedAt = "desc", // 'asc' | 'desc'
+      sortPriceGold, // 'asc' | 'desc'
+      sortMaterialId, // 'asc' | 'desc'
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const orderBy: any[] = [];
+
+    if (["asc", "desc"].includes(sortPurchasedAt as string)) {
+      orderBy.push({ purchasedAt: sortPurchasedAt });
+    }
+    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+    if (sortMaterialId && ["asc", "desc"].includes(sortMaterialId as string)) {
+      orderBy.push({ materialId: sortMaterialId });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ purchasedAt: "desc" });
+    }
+
+    const total = await prisma.materialMarketplacePurchase.count({
+      where: { userId },
+    });
+
+    const purchases = await prisma.materialMarketplacePurchase.findMany({
+      where: { userId },
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      select: {
+        id: true,
+        material: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            rarity: true,
+            image: true,
+          },
+        },
+        quantity: true,
+        priceGold: true,
+        purchasedAt: true,
+      },
+    });
+
+    // Fetch minimal user info
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, profileLogo: true },
+    });
+
+    return res.json({
+      success: true,
+      message: "Your purchased materials fetched successfully",
+      user: user ? { name: user.name, profileLogo: user.profileLogo } : null,
+      data: serializeBigInt(purchases),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error("getUserPurchasedMaterials error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 10)  solded single user shields list
+export const getUserPurchasedShields = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const {
+      sortPurchasedAt = "desc", // 'asc' | 'desc'
+      sortPriceGold, // 'asc' | 'desc'
+    } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const orderBy: any[] = [];
+
+    if (["asc", "desc"].includes(sortPurchasedAt as string)) {
+      orderBy.push({ purchasedAt: sortPurchasedAt });
+    }
+    if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold as string)) {
+      orderBy.push({ priceGold: sortPriceGold });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ purchasedAt: "desc" });
+    }
+
+    const total = await prisma.shieldMarketplacePurchase.count({
+      where: { userId },
+    });
+
+    const purchases = await prisma.shieldMarketplacePurchase.findMany({
+      where: { userId },
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      select: {
+        id: true,
+        quantity: true,
+        priceGold: true,
+        purchasedAt: true,
+      },
+    });
+
+    // Fetch minimal user info
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, profileLogo: true },
+    });
+
+    return res.json({
+      success: true,
+      message: "Your purchased shields fetched successfully",
+      user: user ? { name: user.name, profileLogo: user.profileLogo } : null,
+      data: serializeBigInt(purchases),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error("getUserPurchasedShields error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 11) Fetch authenticated user's own sword upgrade history
+export const getUserUpgradeHistory = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const { sortCreatedAt = "desc" } = req.query; // 'asc' | 'desc'
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const orderBy: any[] = [];
+
+    if (["asc", "desc"].includes(sortCreatedAt as string)) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ createdAt: "desc" });
+    }
+
+    const total = await prisma.swordUpgradeHistory.count({
+      where: { userId },
+    });
+
+    const history = await prisma.swordUpgradeHistory.findMany({
+      where: { userId },
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      include: {
+        sword: {
+          select: {
+            id: true,
+            code: true,
+            level: true,
+            isBroken: true,
+          },
+        },
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Your sword upgrade history fetched successfully",
+      data: serializeBigInt(history),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err: any) {
+    console.error("getUserUpgradeHistory error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
+  }
+};
+
+// 12) Fetch authenticated user's own sword synthesis history
+export const getUserSynthesisHistory = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const { sortCreatedAt = "desc" } = req.query; // 'asc' | 'desc'
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const orderBy: any[] = [];
+
+    if (["asc", "desc"].includes(sortCreatedAt as string)) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ createdAt: "desc" });
+    }
+
+    const total = await prisma.swordSynthesisHistory.count({
+      where: { userId },
+    });
+
+    const history = await prisma.swordSynthesisHistory.findMany({
+      where: { userId },
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      include: {
+        swordLevelDefinition: {
+          select: {
+            level: true,
+            name: true,
+            image: true,
+          },
+        },
+        createdSword: {
+          select: {
+            id: true,
+            code: true,
+            level: true,
+          },
+        },
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Your sword synthesis history fetched successfully",
+      data: serializeBigInt(history),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err: any) {
+    console.error("getUserSynthesisHistory error:", err);
     return res
       .status(500)
       .json({ success: false, error: "Internal server error" });

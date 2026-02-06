@@ -7,13 +7,13 @@ import cors from "cors";
 
 import AdminActionRouters from "../routes/adminActionRoutes";
 import AdminAuthRouters from "../routes/adminAuthRoutes";
-// import AdminGetterRouters from "../routes/adminGetterRoutes";
+import AdminGetterRouters from "../routes/adminGetterRoutes";
 
-// import PublicGetterRouters from "../routes/publicGetterRoutes";
+import PublicGetterRouters from "../routes/publicGetterRoutes";
 
-// import UserActionRouters from "../routes/userActionRoutes";
+import UserActionRouters from "../routes/userActionRoutes";
 import UserAuthRouters from "../routes/userAuthRoutes";
-// import UserGetterRouters from "../routes/userGetterRoutes";
+import UserGetterRouters from "../routes/userGetterRoutes";
 
 export const app = express();
 
@@ -49,13 +49,13 @@ app.get("/", (req: Request, res: Response) => {
 
 app.use("/api/adminActions", AdminActionRouters);
 app.use("/api/adminAuth", AdminAuthRouters);
-// app.use("/api/adminGetters", AdminGetterRouters);
+app.use("/api/adminGetters", AdminGetterRouters);
 
-// app.use("/api/publicGetters", PublicGetterRouters);
+app.use("/api/publicGetters", PublicGetterRouters);
 
-// app.use("/api/userActions", UserActionRouters);
+app.use("/api/userActions", UserActionRouters);
 app.use("/api/userAuth", UserAuthRouters);
-// app.use("/api/userGetters", UserGetterRouters);
+app.use("/api/userGetters", UserGetterRouters);
 
 const server = createServer(app);
 export default server;
