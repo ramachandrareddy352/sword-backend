@@ -3,86 +3,45 @@ import adminAuth from "../middleware/adminAuth";
 
 import {
   getAllUsers,
-  getAllUsersMaterials,
+  checkUserByEmail,
+  getUserFullDetails,
   getAllUsersSwords,
-  getAllUsersShields,
+  getAllUsersMaterials,
+  getAdminConfig,
   getAllUsersGifts,
   getAllCustomerSupports,
   getAllUsersVouchers,
-  getAdminConfig,
-  checkUserByEmail,
+  getAllUsersUpgradeHistory,
+  getAllUsersSynthesisHistory,
 } from "../controllers/adminGetterController";
-
-import {
-  getUserFullDetails,
-  getUserBasicInfo,
-  getUserSwords,
-  getUserMaterials,
-  getUserShields,
-  getUserGifts,
-  getUserVouchers,
-  getUserCustomerSupports,
-  getUserMarketplacePurchases,
-} from "../controllers/commonGetterController";
 
 const router = express.Router();
 
-// 3) Get only basic user table info
+/* ───────────────────── USER ───────────────────── */
 router.get("/users/check-email", adminAuth, checkUserByEmail);
-
-// 1) Get all users with sorting + pagination
-router.get("/data/allusers", adminAuth, getAllUsers);
-
-// 2) Get full details of a single user (ALL relations)
+router.get("/users/all", adminAuth, getAllUsers);
 router.get("/user/full-details", adminAuth, getUserFullDetails);
 
-// 3) Get only basic user table info
-router.get("/user/basic-info", adminAuth, getUserBasicInfo);
-
-// 4) User swords
-router.get("/user/swords", adminAuth, getUserSwords);
-
-// 5) User materials
-router.get("/user/materials", adminAuth, getUserMaterials);
-
-// 6) User shields
-router.get("/user/shields", adminAuth, getUserShields);
-
-// 7) User gifts
-router.get("/user/gifts", adminAuth, getUserGifts);
-
-// 8) User vouchers
-router.get("/user/vouchers", adminAuth, getUserVouchers);
-
-// 9) User customer support complaints
-router.get("/user/complaints", adminAuth, getUserCustomerSupports);
-
-// 10) User marketplace purchases
-router.get(
-  "/user/marketplace-purchases",
-  adminAuth,
-  getUserMarketplacePurchases,
-);
-
-// 11) All users materials (sorting + pagination)
+/* ───────────────────── USERS ASSETS ───────────────────────── */
+router.get("/all/users/swords", adminAuth, getAllUsersSwords);
 router.get("/all/users/materials", adminAuth, getAllUsersMaterials);
 
-// 12) All users swords (sorting + pagination)
-router.get("/all/users/swords", adminAuth, getAllUsersSwords);
-
-// 13) All users shields (sorting + pagination)
-router.get("/all/users/shields", adminAuth, getAllUsersShields);
-
-// 14) All users gifts (sorting + filters + pagination)
+/* ───────────────────── USERS GIFTS & VOUCHERS ──────────────── */
 router.get("/all/users/gifts", adminAuth, getAllUsersGifts);
-
-// 16) All customer support tickets
-router.get("/all/users/customer-supports", adminAuth, getAllCustomerSupports);
-
-// 17) All users vouchers
 router.get("/all/users/vouchers", adminAuth, getAllUsersVouchers);
 
-// 18) return the amdin config data
-router.get("/data/adminConfig", adminAuth, getAdminConfig);
+/* ───────────────────── SUPPORT SYSTEM ─────────────────────── */
+router.get("/all/users/customer-supports", adminAuth, getAllCustomerSupports);
+
+/* ───────────────────── HISTORY & LOGS ─────────────────────── */
+router.get("/all/users/upgrade-history", adminAuth, getAllUsersUpgradeHistory);
+router.get(
+  "/all/users/synthesis-history",
+  adminAuth,
+  getAllUsersSynthesisHistory,
+);
+
+/* ───────────────────── ADMIN CONFIG ───────────────────────── */
+router.get("/config", adminAuth, getAdminConfig);
 
 export default router;

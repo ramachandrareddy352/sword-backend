@@ -5,72 +5,78 @@ import { upload } from "../middleware/upload";
 import {
   updateAdminConfig,
   createSwordLevel,
-  createMaterial,
-  createShield,
   updateSwordLevel,
+  updateSynthesizeRequirements,
+  updateUpgradeDrops,
+  updateSwordMaterials,
+  createMaterial,
   updateMaterial,
-  updateShield,
   createGift,
   cancelGift,
   deleteGift,
-  createMarketplaceItem,
-  toggleMarketplaceItemActive,
-  deleteMarketplaceItem,
-  updateMarketplaceItemPrice,
   toggleUserBan,
   replyToSupportTicket,
 } from "../controllers/adminActionController";
 
 const router = express.Router();
 
-router.put("/update/config", adminAuth, updateAdminConfig);
+/* ───────────────────── ADMIN CONFIG ───────────────────── */
+router.put("/config/update", adminAuth, updateAdminConfig);
 
+/* ───────────────────────── SWORDS ─────────────────────── */
+// Create new sword level (with image + synth + upgrade rules)
 router.put(
-  "/create/sword",
+  "/sword/create",
   adminAuth,
   upload.single("image"),
   createSwordLevel,
 );
-router.put(
-  "/create/material",
-  adminAuth,
-  upload.single("image"),
-  createMaterial,
-);
-router.put("/create/shield", adminAuth, upload.single("image"), createShield);
 
+// Update sword metadata / prices / flags / image
 router.put(
-  "/update/sword",
+  "/sword/update/metadata",
   adminAuth,
   upload.single("image"),
   updateSwordLevel,
 );
+
+// Update ONLY synthesize required quantities (no add/remove)
+router.patch(
+  "/sword/update/synthesize",
+  adminAuth,
+  updateSynthesizeRequirements,
+);
+
+// Update ONLY upgrade drops (percent + min/max)
+router.patch("/sword/update/upgrades", adminAuth, updateUpgradeDrops);
+
+// FULL replace synthesize + upgrade materials
+router.patch("/sword/update/materials", adminAuth, updateSwordMaterials);
+
+/* ─────────────────────── MATERIALS ────────────────────── */
 router.put(
-  "/update/material",
+  "/material/create",
+  adminAuth,
+  upload.single("image"),
+  createMaterial,
+);
+
+router.put(
+  "/material/update",
   adminAuth,
   upload.single("image"),
   updateMaterial,
 );
-router.put("/update/shield", adminAuth, upload.single("image"), updateShield);
 
-router.post("/create/gift", adminAuth, createGift);
-router.post("/cancel/gift", adminAuth, cancelGift);
-router.delete("/delete/gift", adminAuth, deleteGift);
+/* ───────────────────────── GIFTS ──────────────────────── */
+router.post("/gift/create", adminAuth, createGift);
+router.post("/gift/cancel", adminAuth, cancelGift);
+router.delete("/gift/delete", adminAuth, deleteGift);
 
-router.post("/create/marketplace-item", adminAuth, createMarketplaceItem);
-router.patch(
-  "/update/marketplace-activate",
-  adminAuth,
-  toggleMarketplaceItemActive,
-);
-router.patch(
-  "/update/marketplace-price",
-  adminAuth,
-  updateMarketplaceItemPrice,
-);
-router.delete("/delete/marketplace-item", adminAuth, deleteMarketplaceItem);
+/* ───────────────────── USER MODERATION ────────────────── */
+router.patch("/user/ban-toggle", adminAuth, toggleUserBan);
 
-router.patch("/update/users-ban", adminAuth, toggleUserBan);
-router.post("/reply/support", adminAuth, replyToSupportTicket);
+/* ───────────────────── SUPPORT SYSTEM ─────────────────── */
+router.post("/support/reply", adminAuth, replyToSupportTicket);
 
 export default router;

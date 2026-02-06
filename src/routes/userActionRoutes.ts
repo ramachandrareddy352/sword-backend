@@ -8,47 +8,46 @@ import {
   createComplaint,
   updateComplaint,
   deleteComplaint,
-  buyMarketplaceItem,
+  buySword,
+  buyMaterial,
+  buyShields,
   sellSword,
   sellMaterial,
-  sellShield,
   setSwordOnAnvil,
   removeSwordFromAnvil,
   upgradeSword,
   synthesizeSword,
-  setShieldOnAnvil,
-  removeShieldFromAnvil,
 } from "../controllers/userActionController";
 
 const router = express.Router();
 
+/* ───────────────────── USER SETTINGS ───────────────────── */
 router.patch("/sound/toggle", userAuth, toggleSound);
 
+/* ───────────────────── VOUCHERS ───────────────────────── */
 router.post("/vouchers/create", userAuth, createVoucher);
 router.post("/vouchers/cancel", userAuth, cancelVoucher);
 
-// No ban check required for complaints (as per your rule)
+/* ───────────────────── COMPLAINTS ─────────────────────── */
 router.post("/complaints/create", userAuth, createComplaint);
 router.put("/complaints/update", userAuth, updateComplaint);
 router.delete("/complaints/delete", userAuth, deleteComplaint);
 
-router.post("/marketplace/buy", userAuth, buyMarketplaceItem);
+/* ───────────────────── MARKETPLACE (BUY) ──────────────── */
+router.post("/marketplace/buy/sword", userAuth, buySword);
+router.post("/marketplace/buy/material", userAuth, buyMaterial);
+router.post("/marketplace/buy/shields", userAuth, buyShields);
 
-// Sell items (swords, materials, shields)
-router.post("/sell/sword", userAuth, sellSword);
-router.post("/sell/material", userAuth, sellMaterial);
-router.post("/sell/shield", userAuth, sellShield);
+/* ───────────────────── MARKETPLACE (SELL) ─────────────── */
+router.post("/marketplace/sell/sword", userAuth, sellSword);
+router.post("/marketplace/sell/material", userAuth, sellMaterial);
 
-// Anvil management (sword & shield)
+/* ───────────────────── ANVIL ──────────────────────────── */
 router.post("/anvil/set-sword", userAuth, setSwordOnAnvil);
 router.post("/anvil/remove-sword", userAuth, removeSwordFromAnvil);
-router.post("/anvil/set-shield", userAuth, setShieldOnAnvil);
-router.post("/anvil/remove-shield", userAuth, removeShieldFromAnvil);
 
-// Sword upgrade (must be on anvil)
+/* ───────────────────── SWORD CORE ACTIONS ─────────────── */
 router.post("/sword/upgrade", userAuth, upgradeSword);
-
-// Sword synthesis (consume materials/shields to create new sword)
 router.post("/sword/synthesize", userAuth, synthesizeSword);
 
 export default router;
