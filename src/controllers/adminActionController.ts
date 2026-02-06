@@ -564,10 +564,93 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
       isBuyingAllow,
       isSellingAllow,
       isSynthesizeAllow,
-      materials,
+      materials: materialsRaw,
     } = req.body;
 
-    // ---------- VALIDATION - stop at first error ----------
+    // ────────────────────────────────────────────────
+    // Parse materials (from FormData → string → array)
+    // ────────────────────────────────────────────────
+    let materials: Array<{
+      materialId: number;
+      requiredQuantity: number;
+      dropPercentage: number;
+      minQuantity: number;
+      maxQuantity: number;
+    }> = [];
+
+    if (typeof materialsRaw === "string" && materialsRaw.trim() !== "") {
+      try {
+        materials = JSON.parse(materialsRaw);
+      } catch (parseError) {
+        console.error("Failed to parse materials JSON:", parseError);
+        return res.status(400).json({
+          success: false,
+          error:
+            "Invalid format for materials field – must be valid JSON array",
+        });
+      }
+    } else if (Array.isArray(materialsRaw)) {
+      materials = materialsRaw;
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: "Materials field is required and must be a JSON array",
+      });
+    }
+
+    // ────────────────────────────────────────────────
+    // Basic array validation
+    // ────────────────────────────────────────────────
+    if (materials.length < 1 || materials.length > 4) {
+      return res.status(400).json({
+        success: false,
+        error: "Materials must contain 1 to 4 items",
+      });
+    }
+
+    // ────────────────────────────────────────────────
+    // NEW: Drop percentage validations
+    // ────────────────────────────────────────────────
+    let totalDrop = 0;
+
+    for (let i = 0; i < materials.length; i++) {
+      const m = materials[i];
+      const drop = Number(m.dropPercentage);
+
+      if (isNaN(drop)) {
+        return res.status(400).json({
+          success: false,
+          error: `Material #${i + 1}: dropPercentage must be a valid number`,
+        });
+      }
+
+      if (drop <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Material #${i + 1} (ID ${m.materialId}): dropPercentage must be greater than 0`,
+        });
+      }
+
+      if (drop > 100) {
+        return res.status(400).json({
+          success: false,
+          error: `Material #${i + 1} (ID ${m.materialId}): dropPercentage cannot exceed 100`,
+        });
+      }
+
+      totalDrop += drop;
+    }
+
+    if (totalDrop !== 100) {
+      return res.status(400).json({
+        success: false,
+        error: `Sum of all drop percentages must be exactly 100% (current sum: ${totalDrop}%)`,
+      });
+    }
+
+    // ────────────────────────────────────────────────
+    // Remaining field validations
+    // ────────────────────────────────────────────────
     if (
       !name ||
       typeof name !== "string" ||
@@ -578,50 +661,43 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
     ) {
       return res.status(400).json({
         success: false,
-        error: "Name is required and must be a non-empty string",
+        error:
+          "Name and synthesizeName are required and must be non-empty strings",
       });
     }
 
-    if (
-      !Array.isArray(materials) ||
-      materials.length < 1 ||
-      materials.length > 4
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Materials must be an array with 1 to 4 items",
-      });
-    }
-
-    if (
-      typeof successRate !== "number" ||
-      successRate < 0 ||
-      successRate > 100
-    ) {
+    const successNum = Number(successRate);
+    if (isNaN(successNum) || successNum < 0 || successNum > 100) {
       return res.status(400).json({
         success: false,
         error: "Success rate must be a number between 0 and 100",
       });
     }
 
+    const buy = Number(buyingCost);
+    const sell = Number(sellingCost);
+    const upg = Number(upgradeCost);
+    const synth = Number(synthesizeCost);
+
     if (
-      typeof buyingCost !== "number" ||
-      buyingCost <= 0 ||
-      typeof sellingCost !== "number" ||
-      sellingCost <= 0 ||
-      typeof upgradeCost !== "number" ||
-      upgradeCost <= 0 ||
-      typeof synthesizeCost !== "number" ||
-      synthesizeCost < 0
+      isNaN(buy) ||
+      buy <= 0 ||
+      isNaN(sell) ||
+      sell <= 0 ||
+      isNaN(upg) ||
+      upg <= 0 ||
+      isNaN(synth) ||
+      synth < 0
     ) {
       return res.status(400).json({
         success: false,
-        error: "All costs (buying, selling, upgrade) must be positive numbers",
+        error:
+          "Buying, selling, and upgrade costs must be positive numbers. Synthesize cost must be ≥ 0.",
       });
     }
 
-    // Material validations
-    const materialIds = materials.map((m) => m.materialId);
+    // Material ID uniqueness + basic per-material checks
+    const materialIds = materials.map((m) => Number(m.materialId));
     const uniqueIds = new Set(materialIds);
 
     if (uniqueIds.size !== materialIds.length) {
@@ -631,182 +707,147 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
       });
     }
 
-    const totalDrop = materials.reduce(
-      (sum, m) => sum + (Number(m.dropPercentage) || 0),
-      0,
-    );
-    if (totalDrop !== 100) {
-      return res.status(400).json({
-        success: false,
-        error: `Drop percentages must sum exactly to 100 (current sum: ${totalDrop})`,
-      });
-    }
-
     for (let i = 0; i < materials.length; i++) {
       const m = materials[i];
 
-      if (
-        typeof m.materialId !== "number" ||
-        !Number.isInteger(m.materialId) ||
-        m.materialId <= 0
-      ) {
+      if (Number(m.materialId) <= 0 || isNaN(Number(m.materialId))) {
         return res.status(400).json({
           success: false,
-          error: `Material at position ${i + 1}: materialId must be a positive integer`,
+          error: `Material #${i + 1}: materialId must be a positive integer`,
         });
       }
 
       if (
-        typeof m.requiredQuantity !== "number" ||
-        !Number.isInteger(m.requiredQuantity) ||
-        m.requiredQuantity <= 0
+        Number(m.requiredQuantity) <= 0 ||
+        isNaN(Number(m.requiredQuantity))
       ) {
         return res.status(400).json({
           success: false,
-          error: `Material ID ${m.materialId}: requiredQuantity must be a positive integer`,
+          error: `Material ID ${m.materialId}: requiredQuantity must be positive integer`,
         });
       }
 
-      if (
-        typeof m.dropPercentage !== "number" ||
-        !Number.isInteger(m.dropPercentage) ||
-        m.dropPercentage < 0
-      ) {
+      if (Number(m.minQuantity) <= 0 || isNaN(Number(m.minQuantity))) {
         return res.status(400).json({
           success: false,
-          error: `Material ID ${m.materialId}: dropPercentage must be a non-negative integer`,
+          error: `Material ID ${m.materialId}: minQuantity must be positive integer`,
         });
       }
 
-      if (
-        typeof m.minQuantity !== "number" ||
-        !Number.isInteger(m.minQuantity) ||
-        m.minQuantity <= 0
-      ) {
+      if (Number(m.maxQuantity) <= 0 || isNaN(Number(m.maxQuantity))) {
         return res.status(400).json({
           success: false,
-          error: `Material ID ${m.materialId}: minQuantity must be a positive integer`,
+          error: `Material ID ${m.materialId}: maxQuantity must be positive integer`,
         });
       }
 
-      if (
-        typeof m.maxQuantity !== "number" ||
-        !Number.isInteger(m.maxQuantity) ||
-        m.maxQuantity <= 0
-      ) {
+      if (Number(m.maxQuantity) < Number(m.minQuantity)) {
         return res.status(400).json({
           success: false,
-          error: `Material ID ${m.materialId}: maxQuantity must be a positive integer`,
-        });
-      }
-
-      if (m.maxQuantity < m.minQuantity) {
-        return res.status(400).json({
-          success: false,
-          error: `Material ID ${m.materialId}: maxQuantity must be >= minQuantity`,
+          error: `Material ID ${m.materialId}: maxQuantity must be ≥ minQuantity`,
         });
       }
     }
 
-    // ---------- Verify all material IDs exist ----------
+    // Verify materials exist in DB
     const existingMaterials = await prisma.material.findMany({
-      where: {
-        id: { in: materialIds },
-      },
+      where: { id: { in: materialIds } },
       select: { id: true },
     });
 
     const foundIds = new Set(existingMaterials.map((m) => m.id));
-    const missingIds = materialIds.filter((id) => !foundIds.has(id));
+    const missing = materialIds.filter((id) => !foundIds.has(BigInt(id)));
 
-    if (missingIds.length > 0) {
+    if (missing.length > 0) {
       return res.status(400).json({
         success: false,
-        error: `The following material ID(s) do not exist: ${missingIds.join(", ")}`,
+        error: `Material ID(s) not found: ${missing.join(", ")}`,
       });
     }
 
-    // ---------- LEVEL ----------
+    // Determine next level
     const maxLevel = await prisma.swordLevelDefinition.aggregate({
       _max: { level: true },
     });
-    const nextLevel = (maxLevel._max.level ?? -1) + 1;
+
+    const nextLevel = (maxLevel._max.level ?? 0) + 1;
+
     if (nextLevel > 100) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Maximum sword level (100) reached" });
+      return res.status(400).json({
+        success: false,
+        error: "Maximum sword level (100) reached",
+      });
     }
 
-    // ---------- IMAGE UPLOAD ----------
+    // Image upload
     const file = (req as any).file;
     if (!file) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Sword image is required" });
+      return res.status(400).json({
+        success: false,
+        error: "Sword image is required",
+      });
     }
 
-    let image: string;
+    let imageUrl: string;
     try {
       const uploaded: any = await uploadToCloudinary(
         file.buffer,
         "sword-game/swords",
       );
-      image = uploaded.secure_url;
-      if (!image) throw new Error("Upload returned no URL");
+      imageUrl = uploaded.secure_url;
+      if (!imageUrl) throw new Error("No secure_url from Cloudinary");
     } catch (uploadErr) {
-      console.error("Image upload failed:", uploadErr);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to upload sword image" });
+      console.error("Cloudinary upload failed:", uploadErr);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to upload sword image",
+      });
     }
 
-    // ---------- CREATE IN TRANSACTION ----------
+    // ────────────────────────────────────────────────
+    // Transaction: create sword + requirements + drops
+    // ────────────────────────────────────────────────
     const sword = await prisma.$transaction(async (tx) => {
       const created = await tx.swordLevelDefinition.create({
         data: {
           level: nextLevel,
           name: name.trim(),
-          description: description || null,
           synthesizeName: synthesizeName.trim(),
-          image,
-          buyingCost,
-          sellingCost,
-          upgradeCost,
-          synthesizeCost,
-          successRate,
-          isBuyingAllow:
-            typeof isBuyingAllow === "boolean" ? isBuyingAllow : true,
-          isSellingAllow:
-            typeof isSellingAllow === "boolean" ? isSellingAllow : true,
+          description: description?.trim() || null,
+          image: imageUrl,
+          buyingCost: buy,
+          sellingCost: sell,
+          upgradeCost: upg,
+          synthesizeCost: synth,
+          successRate: successNum,
+          isBuyingAllow: isBuyingAllow === "true" || isBuyingAllow === true,
+          isSellingAllow: isSellingAllow === "true" || isSellingAllow === true,
           isSynthesizeAllow:
-            typeof isSynthesizeAllow === "boolean" ? isSynthesizeAllow : true,
+            isSynthesizeAllow === "true" || isSynthesizeAllow === true,
         },
       });
 
-      // Synthesis requirements
       await tx.swordSynthesisRequirement.createMany({
         data: materials.map((m) => ({
           swordLevelDefinitionId: created.id,
-          materialId: m.materialId,
-          requiredQuantity: m.requiredQuantity,
+          materialId: Number(m.materialId),
+          requiredQuantity: Number(m.requiredQuantity),
         })),
       });
 
-      // Upgrade drops
       await tx.swordUpgradeDrop.createMany({
         data: materials.map((m) => ({
           swordLevelDefinitionId: created.id,
-          materialId: m.materialId,
-          dropPercentage: m.dropPercentage,
-          minQuantity: m.minQuantity,
-          maxQuantity: m.maxQuantity,
+          materialId: Number(m.materialId),
+          dropPercentage: Number(m.dropPercentage),
+          minQuantity: Number(m.minQuantity),
+          maxQuantity: Number(m.maxQuantity),
         })),
       });
 
       return created;
     });
 
-    // Fetch complete data with relations
     const fullSword = await prisma.swordLevelDefinition.findUnique({
       where: { id: sword.id },
       include: {
@@ -817,14 +858,15 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
 
     return res.json({
       success: true,
-      message: "Sword created successfully",
+      message: `Sword level ${nextLevel} created successfully`,
       data: serializeBigInt(fullSword),
     });
   } catch (err) {
     console.error("Create sword error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Failed to create sword level" });
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error while creating sword",
+    });
   }
 }
 
@@ -890,7 +932,7 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
 
     if (
       successRate !== undefined &&
-      (typeof successRate !== "number" || successRate < 0 || successRate > 100)
+      (Number(successRate) < 0 || Number(successRate) > 100)
     ) {
       return res.status(400).json({
         success: false,
@@ -898,40 +940,28 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
       });
     }
 
-    if (
-      upgradeCost !== undefined &&
-      (typeof upgradeCost !== "number" || upgradeCost <= 0)
-    ) {
+    if (upgradeCost !== undefined && Number(upgradeCost) <= 0) {
       return res.status(400).json({
         success: false,
         error: "Upgrade cost must be a positive number if provided",
       });
     }
 
-    if (
-      sellingCost !== undefined &&
-      (typeof sellingCost !== "number" || sellingCost <= 0)
-    ) {
+    if (sellingCost !== undefined && Number(sellingCost) <= 0) {
       return res.status(400).json({
         success: false,
         error: "Selling cost must be a positive number if provided",
       });
     }
 
-    if (
-      buyingCost !== undefined &&
-      (typeof buyingCost !== "number" || buyingCost <= 0)
-    ) {
+    if (buyingCost !== undefined && Number(buyingCost) <= 0) {
       return res.status(400).json({
         success: false,
         error: "Buying cost must be a positive number if provided",
       });
     }
 
-    if (
-      synthesizeCost !== undefined &&
-      (typeof synthesizeCost !== "number" || synthesizeCost < 0)
-    ) {
+    if (synthesizeCost !== undefined && Number(synthesizeCost) < 0) {
       return res.status(400).json({
         success: false,
         error: "Synthesize cost must be >= 0 if provided",
@@ -985,17 +1015,19 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
     if (synthesizeName !== undefined)
       updateData.synthesizeName = synthesizeName.trim();
     if (description !== undefined) updateData.description = description || null;
-    if (buyingCost !== undefined) updateData.buyingCost = buyingCost;
-    if (sellingCost !== undefined) updateData.sellingCost = sellingCost;
-    if (upgradeCost !== undefined) updateData.upgradeCost = upgradeCost;
+    if (buyingCost !== undefined) updateData.buyingCost = Number(buyingCost);
+    if (sellingCost !== undefined) updateData.sellingCost = Number(sellingCost);
+    if (upgradeCost !== undefined) updateData.upgradeCost = Number(upgradeCost);
     if (synthesizeCost !== undefined)
-      updateData.synthesizeCost = synthesizeCost;
-    if (successRate !== undefined) updateData.successRate = successRate;
-    if (isBuyingAllow !== undefined) updateData.isBuyingAllow = !!isBuyingAllow;
+      updateData.synthesizeCost = Number(synthesizeCost);
+    if (successRate !== undefined) updateData.successRate = Number(successRate);
+    if (isBuyingAllow !== undefined)
+      updateData.isBuyingAllow = isBuyingAllow === "true" ? true : false;
     if (isSellingAllow !== undefined)
-      updateData.isSellingAllow = !!isSellingAllow;
+      updateData.isSellingAllow = isSellingAllow === "true" ? true : false;
     if (isSynthesizeAllow !== undefined)
-      updateData.isSynthesizeAllow = !!isSynthesizeAllow;
+      updateData.isSynthesizeAllow =
+        isSynthesizeAllow === "true" ? true : false;
 
     // If name is provided and different → update (but check uniqueness if changed)
     if (name !== undefined && name.trim() !== existing.name) {

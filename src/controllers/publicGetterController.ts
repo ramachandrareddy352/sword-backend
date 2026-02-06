@@ -8,7 +8,7 @@ export const getAllSwords = async (req: Request, res: Response) => {
   try {
     const {
       sortLevel, // 'asc' | 'desc'
-      includeRelations, // 'true' to include synthesisRequirements & upgradeDrops (default false for performance)
+      includeRelations, // 'true' to include relations
     } = req.query;
 
     const pagination = getPagination(req.query);
@@ -19,14 +19,10 @@ export const getAllSwords = async (req: Request, res: Response) => {
       });
     }
 
-    // Build orderBy array dynamically
     const orderBy: any[] = [];
-
     if (sortLevel && ["asc", "desc"].includes(sortLevel as string)) {
       orderBy.push({ level: sortLevel });
     }
-
-    // Default sort
     if (orderBy.length === 0) {
       orderBy.push({ level: "asc" });
     }
@@ -37,54 +33,28 @@ export const getAllSwords = async (req: Request, res: Response) => {
       orderBy,
       skip: pagination.skip,
       take: pagination.take,
-      select: {
-        id: true,
-        level: true,
-        name: true,
-        image: true,
-        description: true,
-        upgradeCost: true,
-        buyingCost: true,
-        sellingCost: true,
-        synthesizeCost: true,
-        successRate: true,
-        isBuyingAllow: true,
-        isSellingAllow: true,
-        isSynthesizeAllow: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      // Optionally include relations if requested (can be heavy for large lists)
-      ...(includeRelations === "true" && {
-        include: {
-          synthesisRequirements: {
-            select: {
-              material: {
+      // ────────────────────────────────────────────────
+      // Option A: Use include (recommended when you want relations)
+      // ────────────────────────────────────────────────
+      include:
+        includeRelations === "true"
+          ? {
+              synthesisRequirements: {
                 select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  description: true,
-                  rarity: true,
-                  image: true,
-                  sellingCost: true,
-                  buyingCost: true,
-                  isBuyingAllow: true,
-                  isSellingAllow: true,
+                  material: true, // Return full material data in synthesis
+                  requiredQuantity: true,
                 },
               },
-              requiredQuantity: true,
-            },
-          },
-          upgradeDrops: {
-            select: {
-              dropPercentage: true,
-              minQuantity: true,
-              maxQuantity: true,
-            },
-          },
-        },
-      }),
+              upgradeDrops: {
+                select: {
+                  material: true, // Return full material data in upgrade
+                  dropPercentage: true,
+                  minQuantity: true,
+                  maxQuantity: true,
+                },
+              },
+            }
+          : undefined,
     });
 
     if (swords.length === 0) {
@@ -108,9 +78,10 @@ export const getAllSwords = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("getAllSwords error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
   }
 };
 
