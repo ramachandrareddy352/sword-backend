@@ -1087,6 +1087,7 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
 // }
 // → Only updates quantities for materials already linked to this sword
 // → Cannot add new materials or remove existing ones
+// In updateSynthesizeRequirements
 export async function updateSynthesizeRequirements(
   req: AdminAuthRequest,
   res: Response,
@@ -1107,7 +1108,9 @@ export async function updateSynthesizeRequirements(
       });
     }
 
-    const materialIds = materials.map((m: any) => m.materialId);
+    // Convert materialId to BigInt
+    const materialIds = materials.map((m: any) => BigInt(m.materialId));
+
     const uniqueIds = new Set(materialIds);
 
     if (uniqueIds.size !== materialIds.length) {
@@ -1119,21 +1122,13 @@ export async function updateSynthesizeRequirements(
 
     // Validate input format
     for (const m of materials) {
-      if (
-        typeof m.materialId !== "number" ||
-        !Number.isInteger(m.materialId) ||
-        m.materialId <= 0
-      ) {
+      if (BigInt(m.materialId) <= 0n) {
         return res.status(400).json({
           success: false,
           error: `Invalid materialId: ${m.materialId || "missing"}`,
         });
       }
-      if (
-        typeof m.requiredQuantity !== "number" ||
-        !Number.isInteger(m.requiredQuantity) ||
-        m.requiredQuantity <= 0
-      ) {
+      if (Number(m.requiredQuantity) <= 0) {
         return res.status(400).json({
           success: false,
           error: `requiredQuantity must be positive integer for material ${m.materialId}`,
@@ -1152,7 +1147,7 @@ export async function updateSynthesizeRequirements(
       });
 
       const currentMaterialIds = new Set(
-        currentRequirements.map((r) => r.materialId),
+        currentRequirements.map((r) => r.materialId), // BigInt
       );
 
       // 3. Check that ALL provided materialIds are already attached
@@ -1183,11 +1178,11 @@ export async function updateSynthesizeRequirements(
           where: {
             swordLevelDefinitionId_materialId: {
               swordLevelDefinitionId: sword.id,
-              materialId: m.materialId,
+              materialId: BigInt(m.materialId),
             },
           },
           data: {
-            requiredQuantity: m.requiredQuantity,
+            requiredQuantity: Number(m.requiredQuantity),
           },
         });
       }
@@ -1222,17 +1217,7 @@ export async function updateSynthesizeRequirements(
   }
 }
 
-// 9) Update upgrade drops only (percent, min/max quantities of EXISTING materials)
-// Body example:
-// {
-//   "level": 5,
-//   "materials": [
-//     { "materialId": 1, "dropPercentage": 35, "minQuantity": 2, "maxQuantity": 8 },
-//     { "materialId": 3, "dropPercentage": 65, "minQuantity": 1, "maxQuantity": 5 }
-//   ]
-// }
-// → Only updates values for materials already linked to this sword
-// → Cannot add new materials or remove existing ones
+// 9) Similarly for updateUpgradeDrops
 export async function updateUpgradeDrops(req: AdminAuthRequest, res: Response) {
   try {
     const { level, materials } = req.body;
@@ -1250,7 +1235,9 @@ export async function updateUpgradeDrops(req: AdminAuthRequest, res: Response) {
       });
     }
 
-    const materialIds = materials.map((m: any) => m.materialId);
+    // Convert materialId to BigInt
+    const materialIds = materials.map((m: any) => BigInt(m.materialId));
+
     const uniqueIds = new Set(materialIds);
 
     if (uniqueIds.size !== materialIds.length) {
@@ -1262,11 +1249,7 @@ export async function updateUpgradeDrops(req: AdminAuthRequest, res: Response) {
 
     let totalDrop = 0;
     for (const m of materials) {
-      if (
-        typeof m.materialId !== "number" ||
-        !Number.isInteger(m.materialId) ||
-        m.materialId <= 0
-      ) {
+      if (BigInt(m.materialId) <= 0n) {
         return res.status(400).json({
           success: false,
           error: `Invalid materialId: ${m.materialId || "missing"}`,
@@ -1333,7 +1316,7 @@ export async function updateUpgradeDrops(req: AdminAuthRequest, res: Response) {
         },
       });
 
-      const currentMaterialIds = new Set(currentDrops.map((d) => d.materialId));
+      const currentMaterialIds = new Set(currentDrops.map((d) => d.materialId)); // BigInt
 
       // 3. Check that ALL provided materialIds are already attached (no new additions)
       const providedNotAttached = materialIds.filter(
@@ -1363,7 +1346,7 @@ export async function updateUpgradeDrops(req: AdminAuthRequest, res: Response) {
           where: {
             swordLevelDefinitionId_materialId: {
               swordLevelDefinitionId: sword.id,
-              materialId: m.materialId,
+              materialId: BigInt(m.materialId),
             },
           },
           data: {
@@ -1441,9 +1424,19 @@ export async function updateSwordMaterials(
       });
     }
 
-    const materialIds = materials.map((m: any) => m.materialId);
-    const uniqueIds = new Set(materialIds);
+    // ────────────────────────────────────────────────
+    // Fix 1: Convert incoming materialId (number) → BigInt
+    // This is the #1 cause of "Material ID(s) do not exist"
+    // ────────────────────────────────────────────────
+    const materialIds: bigint[] = materials.map((m: any) => {
+      const idNum = Number(m.materialId);
+      if (isNaN(idNum) || idNum <= 0 || !Number.isInteger(idNum)) {
+        throw new Error(`Invalid materialId: ${m.materialId}`);
+      }
+      return BigInt(idNum);
+    });
 
+    const uniqueIds = new Set(materialIds);
     if (uniqueIds.size !== materialIds.length) {
       return res.status(400).json({
         success: false,
@@ -1453,19 +1446,8 @@ export async function updateSwordMaterials(
 
     let totalDrop = 0;
     for (const m of materials) {
-      // Validate materialId
-      if (
-        typeof m.materialId !== "number" ||
-        !Number.isInteger(m.materialId) ||
-        m.materialId <= 0
-      ) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid materialId: ${m.materialId || "missing"}`,
-        });
-      }
+      const mid = Number(m.materialId); // for error messages only
 
-      // Validate requiredQuantity
       if (
         typeof m.requiredQuantity !== "number" ||
         !Number.isInteger(m.requiredQuantity) ||
@@ -1473,11 +1455,10 @@ export async function updateSwordMaterials(
       ) {
         return res.status(400).json({
           success: false,
-          error: `requiredQuantity must be positive integer for material ${m.materialId}`,
+          error: `requiredQuantity must be positive integer for material ${mid}`,
         });
       }
 
-      // Validate dropPercentage
       if (
         typeof m.dropPercentage !== "number" ||
         !Number.isInteger(m.dropPercentage) ||
@@ -1485,11 +1466,10 @@ export async function updateSwordMaterials(
       ) {
         return res.status(400).json({
           success: false,
-          error: `dropPercentage must be non-negative integer for material ${m.materialId}`,
+          error: `dropPercentage must be non-negative integer for material ${mid}`,
         });
       }
 
-      // Validate minQuantity & maxQuantity
       if (
         typeof m.minQuantity !== "number" ||
         !Number.isInteger(m.minQuantity) ||
@@ -1497,7 +1477,7 @@ export async function updateSwordMaterials(
       ) {
         return res.status(400).json({
           success: false,
-          error: `minQuantity must be positive integer for material ${m.materialId}`,
+          error: `minQuantity must be positive integer for material ${mid}`,
         });
       }
 
@@ -1508,14 +1488,14 @@ export async function updateSwordMaterials(
       ) {
         return res.status(400).json({
           success: false,
-          error: `maxQuantity must be positive integer for material ${m.materialId}`,
+          error: `maxQuantity must be positive integer for material ${mid}`,
         });
       }
 
       if (m.maxQuantity < m.minQuantity) {
         return res.status(400).json({
           success: false,
-          error: `maxQuantity >= minQuantity required for material ${m.materialId}`,
+          error: `maxQuantity >= minQuantity required for material ${mid}`,
         });
       }
 
@@ -1529,39 +1509,50 @@ export async function updateSwordMaterials(
       });
     }
 
-    // Check all material IDs exist in Material table
+    // ────────────────────────────────────────────────
+    // Check existence with BigInt IDs
+    // ────────────────────────────────────────────────
     const existingMaterials = await prisma.material.findMany({
       where: { id: { in: materialIds } },
-      select: { id: true },
+      select: { id: true, name: true }, // ← added name for better debugging
     });
+
     const foundIds = new Set(existingMaterials.map((m) => m.id));
-    const missingIds = materialIds.filter((id: bigint) => !foundIds.has(id));
+    const missingIds = materialIds.filter((id) => !foundIds.has(id));
+
     if (missingIds.length > 0) {
+      // Optional: make error more helpful
+      const missingNames = missingIds.map(
+        (id) => existingMaterials.find((m) => m.id === id)?.name || `ID ${id}`,
+      );
       return res.status(400).json({
         success: false,
-        error: `Material ID(s) do not exist: ${missingIds.join(", ")}`,
+        error: `The following materials do not exist: ${missingIds
+          .map((id, i) => `${id} (${missingNames[i] || "unknown"})`)
+          .join(", ")}`,
       });
     }
 
-    // Perform the full replace in transaction
+    // ────────────────────────────────────────────────
+    // Transaction – full replace
+    // ────────────────────────────────────────────────
     await prisma.$transaction(async (tx) => {
       const sword = await findSwordByLevel(tx, level);
 
-      // Delete all existing synthesize requirements
+      // Delete old ones
       await tx.swordSynthesisRequirement.deleteMany({
         where: { swordLevelDefinitionId: sword.id },
       });
 
-      // Delete all existing upgrade drops
       await tx.swordUpgradeDrop.deleteMany({
         where: { swordLevelDefinitionId: sword.id },
       });
 
-      // Create new synthesize requirements
+      // Create new synthesis requirements
       await tx.swordSynthesisRequirement.createMany({
         data: materials.map((m: any) => ({
           swordLevelDefinitionId: sword.id,
-          materialId: m.materialId,
+          materialId: BigInt(m.materialId),
           requiredQuantity: m.requiredQuantity,
         })),
       });
@@ -1570,35 +1561,39 @@ export async function updateSwordMaterials(
       await tx.swordUpgradeDrop.createMany({
         data: materials.map((m: any) => ({
           swordLevelDefinitionId: sword.id,
-          materialId: m.materialId,
+          materialId: BigInt(m.materialId),
           dropPercentage: m.dropPercentage,
           minQuantity: m.minQuantity,
           maxQuantity: m.maxQuantity,
         })),
       });
 
-      // Trigger updatedAt on parent
+      // Touch updatedAt
       await tx.swordLevelDefinition.update({
         where: { id: sword.id },
-        data: { successRate: sword.successRate }, // dummy update
+        data: { successRate: sword.successRate }, // dummy
       });
     });
 
-    // Fetch and return full updated sword
     const fullSword = await prisma.swordLevelDefinition.findUnique({
       where: { level: Number(level) },
       include: {
-        synthesisRequirements: true,
-        upgradeDrops: true,
+        synthesisRequirements: {
+          include: { material: true },
+        },
+        upgradeDrops: {
+          include: { material: true },
+        },
       },
     });
 
     return res.json({
       success: true,
+      message: "Sword materials fully updated",
       data: serializeBigInt(fullSword),
     });
   } catch (err: any) {
-    console.error("Update sword materials error:", err);
+    console.error("updateSwordMaterials error:", err);
     return res.status(400).json({
       success: false,
       error: err.message || "Failed to update sword materials",
