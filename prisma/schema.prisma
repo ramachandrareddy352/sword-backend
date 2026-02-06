@@ -82,7 +82,7 @@ model SwordLevelDefinition {
 
   name           String  @unique // sword name at this level
   image          String // sword image at this level
-  description    String?
+  description    String? @db.Text
   synthesizeName String  @unique // sword synthesize process name at this level
 
   upgradeCost    Int   @db.UnsignedInt
@@ -232,7 +232,7 @@ model Material {
   code String @unique
 
   name        String         @unique
-  description String?
+  description String?        @db.Text
   image       String
   rarity      MaterialRarity @default(COMMON)
 

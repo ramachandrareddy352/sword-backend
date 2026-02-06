@@ -161,7 +161,7 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
       data: serializeBigInt(config),
     });
   } catch (err: any) {
-    console.error(err);
+    console.error("Error while updating the config", err);
     return res.status(400).json({
       success: false,
       error: err.message || "Internal server error",
@@ -190,12 +190,7 @@ export async function createMaterial(req: AdminAuthRequest, res: Response) {
       });
     }
 
-    if (
-      !Number.isInteger(buyingCost) ||
-      !Number.isInteger(sellingCost) ||
-      buyingCost < 0 ||
-      sellingCost < 0
-    ) {
+    if (buyingCost < 0 || sellingCost < 0) {
       return res.status(400).json({
         success: false,
         error: "buyingCost and sellingCost must be non-negative integers",
@@ -253,12 +248,12 @@ export async function createMaterial(req: AdminAuthRequest, res: Response) {
             description: description ?? null,
             image,
             rarity: rarity ?? "COMMON",
-            buyingCost,
-            sellingCost,
+            buyingCost: Number(buyingCost),
+            sellingCost: Number(sellingCost),
             isBuyingAllow:
-              isBuyingAllow !== undefined ? Boolean(isBuyingAllow) : true,
+              isBuyingAllow !== undefined ? isBuyingAllow === "true" : true,
             isSellingAllow:
-              isSellingAllow !== undefined ? Boolean(isSellingAllow) : true,
+              isSellingAllow !== undefined ? isSellingAllow === "true" : true,
           },
         });
         break;
@@ -280,7 +275,7 @@ export async function createMaterial(req: AdminAuthRequest, res: Response) {
       data: serializeBigInt(created),
     });
   } catch (err) {
-    console.error(err);
+    console.error("Error while creating the material", err);
     return res.status(500).json({
       success: false,
       error: "Failed to create material",
@@ -322,20 +317,14 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
     }
 
     // ================= Validation =================
-    if (
-      buyingCost !== undefined &&
-      (!Number.isInteger(buyingCost) || buyingCost < 0)
-    ) {
+    if (buyingCost !== undefined && buyingCost < 0) {
       return res.status(400).json({
         success: false,
         error: "Invalid buyingCost",
       });
     }
 
-    if (
-      sellingCost !== undefined &&
-      (!Number.isInteger(sellingCost) || sellingCost < 0)
-    ) {
+    if (sellingCost !== undefined && sellingCost < 0) {
       return res.status(400).json({
         success: false,
         error: "Invalid sellingCost",
@@ -382,18 +371,17 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
         name: name ?? existing.name,
         description: description ?? existing.description,
         image: image ?? existing.image,
-        buyingCost: buyingCost !== undefined ? buyingCost : existing.buyingCost,
+        buyingCost:
+          buyingCost !== undefined ? Number(buyingCost) : existing.buyingCost,
         sellingCost:
-          sellingCost !== undefined ? sellingCost : existing.sellingCost,
+          sellingCost !== undefined
+            ? Number(sellingCost)
+            : existing.sellingCost,
         rarity: rarity ?? existing.rarity,
         isBuyingAllow:
-          isBuyingAllow !== undefined
-            ? Boolean(isBuyingAllow)
-            : existing.isBuyingAllow,
+          isBuyingAllow !== undefined ? isBuyingAllow === "true" : true,
         isSellingAllow:
-          isSellingAllow !== undefined
-            ? Boolean(isSellingAllow)
-            : existing.isSellingAllow,
+          isSellingAllow !== undefined ? isSellingAllow === "true" : true,
       },
     });
 
@@ -403,7 +391,7 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
       data: serializeBigInt(updated),
     });
   } catch (err) {
-    console.error(err);
+    console.error("Error while updating the material: ", err);
     return res.status(500).json({
       success: false,
       error: "Failed to update material",
