@@ -566,6 +566,7 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
   try {
     const {
       name,
+      synthesizeName,
       description,
       buyingCost,
       sellingCost,
@@ -579,7 +580,14 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
     } = req.body;
 
     // ---------- VALIDATION - stop at first error ----------
-    if (!name || typeof name !== "string" || name.trim() === "") {
+    if (
+      !name ||
+      typeof name !== "string" ||
+      name.trim() === "" ||
+      !synthesizeName ||
+      typeof synthesizeName !== "string" ||
+      synthesizeName.trim() === ""
+    ) {
       return res.status(400).json({
         success: false,
         error: "Name is required and must be a non-empty string",
@@ -771,6 +779,7 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
           level: nextLevel,
           name: name.trim(),
           description: description || null,
+          synthesizeName: synthesizeName.trim(),
           image,
           buyingCost,
           sellingCost,
@@ -837,6 +846,7 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
     const {
       level,
       name,
+      synthesizeName,
       isImageChanged, // "yes" or anything else / missing
       description,
       buyingCost,
@@ -879,6 +889,17 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
     }
 
     // ---------- 3. Field validations ----------
+    if (
+      !synthesizeName ||
+      typeof synthesizeName !== "string" ||
+      synthesizeName.trim() === ""
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Name is required and must be a non-empty string",
+      });
+    }
+
     if (
       successRate !== undefined &&
       (typeof successRate !== "number" || successRate < 0 || successRate > 100)
@@ -973,6 +994,8 @@ export async function updateSwordLevel(req: AdminAuthRequest, res: Response) {
     const updateData: any = {};
 
     if (newImageUrl) updateData.image = newImageUrl;
+    if (synthesizeName !== undefined)
+      updateData.synthesizeName = synthesizeName.trim();
     if (description !== undefined) updateData.description = description || null;
     if (buyingCost !== undefined) updateData.buyingCost = buyingCost;
     if (sellingCost !== undefined) updateData.sellingCost = sellingCost;

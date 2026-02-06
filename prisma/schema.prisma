@@ -80,9 +80,10 @@ model SwordLevelDefinition {
   id    BigInt @id @default(autoincrement()) @db.UnsignedBigInt
   level Int    @unique @db.UnsignedInt // 0, 1, 2, 3 ... 100
 
-  name        String  @unique // sword name at this level
-  image       String // sword image at this level
-  description String?
+  name           String  @unique // sword name at this level
+  image          String // sword image at this level
+  description    String?
+  synthesizeName String  @unique // sword synthesize process name at this level
 
   upgradeCost    Int   @db.UnsignedInt
   buyingCost     Int   @db.UnsignedInt
