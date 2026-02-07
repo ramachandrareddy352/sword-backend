@@ -17,6 +17,7 @@ import {
   removeSwordFromAnvil,
   upgradeSword,
   synthesizeSword,
+  claimGift,
 } from "../controllers/userActionController";
 
 const router = express.Router();
@@ -50,4 +51,5 @@ router.post("/anvil/remove-sword", userAuth, removeSwordFromAnvil);
 router.post("/sword/upgrade", userAuth, upgradeSword);
 router.post("/sword/synthesize", userAuth, synthesizeSword);
 
+router.post("/gifts/claim", userAuth, claimGift);
 export default router;

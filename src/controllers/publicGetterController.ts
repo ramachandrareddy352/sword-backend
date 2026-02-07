@@ -764,3 +764,47 @@ export const getPurchasedShields = async (req: Request, res: Response) => {
       .json({ success: false, error: "Internal server error" });
   }
 };
+
+// 9) admin config data
+export const getAdminConfig = async (_req: Request, res: Response) => {
+  try {
+    // Fetch the single AdminConfig row (id is fixed to 1 as per your schema)
+    const config = await prisma.adminConfig.findUnique({
+      where: { id: 1 }, // BigInt literal (1n),
+      select: {
+        shieldGoldPrice: true,
+        maxDailyShieldAds: true,
+        maxShieldHold: true,
+        shieldActiveOnMarketplace: true,
+        maxDailyAds: true,
+        maxDailyMissions: true,
+        defaultTrustPoints: true,
+        defaultGold: true,
+        minVoucherGold: true,
+        maxVoucherGold: true,
+        voucherExpiryDays: true,
+        expiryAllow: true,
+      },
+    });
+
+    if (!config) {
+      return res.status(404).json({
+        success: false,
+        error: "Admin configuration not found",
+      });
+    }
+
+    // Return the config data (convert BigInt to string for safe JSON)
+    return res.status(200).json({
+      success: true,
+      message: "Admin configuration retrieved successfully",
+      data: serializeBigInt(config),
+    });
+  } catch (error) {
+    console.error("getAdminConfig error:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to fetch admin configuration",
+    });
+  }
+};

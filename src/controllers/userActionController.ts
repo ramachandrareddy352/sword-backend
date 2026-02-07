@@ -1560,3 +1560,108 @@ export const synthesizeSword = async (req: UserAuthRequest, res: Response) => {
     });
   }
 };
+
+// 16) gift claim endpoint
+export const claimGift = async (req: UserAuthRequest, res: Response) => {
+  try {
+    const userId = BigInt(req.user.userId);
+    const { giftId } = req.body;
+
+    if (!giftId) {
+      return res.status(400).json({ success: false, error: "giftId required" });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const gift = await tx.userGift.findUnique({
+        where: { id: BigInt(giftId) },
+        include: { items: true },
+      });
+
+      if (!gift) throw new Error("Gift not found");
+      if (gift.receiverId !== userId) throw new Error("Not your gift");
+      if (gift.status === "CLAIMED")
+        throw new Error("Gift was already claimed");
+      if (gift.status === "CANCELLED")
+        throw new Error("Gift was cancelled by admin");
+
+      for (const it of gift.items) {
+        switch (it.type) {
+          case "GOLD":
+            await tx.user.update({
+              where: { id: userId },
+              data: { gold: { increment: it.amount ?? 0 } },
+            });
+            break;
+
+          case "TRUST_POINTS":
+            await tx.user.update({
+              where: { id: userId },
+              data: { trustPoints: { increment: it.amount ?? 0 } },
+            });
+            break;
+
+          case "SHIELD":
+            await tx.user.update({
+              where: { id: userId },
+              data: { totalShields: { increment: it.amount ?? 0 } },
+            });
+            break;
+
+          case "MATERIAL":
+            if (it.materialId) {
+              await tx.userMaterial.upsert({
+                where: {
+                  userId_materialId: { userId, materialId: it.materialId },
+                },
+                update: {
+                  unsoldQuantity: { increment: it.materialQunatity ?? 0 },
+                },
+                create: {
+                  userId,
+                  materialId: it.materialId,
+                  unsoldQuantity: it.materialQunatity ?? 0,
+                  soldedQuantity: 0,
+                },
+              });
+            }
+            break;
+
+          case "SWORD":
+            if (it.swordLevel) {
+              const def = await tx.swordLevelDefinition.findUnique({
+                where: { level: it.swordLevel },
+              });
+              if (!def) throw new Error("Invalid sword level in gift");
+
+              const code = generateSecureCode(12);
+
+              await tx.userSword.create({
+                data: {
+                  code,
+                  userId,
+                  level: def.level,
+                  swordLevelDefinitionId: def.id,
+                  isOnAnvil: false,
+                  isSolded: false,
+                  isBroken: false,
+                },
+              });
+            }
+            break;
+        }
+      }
+
+      await tx.userGift.update({
+        where: { id: BigInt(giftId) },
+        data: { status: "CLAIMED", claimedAt: new Date() },
+      });
+    });
+
+    return res.json({ success: true, message: "Gift claimed successfully" });
+  } catch (err: any) {
+    return res.status(400).json({
+      success: false,
+      error: err.message || "Failed to claim gift",
+    });
+  }
+};

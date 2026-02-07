@@ -9,6 +9,7 @@ import {
   getPurchasedSwords,
   getPurchasedMaterials,
   getPurchasedShields,
+  getAdminConfig,
 } from "../controllers/publicGetterController";
 
 const router = express.Router();
@@ -37,5 +38,8 @@ router.get("/marketplace/materials/purchases", getPurchasedMaterials);
 
 // All shield purchases
 router.get("/marketplace/shields/purchases", getPurchasedShields);
+
+// All shield purchases
+router.get("/admin/config", getAdminConfig);
 
 export default router;

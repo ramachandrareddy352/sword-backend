@@ -140,19 +140,19 @@ export async function verifyRegistration(req: Request, res: Response) {
     const defaultGold = config.defaultGold;
     const defaultTrustPoints = config.defaultTrustPoints;
 
-    /* ---------- FETCH DEFAULT LEVEL 0 SWORD ---------- */
-    const levelZeroSword = await prisma.swordLevelDefinition.findFirst({
-      where: { level: 0 }, // Assuming level 0 is the starter sword
+    /* ---------- FETCH DEFAULT LEVEL 1 SWORD ---------- */
+    const levelOneSword = await prisma.swordLevelDefinition.findFirst({
+      where: { level: 1 }, // Assuming level 1 is the starter sword
       select: {
         id: true,
         level: true,
       },
     });
 
-    if (!levelZeroSword) {
+    if (!levelOneSword) {
       return res.status(500).json({
         success: false,
-        error: "Starter sword (level 0) not found. Contact admin.",
+        error: "Starter sword (level 1) not found. Contact admin.",
       });
     }
 
@@ -174,14 +174,14 @@ export async function verifyRegistration(req: Request, res: Response) {
       // Generate unique sword code
       const swordCode = generateSecureCode(12);
 
-      // Create default level 0 sword on anvil
+      // Create default level 1 sword on anvil
       const createdSword = await tx.userSword.create({
         data: {
           code: swordCode,
           userId: newUser.id,
-          level: levelZeroSword.level,
+          level: levelOneSword.level,
           isOnAnvil: true,
-          swordLevelDefinitionId: levelZeroSword.id,
+          swordLevelDefinitionId: levelOneSword.id,
           isSolded: false,
           isBroken: false,
         },

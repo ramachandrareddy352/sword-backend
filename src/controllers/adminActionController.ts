@@ -1684,22 +1684,13 @@ export async function createGift(req: AdminAuthRequest, res: Response) {
 
       // MATERIAL → require materialId & materialQuantity > 0
       if (item.type === GiftItemType.MATERIAL) {
-        if (
-          !item.materialId ||
-          typeof item.materialId !== "number" ||
-          !Number.isInteger(item.materialId)
-        ) {
+        if (!item.materialId || Number(item.materialId) <= 0) {
           return res.status(400).json({
             success: false,
             error: "Material gift requires valid materialId (integer)",
           });
         }
-        if (
-          !item.materialQuantity ||
-          typeof item.materialQuantity !== "number" ||
-          !Number.isInteger(item.materialQuantity) ||
-          item.materialQuantity <= 0
-        ) {
+        if (!item.materialQuantity || Number(item.materialQuantity) <= 0) {
           return res.status(400).json({
             success: false,
             error: "Material gift requires positive materialQuantity",
@@ -1720,12 +1711,7 @@ export async function createGift(req: AdminAuthRequest, res: Response) {
 
       // SWORD → require swordLevel (integer)
       if (item.type === GiftItemType.SWORD) {
-        if (
-          item.swordLevel === undefined ||
-          typeof item.swordLevel !== "number" ||
-          !Number.isInteger(item.swordLevel) ||
-          item.swordLevel < 0
-        ) {
+        if (item.swordLevel === undefined || Number(item.swordLevel) <= 0) {
           return res.status(400).json({
             success: false,
             error:
@@ -1754,12 +1740,12 @@ export async function createGift(req: AdminAuthRequest, res: Response) {
         items: {
           create: items.map((item: any) => ({
             type: item.type,
-            amount: item.amount ? item.amount : null, // GOLD, TRUST_POINTS, SHIELD
+            amount: item.amount ? Number(item.amount) : null, // GOLD, TRUST_POINTS, SHIELD
             materialId: item.materialId ? BigInt(item.materialId) : null,
-            materialQuantity: item.materialQuantity
-              ? item.materialQuantity
+            materialQunatity: item.materialQuantity
+              ? Number(item.materialQuantity)
               : null,
-            swordLevel: item.swordLevel ?? null,
+            swordLevel: Number(item.swordLevel) ?? null,
           })),
         },
       },
