@@ -1054,11 +1054,9 @@ export const removeSwordFromAnvil = async (
 ) => {
   try {
     const userId = BigInt(req.user.userId);
-
-    // User guard: checks user exists and not banned
     const user = await userGuard(userId);
 
-    // Check if there is any sword on anvil
+    // Check if there is any sword on anvil at all
     if (!user.anvilSwordId) {
       return res.status(400).json({
         success: false,
@@ -1066,16 +1064,34 @@ export const removeSwordFromAnvil = async (
       });
     }
 
-    // Verify ownership (extra safety)
+    // Verify the sword exists, belongs to the user, AND is actually on the anvil
     const sword = await prisma.userSword.findUnique({
       where: { id: user.anvilSwordId },
-      select: { userId: true, isOnAnvil: true },
+      select: {
+        userId: true,
+        isOnAnvil: true,
+      },
     });
 
-    if (!sword || sword.userId !== userId || !sword.isOnAnvil) {
+    if (!sword) {
+      return res.status(404).json({
+        success: false,
+        error: "Sword not found",
+      });
+    }
+
+    if (sword.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        error: "You do not own this sword",
+      });
+    }
+
+    // Ensure the sword is actually on the anvil
+    if (!sword.isOnAnvil) {
       return res.status(400).json({
         success: false,
-        error: "Invalid anvil sword state or ownership mismatch",
+        error: "This sword is not currently placed on the anvil",
       });
     }
 
@@ -1101,7 +1117,7 @@ export const removeSwordFromAnvil = async (
     });
   } catch (err: any) {
     console.error("remove sword from anvil error:", err);
-    return res.status(400).json({
+    return res.status(500).json({
       success: false,
       error: err.message || "Internal server error",
     });
@@ -1659,9 +1675,38 @@ export const claimGift = async (req: UserAuthRequest, res: Response) => {
 
     return res.json({ success: true, message: "Gift claimed successfully" });
   } catch (err: any) {
+    console.error("Claim gift Error: ", err);
     return res.status(400).json({
       success: false,
       error: err.message || "Failed to claim gift",
     });
+  }
+};
+
+// 17) toggle the shiled protection
+// userActionController.ts
+export const toggleShieldProtection = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+    const user = await userGuard(userId);
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { isShieldOn: !user.isShieldOn },
+      select: { isShieldOn: true },
+    });
+
+    return res.json({
+      success: true,
+      isShieldOn: updated.isShieldOn,
+    });
+  } catch (err: any) {
+    console.error("Toggle shiled protection Error:", err);
+    return res
+      .status(400)
+      .json({ success: false, error: err.message || "Internal server Error" });
   }
 };

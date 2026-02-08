@@ -18,6 +18,7 @@ import {
   upgradeSword,
   synthesizeSword,
   claimGift,
+  toggleShieldProtection,
 } from "../controllers/userActionController";
 
 const router = express.Router();
@@ -52,4 +53,5 @@ router.post("/sword/upgrade", userAuth, upgradeSword);
 router.post("/sword/synthesize", userAuth, synthesizeSword);
 
 router.post("/gifts/claim", userAuth, claimGift);
+router.patch("/shield/toggle", userAuth, toggleShieldProtection);
 export default router;

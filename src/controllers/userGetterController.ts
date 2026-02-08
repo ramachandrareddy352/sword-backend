@@ -503,13 +503,17 @@ export const getUserGifts = async (req: UserAuthRequest, res: Response) => {
             },
             swordLevelDefinition: {
               select: {
-                level: true,
                 name: true,
                 image: true,
                 description: true,
                 upgradeCost: true,
                 sellingCost: true,
+                buyingCost: true,
+                synthesizeCost: true,
                 successRate: true,
+                isBuyingAllow: true,
+                isSellingAllow: true,
+                isSynthesizeAllow: true,
               },
             },
           },
