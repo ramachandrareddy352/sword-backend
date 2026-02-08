@@ -1129,17 +1129,14 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
     const { swordId } = req.body;
-
     if (!swordId || isNaN(Number(swordId))) {
       return res.status(400).json({
         success: false,
         error: "Valid sword ID required",
       });
     }
-
     // User guard: checks user exists and not banned
     const user = await userGuard(userId);
-
     // Fetch sword + definition
     const sword = await prisma.userSword.findUnique({
       where: { id: BigInt(swordId) },
@@ -1154,14 +1151,12 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
         },
       },
     });
-
     if (!sword || sword.userId !== userId) {
       return res.status(404).json({
         success: false,
         error: "Sword not found or does not belong to you",
       });
     }
-
     // Basic checks
     if (sword.isSolded) {
       return res.status(400).json({
@@ -1169,28 +1164,24 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
         error: "Cannot upgrade a sold sword",
       });
     }
-
     if (sword.isBroken) {
       return res.status(400).json({
         success: false,
         error: "Cannot upgrade a broken sword",
       });
     }
-
     if (!sword.isOnAnvil) {
       return res.status(400).json({
         success: false,
         error: "Sword must be on anvil to upgrade",
       });
     }
-
     if (sword.level >= 100) {
       return res.status(400).json({
         success: false,
         error: "Sword has reached maximum level (100)",
       });
     }
-
     const upgradeCost = sword.swordLevelDefinition.upgradeCost;
     if (user.gold < upgradeCost) {
       return res.status(400).json({
@@ -1198,10 +1189,8 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
         error: "Insufficient gold for upgrade",
       });
     }
-
     const successRate = sword.swordLevelDefinition.successRate / 100; // e.g. 45 → 0.45
     const randomChance = Math.random(); // 0.0 to 1.0
-
     let result: any = {};
     let historyData: any = {
       userId,
@@ -1210,27 +1199,22 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
       success: false,
       goldSpent: upgradeCost,
     };
-
     await prisma.$transaction(async (tx) => {
       // Always deduct upgrade cost
       await tx.user.update({
         where: { id: userId },
         data: { gold: { decrement: upgradeCost } },
       });
-
       // Case 1 & 2: Success
       if (randomChance <= successRate) {
         const nextLevel = sword.level + 1;
-
         const nextDef = await tx.swordLevelDefinition.findUnique({
           where: { level: nextLevel },
           select: { id: true },
         });
-
         if (!nextDef) {
           throw new Error("Next level definition not found");
         }
-
         // Consume shield if protection is on
         let shieldConsumed = false;
         if (user.isShieldOn) {
@@ -1243,7 +1227,6 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
           });
           shieldConsumed = true;
         }
-
         // Upgrade sword
         await tx.userSword.update({
           where: { id: sword.id },
@@ -1252,39 +1235,33 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
             swordLevelDefinitionId: nextDef.id,
           },
         });
-
         // Update history
         historyData.toSwordLevelId = nextDef.id;
         historyData.success = true;
-
         result = {
-          success: true,
+          type: "success",
           message: `Upgrade successful! Sword upgraded to level ${nextLevel}`,
           newLevel: nextLevel,
           shieldConsumed,
         };
       }
-
       // Case 3 & 4: Failure
       else {
         let shieldConsumed = false;
         let swordBroken = false;
         let byproduct = null;
-
         if (user.isShieldOn) {
           // Case 3: Shield ON → protect sword, consume shield
           if (user.totalShields < 1) {
             throw new Error("Shield protection is on but no shields available");
           }
-
           await tx.user.update({
             where: { id: userId },
             data: { totalShields: { decrement: 1 } },
           });
           shieldConsumed = true;
-
           result = {
-            success: false,
+            type: "protected_failure",
             message: "Upgrade failed, but shield protected the sword!",
             shieldConsumed: true,
             swordBroken: false,
@@ -1292,7 +1269,6 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
         } else {
           // Case 4: Shield OFF → sword breaks, give random byproduct
           swordBroken = true;
-
           await tx.userSword.update({
             where: { id: sword.id },
             data: {
@@ -1300,12 +1276,10 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
               isOnAnvil: false,
             },
           });
-
           await tx.user.update({
             where: { id: userId },
             data: { anvilSwordId: null },
           });
-
           // Give random byproduct material
           const drops = await tx.swordUpgradeDrop.findMany({
             where: { swordLevelDefinitionId: sword.swordLevelDefinitionId },
@@ -1316,16 +1290,13 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
               maxQuantity: true,
             },
           });
-
           if (drops.length === 0) {
             throw new Error("No drop materials defined for this sword level");
           }
-
           // Draw random material based on drop percentages
           let randomDrop = Math.random() * 100;
           let selectedDrop = drops[0];
           let cumulative = 0;
-
           for (const drop of drops) {
             cumulative += drop.dropPercentage;
             if (randomDrop <= cumulative) {
@@ -1333,14 +1304,12 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
               break;
             }
           }
-
           // Random quantity in range
           const qty =
             Math.floor(
               Math.random() *
                 (selectedDrop.maxQuantity - selectedDrop.minQuantity + 1),
             ) + selectedDrop.minQuantity;
-
           // Add to user's unsold materials (upsert)
           await tx.userMaterial.upsert({
             where: {
@@ -1357,18 +1326,15 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
               soldedQuantity: 0,
             },
           });
-
           byproduct = {
             materialId: selectedDrop.materialId,
             quantity: qty,
           };
-
           // Update history for byproduct
           historyData.droppedMaterialId = selectedDrop.materialId;
           historyData.droppedQuantity = qty;
-
           result = {
-            success: false,
+            type: "broken_failure",
             message:
               "Upgrade failed! Sword broke, but received random material as byproduct.",
             swordBroken: true,
@@ -1377,29 +1343,28 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
           };
         }
       }
-
       // Create history record (always, success or failure)
       await tx.swordUpgradeHistory.create({
         data: historyData,
       });
     });
-
     return res.json({
-      success: result.success,
+      success: true,
       message: result.message,
-      data: result,
+      data: serializeBigInt(result),
     });
   } catch (err: any) {
     if (err.message === "Next level definition not found") {
       return res.status(400).json({
         success: false,
-        error: "Cannot upgrade beyond maximum level",
+        error: "Cannot upgrade: Next level sword definition is not ready",
       });
     }
     if (err.message === "No drop materials defined for this sword level") {
       return res.status(500).json({
         success: false,
-        error: "No byproduct materials configured for failure",
+        error:
+          "Upgrade failed: No byproduct materials configured for this level",
       });
     }
     if (err.message === "Shield protection is on but no shields available") {
@@ -1408,11 +1373,10 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
         error: "Shield protection is active but you have no shields left",
       });
     }
-
     console.error("upgradeSword error:", err);
-    return res.status(400).json({
+    return res.status(500).json({
       success: false,
-      error: err.message || "Internal server error",
+      error: err.message || "Internal server error during upgrade",
     });
   }
 };

@@ -206,6 +206,7 @@ export const getUserSwords = async (req: UserAuthRequest, res: Response) => {
         updatedAt: true,
         swordLevelDefinition: {
           select: {
+            id: true, // ← good to have
             name: true,
             image: true,
             description: true,
@@ -217,6 +218,21 @@ export const getUserSwords = async (req: UserAuthRequest, res: Response) => {
             isBuyingAllow: true,
             isSellingAllow: true,
             isSynthesizeAllow: true,
+            upgradeDrops: {
+              select: {
+                dropPercentage: true,
+                minQuantity: true,
+                maxQuantity: true,
+                material: {
+                  select: {
+                    id: true,
+                    name: true,
+                    image: true,
+                    rarity: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
