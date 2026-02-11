@@ -1742,7 +1742,7 @@ export const createAdSession = async (req: UserAuthRequest, res: Response) => {
 
     res.json({ success: true, nonce, userId: userId.toString() });
   } catch (err: any) {
-    console.error("Toggle shiled protection Error:", err);
+    console.error("Create add Error:", err);
     return res
       .status(400)
       .json({ success: false, error: err.message || "Internal server Error" });
@@ -1835,7 +1835,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
 
     res.json({ success: true, rewardType: session.rewardType });
   } catch (err: any) {
-    console.error("Toggle shiled protection Error:", err);
+    console.error("verify add Error:", err);
     return res
       .status(400)
       .json({ success: false, error: err.message || "Internal server Error" });
