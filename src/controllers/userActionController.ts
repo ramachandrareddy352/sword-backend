@@ -1762,7 +1762,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     if (
       !session ||
       session.userId !== userId ||
-      !session.rewarded ||
+      session.rewarded || /// NOTE : chnage to !rewarded
       session.rewardedAt
     ) {
       return res
