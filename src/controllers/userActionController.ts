@@ -1740,7 +1740,7 @@ export const createAdSession = async (req: UserAuthRequest, res: Response) => {
       },
     });
 
-    res.json({ success: true, nonce, userId });
+    res.json({ success: true, nonce, userId: userId.toString() });
   } catch (err: any) {
     console.error("Toggle shiled protection Error:", err);
     return res
