@@ -80,6 +80,7 @@ async function fetchPublicKeys() {
 // AdMob SSV Callback (public, GET)
 app.get("/api/admob/ssv-callback", async (req: Request, res: Response) => {
   try {
+    console.log("SSV verification");
     if (!req.query.signature || !req.query.key_id) {
       return res.status(200).send("OK");
     }
