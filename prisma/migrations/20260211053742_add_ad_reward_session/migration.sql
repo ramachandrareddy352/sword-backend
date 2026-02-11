@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `adminconfig` ADD COLUMN `maxDailySwordAds` INTEGER UNSIGNED NOT NULL DEFAULT 10;

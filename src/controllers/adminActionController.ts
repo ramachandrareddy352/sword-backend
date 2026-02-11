@@ -73,6 +73,24 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
     }
 
     // ================= Ads & Missions =================
+    if (data.maxDailySwordAds !== undefined) {
+      validateUnsignedInt(
+        data.maxDailySwordAds,
+        "Invalid maximum daily sword Ads value.",
+      );
+      updateData.maxDailySwordAds = data.maxDailySwordAds;
+    }
+
+    if (data.swordLevelReward !== undefined) {
+      validateUnsignedInt(data.maxDailySwordAds, "Invalid sword level value.");
+      updateData.swordLevelReward = data.swordLevelReward;
+    }
+
+    if (data.goldReward !== undefined) {
+      validateUnsignedInt(data.maxDailySwordAds, "Invalid gold ad reward.");
+      updateData.goldReward = data.goldReward;
+    }
+
     if (data.maxDailyAds !== undefined) {
       if (!Number.isInteger(data.maxDailyAds)) {
         throw new Error("Invalid maximum daily Ads value type");

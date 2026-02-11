@@ -19,6 +19,8 @@ import {
   synthesizeSword,
   claimGift,
   toggleShieldProtection,
+  createAdSession,
+  verifyAdSession,
 } from "../controllers/userActionController";
 
 const router = express.Router();
@@ -54,4 +56,8 @@ router.post("/sword/synthesize", userAuth, synthesizeSword);
 
 router.post("/gifts/claim", userAuth, claimGift);
 router.patch("/shield/toggle", userAuth, toggleShieldProtection);
+
+/* ───────────────────── ADS ────────────────────────────── */
+router.post("/ad/start-session", userAuth, createAdSession);
+router.post("/ad/claim-reward", userAuth, verifyAdSession);
 export default router;

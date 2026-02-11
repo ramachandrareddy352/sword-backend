@@ -16,10 +16,13 @@ model AdminConfig {
   maxShieldHold             Int     @default(1) @db.UnsignedInt // maximum shields can be hold by user, can be set sa `0`, if `0` then there is no restriction
   shieldActiveOnMarketplace Boolean @default(true) // when it is true, then only user can able to buy shields from marketplace
 
+  maxDailySwordAds   Int @default(10) @db.UnsignedInt // we provide level-1 sword
+  swordLevelReward   Int @default(1) @db.UnsignedInt // sword level that we give as gift aftter viewing ad
   maxDailyAds        Int @default(10) @db.UnsignedInt // if `0` then there is no restriction
   maxDailyMissions   Int @default(20) @db.UnsignedInt // if `0` then there is no restriction
   defaultTrustPoints Int @default(100) @db.UnsignedInt // can be `0`
   defaultGold        Int @default(5000) @db.UnsignedInt // can be `0`
+  goldReward         Int @default(10) @db.UnsignedInt // when user view ad we give that much gold
 
   minVoucherGold    Int     @default(10) @db.UnsignedInt
   maxVoucherGold    Int     @default(1000) @db.UnsignedInt
@@ -52,6 +55,7 @@ model User {
   oneDayAdsViewed       Int @default(0) @db.UnsignedInt // maximum fetch from the admin config (make level wise views, like some people have 10 ads, some people having badges have some more ads to view)
   totalAdsViewed        Int @default(0) @db.UnsignedInt
   oneDayShieldAdsViewed Int @default(0) @db.UnsignedInt
+  oneDaySwordAdsViewed  Int @default(0) @db.UnsignedInt
 
   todayMissionsDone Int @default(0) @db.UnsignedInt // check the maximum limi from admin config
   totalMissionsDone Int @default(0) @db.UnsignedInt
@@ -73,6 +77,29 @@ model User {
   shieldMarketplacePurchases   ShieldMarketplacePurchase[]
   swordSynthesisHistories      SwordSynthesisHistory[]
   swordUpgradeHistories        SwordUpgradeHistory[]
+  adRewardSessions             AdRewardSession[]
+}
+
+model AdRewardSession {
+  id         BigInt       @id @default(autoincrement())
+  userId     BigInt       @db.UnsignedBigInt
+  nonce      String       @unique
+  rewardType AdRewardType
+  rewarded   Boolean      @default(false)
+
+  createdAt  DateTime  @default(now())
+  rewardedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([nonce])
+}
+
+enum AdRewardType {
+  GOLD
+  OLD_SWORD
+  SHIELD
 }
 
 // ======================= SWORD DEFINITIONS ======================= //

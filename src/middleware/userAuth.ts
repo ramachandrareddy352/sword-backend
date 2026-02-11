@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import redis from "../config/redis";
+import { resetDailyAdCountersIfNeeded } from "../services/dailyReset";
 
 export interface UserAuthRequest extends Request {
   user?: any;
@@ -24,6 +25,8 @@ export default async function auth(
     }
 
     req.user = payload;
+
+    await resetDailyAdCountersIfNeeded(BigInt(payload.userId));
     next();
   } catch {
     return res.status(401).json({ error: "Invalid token" });
