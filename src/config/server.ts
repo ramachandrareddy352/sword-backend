@@ -80,15 +80,18 @@ async function fetchPublicKeys() {
 // AdMob SSV Callback (public, GET)
 app.get("/api/admob/ssv-callback", async (req: Request, res: Response) => {
   try {
+    if (!req.query.signature || !req.query.key_id) {
+      return res.status(200).send("OK");
+    }
+
     await fetchPublicKeys();
 
     const params = req.query as Record<string, string>;
-
     const keyId = params.key_id;
     const signature = params.signature;
 
-    if (!keyId || !signature || !publicKeys[keyId]) {
-      return res.status(400).send("Invalid request");
+    if (!publicKeys[keyId]) {
+      return res.status(200).send("OK");
     }
 
     // 🔐 Reconstruct signed message
@@ -106,32 +109,29 @@ app.get("/api/admob/ssv-callback", async (req: Request, res: Response) => {
     const verified = verifier.verify(publicKeys[keyId], signature, "base64");
 
     if (!verified) {
-      return res.status(400).send("Invalid signature");
+      return res.status(200).send("OK"); // Never return 400 to Google
     }
 
     const nonce = params.custom_data;
     const userIdStr = params.user_id;
 
     if (!nonce || !userIdStr) {
-      return res.status(400).send("Missing parameters");
+      return res.status(200).send("OK");
     }
 
     const session = await prisma.adRewardSession.findUnique({
       where: { nonce },
     });
 
-    // Idempotent
-    if (!session) {
-      return res.status(400).send("Session not found");
-    }
-    if (session.rewarded) {
-      return res.status(400).send("Reward already done");
-    }
-    if (session.userId.toString() !== userIdStr) {
-      return res.status(200).send("Invalid user Id");
+    if (!session || session.rewarded) {
+      return res.status(200).send("OK");
     }
 
-    // ✅ Only mark as rewarded
+    if (session.userId.toString() !== userIdStr) {
+      return res.status(200).send("OK");
+    }
+
+    // ✅ Mark rewarded
     await prisma.adRewardSession.update({
       where: { nonce },
       data: { rewarded: true },
@@ -140,7 +140,7 @@ app.get("/api/admob/ssv-callback", async (req: Request, res: Response) => {
     return res.status(200).send("OK");
   } catch (err) {
     console.error("SSV error:", err);
-    return res.status(500).send("Internal error");
+    return res.status(200).send("OK"); // Always 200 for Google
   }
 });
 
