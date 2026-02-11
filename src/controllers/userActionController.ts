@@ -1682,14 +1682,16 @@ export const createAdSession = async (req: UserAuthRequest, res: Response) => {
   const { rewardType } = req.body as { rewardType: AdRewardType };
   const userId = BigInt(req.user.userId);
 
-  if (!Object.values(AdRewardType).includes(rewardType)) {
+  if (!["GOLD", "OLD_SWORD", "SHIELD"].includes(rewardType)) {
     return res
       .status(400)
       .json({ success: false, error: "Invalid reward type" });
   }
 
   // Check limits from AdminConfig and User
-  const config = await prisma.adminConfig.findUnique({ where: { id: 1 } });
+  const config = await prisma.adminConfig.findUnique({
+    where: { id: BigInt(1) },
+  });
   const user = await prisma.user.findUnique({ where: { id: userId } });
 
   if (!config || !user) {
@@ -1758,7 +1760,9 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
       .json({ success: false, error: "Invalid or unverified session" });
   }
 
-  const config = await prisma.adminConfig.findUnique({ where: { id: 1 } });
+  const config = await prisma.adminConfig.findUnique({
+    where: { id: BigInt(1) },
+  });
   if (!config) {
     return res.status(400).json({ success: false, error: "Config not found" });
   }
