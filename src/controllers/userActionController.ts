@@ -1679,147 +1679,165 @@ export const toggleShieldProtection = async (
 
 // 18) Start Session (Authenticated)
 export const createAdSession = async (req: UserAuthRequest, res: Response) => {
-  const { rewardType } = req.body as { rewardType: AdRewardType };
-  const userId = BigInt(req.user.userId);
+  try {
+    const { rewardType } = req.body as { rewardType: AdRewardType };
+    const userId = BigInt(req.user.userId);
 
-  if (!["GOLD", "OLD_SWORD", "SHIELD"].includes(rewardType)) {
+    if (!["GOLD", "OLD_SWORD", "SHIELD"].includes(rewardType)) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid reward type" });
+    }
+
+    // Check limits from AdminConfig and User
+    const config = await prisma.adminConfig.findUnique({
+      where: { id: BigInt(1) },
+    });
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+
+    if (!config || !user) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Config or user not found" });
+    }
+
+    if (rewardType === AdRewardType.SHIELD) {
+      if (user.oneDayShieldAdsViewed >= config.maxDailyShieldAds) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Daily shield ad limit reached" });
+      }
+      if (user.totalShields >= config.maxShieldHold) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Max shields held" });
+      }
+    } else if (rewardType === AdRewardType.GOLD) {
+      if (user.oneDayAdsViewed >= config.maxDailyAds) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Daily gold ad limit reached" });
+      }
+    } else if (rewardType === AdRewardType.OLD_SWORD) {
+      if (user.oneDaySwordAdsViewed >= config.maxDailySwordAds) {
+        return res
+          .status(400)
+          .json({ success: false, error: "Daily sword ad limit reached" });
+      }
+    } else {
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid Ad request type" });
+    }
+
+    const nonce = crypto.randomBytes(32).toString("hex");
+    await prisma.adRewardSession.create({
+      data: {
+        userId,
+        nonce,
+        rewardType,
+        rewarded: false,
+      },
+    });
+
+    res.json({ success: true, nonce, userId });
+  } catch (err: any) {
+    console.error("Toggle shiled protection Error:", err);
     return res
       .status(400)
-      .json({ success: false, error: "Invalid reward type" });
+      .json({ success: false, error: err.message || "Internal server Error" });
   }
-
-  // Check limits from AdminConfig and User
-  const config = await prisma.adminConfig.findUnique({
-    where: { id: BigInt(1) },
-  });
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-
-  if (!config || !user) {
-    return res
-      .status(400)
-      .json({ success: false, error: "Config or user not found" });
-  }
-
-  if (rewardType === AdRewardType.SHIELD) {
-    if (user.oneDayShieldAdsViewed >= config.maxDailyShieldAds) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Daily shield ad limit reached" });
-    }
-    if (user.totalShields >= config.maxShieldHold) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Max shields held" });
-    }
-  } else if (rewardType === AdRewardType.GOLD) {
-    if (user.oneDayAdsViewed >= config.maxDailyAds) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Daily gold ad limit reached" });
-    }
-  } else if (rewardType === AdRewardType.OLD_SWORD) {
-    if (user.oneDaySwordAdsViewed >= config.maxDailySwordAds) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Daily sword ad limit reached" });
-    }
-  } else {
-    return res
-      .status(400)
-      .json({ success: false, error: "Invalid Ad request type" });
-  }
-
-  const nonce = crypto.randomBytes(32).toString("hex");
-  await prisma.adRewardSession.create({
-    data: {
-      userId,
-      nonce,
-      rewardType,
-      rewarded: false,
-    },
-  });
-
-  res.json({ success: true, nonce, userId });
 };
 
 // 19) Claim Reward (Authenticated)
 export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
-  const { nonce } = req.body;
-  const userId = BigInt(req.user.userId);
+  try {
+    const { nonce } = req.body;
+    const userId = BigInt(req.user.userId);
 
-  const session = await prisma.adRewardSession.findUnique({ where: { nonce } });
+    const session = await prisma.adRewardSession.findUnique({
+      where: { nonce },
+    });
 
-  if (
-    !session ||
-    session.userId !== userId ||
-    !session.rewarded ||
-    session.rewardedAt
-  ) {
+    if (
+      !session ||
+      session.userId !== userId ||
+      !session.rewarded ||
+      session.rewardedAt
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid or unverified session" });
+    }
+
+    const config = await prisma.adminConfig.findUnique({
+      where: { id: BigInt(1) },
+    });
+    if (!config) {
+      return res
+        .status(400)
+        .json({ success: false, error: "Config not found" });
+    }
+
+    // Grant reward
+    switch (session.rewardType) {
+      case AdRewardType.GOLD:
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            gold: { increment: config.goldReward },
+            oneDayAdsViewed: { increment: 1 },
+            totalAdsViewed: { increment: 1 },
+          },
+        });
+        break;
+      case AdRewardType.OLD_SWORD:
+        // Create sword at configured level
+        const swordDef = await prisma.swordLevelDefinition.findUnique({
+          where: { level: config.swordLevelReward },
+        });
+        if (!swordDef)
+          throw new Error("Sword definition not found for reward level");
+        const code = generateSecureCode(12);
+        await prisma.userSword.create({
+          data: {
+            code,
+            userId,
+            level: config.swordLevelReward,
+            isOnAnvil: false,
+            swordLevelDefinitionId: swordDef.id,
+          },
+        });
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            oneDaySwordAdsViewed: { increment: 1 },
+            totalAdsViewed: { increment: 1 },
+          },
+        });
+        break;
+      case AdRewardType.SHIELD:
+        await prisma.user.update({
+          where: { id: userId },
+          data: {
+            totalShields: { increment: 1 },
+            oneDayShieldAdsViewed: { increment: 1 },
+            totalAdsViewed: { increment: 1 },
+          },
+        });
+        break;
+    }
+
+    await prisma.adRewardSession.update({
+      where: { nonce },
+      data: { rewardedAt: new Date() },
+    });
+
+    res.json({ success: true, rewardType: session.rewardType });
+  } catch (err: any) {
+    console.error("Toggle shiled protection Error:", err);
     return res
       .status(400)
-      .json({ success: false, error: "Invalid or unverified session" });
+      .json({ success: false, error: err.message || "Internal server Error" });
   }
-
-  const config = await prisma.adminConfig.findUnique({
-    where: { id: BigInt(1) },
-  });
-  if (!config) {
-    return res.status(400).json({ success: false, error: "Config not found" });
-  }
-
-  // Grant reward
-  switch (session.rewardType) {
-    case AdRewardType.GOLD:
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          gold: { increment: config.goldReward },
-          oneDayAdsViewed: { increment: 1 },
-          totalAdsViewed: { increment: 1 },
-        },
-      });
-      break;
-    case AdRewardType.OLD_SWORD:
-      // Create sword at configured level
-      const swordDef = await prisma.swordLevelDefinition.findUnique({
-        where: { level: config.swordLevelReward },
-      });
-      if (!swordDef)
-        throw new Error("Sword definition not found for reward level");
-      const code = generateSecureCode(12);
-      await prisma.userSword.create({
-        data: {
-          code,
-          userId,
-          level: config.swordLevelReward,
-          isOnAnvil: false,
-          swordLevelDefinitionId: swordDef.id,
-        },
-      });
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          oneDaySwordAdsViewed: { increment: 1 },
-          totalAdsViewed: { increment: 1 },
-        },
-      });
-      break;
-    case AdRewardType.SHIELD:
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          totalShields: { increment: 1 },
-          oneDayShieldAdsViewed: { increment: 1 },
-          totalAdsViewed: { increment: 1 },
-        },
-      });
-      break;
-  }
-
-  await prisma.adRewardSession.update({
-    where: { nonce },
-    data: { rewardedAt: new Date() },
-  });
-
-  res.json({ success: true, rewardType: session.rewardType });
 };
