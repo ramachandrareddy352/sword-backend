@@ -1755,6 +1755,15 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     const { nonce } = req.body;
     const userId = BigInt(req.user.userId);
 
+    // CLEANUP expired sessions
+    await prisma.adRewardSession.deleteMany({
+      where: {
+        createdAt: {
+          lt: new Date(Date.now() - 5 * 60 * 1000),
+        },
+      },
+    });
+
     const session = await prisma.adRewardSession.findUnique({
       where: { nonce },
     });
@@ -1762,8 +1771,8 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     if (
       !session ||
       session.userId !== userId ||
-      session.rewarded || /// NOTE : chnage to !rewarded
-      session.rewardedAt
+      session.rewarded === true ||
+      session.rewardedAt !== null
     ) {
       return res
         .status(400)
@@ -1828,9 +1837,8 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
         break;
     }
 
-    await prisma.adRewardSession.update({
+    await prisma.adRewardSession.delete({
       where: { nonce },
-      data: { rewardedAt: new Date() },
     });
 
     res.json({ success: true, rewardType: session.rewardType });

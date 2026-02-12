@@ -240,7 +240,7 @@ export async function login(req: Request, res: Response) {
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      return res.status(401).json({
+      return res.status(400).json({
         success: false,
         error: "Invalid credentials or email not verified",
       });
@@ -249,7 +249,7 @@ export async function login(req: Request, res: Response) {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res
-        .status(401)
+        .status(400)
         .json({ success: false, error: "Invalid credentials" });
     }
 
@@ -482,7 +482,7 @@ export async function googleLogin(req: Request, res: Response) {
     });
   } catch (err) {
     console.error("Google login error:", err);
-    return res.status(401).json({
+    return res.status(400).json({
       success: false,
       error: "Google authentication failed",
     });

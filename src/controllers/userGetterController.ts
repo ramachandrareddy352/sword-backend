@@ -274,6 +274,7 @@ export const getUserBasicInfo = async (req: UserAuthRequest, res: Response) => {
         lastLoginAt: true,
         lastReviewed: true,
         oneDayAdsViewed: true,
+        oneDaySwordAdsViewed: true,
         totalAdsViewed: true,
         oneDayShieldAdsViewed: true,
         todayMissionsDone: true,
