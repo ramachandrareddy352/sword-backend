@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import prisma from "../database/client";
@@ -373,5 +374,117 @@ export async function logout(req: Request, res: Response) {
     return res
       .status(500)
       .json({ success: false, error: "Internal server error" });
+  }
+}
+
+export async function googleLogin(req: Request, res: Response) {
+  try {
+    const { idToken, os } = req.body;
+
+    const googleClient = new OAuth2Client(process.env.GOOGLE_WEB_CLIENT_ID);
+
+    if (!idToken) {
+      return res.status(400).json({
+        success: false,
+        error: "Google ID token is required",
+      });
+    }
+
+    // 1️⃣ Verify token with Google
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_WEB_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+
+    if (!payload || !payload.email) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid Google token",
+      });
+    }
+
+    const { email, name } = payload;
+
+    // 2️⃣ Check if user exists
+    let user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    // 3️⃣ If not exists → create user
+    if (!user) {
+      const config = await prisma.adminConfig.findUnique({
+        where: { id: BigInt(1) },
+      });
+
+      const levelOneSword = await prisma.swordLevelDefinition.findFirst({
+        where: { level: 1 },
+      });
+
+      user = await prisma.$transaction(async (tx) => {
+        const newUser = await tx.user.create({
+          data: {
+            email,
+            name: name?.toLowerCase().replace(/\s/g, "") || "googleuser",
+            password: "", // No password for Google
+            gold: config?.defaultGold ?? 0,
+            trustPoints: config?.defaultTrustPoints ?? 0,
+            lastReviewed: new Date(),
+            lastLoginAt: new Date(),
+          },
+        });
+
+        if (levelOneSword) {
+          const swordCode = generateSecureCode(12);
+
+          const createdSword = await tx.userSword.create({
+            data: {
+              code: swordCode,
+              userId: newUser.id,
+              level: levelOneSword.level,
+              isOnAnvil: true,
+              swordLevelDefinitionId: levelOneSword.id,
+              isSolded: false,
+              isBroken: false,
+            },
+          });
+
+          await tx.user.update({
+            where: { id: newUser.id },
+            data: { anvilSwordId: createdSword.id },
+          });
+        }
+
+        return newUser;
+      });
+    }
+
+    // 4️⃣ Create JWT session (same as normal login)
+    const jti = uuidv4();
+
+    const token = jwt.sign(
+      { userId: user.id.toString(), jti },
+      process.env.JWT_SECRET!,
+      { expiresIn: "60m" },
+    );
+
+    await redis.set(`session:${jti}`, user.id.toString(), { EX: 3600 });
+
+    return res.json({
+      success: true,
+      token,
+      data: {
+        id: user.id.toString(),
+        email: user.email,
+        name: user.name,
+      },
+    });
+  } catch (err) {
+    console.error("Google login error:", err);
+    return res.status(401).json({
+      success: false,
+      error: "Google authentication failed",
+    });
   }
 }

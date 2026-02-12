@@ -7,6 +7,7 @@ import {
   forgotPassword,
   resetPassword,
   logout,
+  googleLogin,
 } from "../controllers/userAuthController";
 
 const router = express.Router();
@@ -21,5 +22,6 @@ router.post("/login", login);
 router.post("/forgot/send-code", forgotPassword);
 router.post("/forgot/verify", resetPassword);
 router.post("/logout", userAuth, logout);
+router.post("/google-login", googleLogin);
 
 export default router;
