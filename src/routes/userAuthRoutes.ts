@@ -8,6 +8,8 @@ import {
   resetPassword,
   logout,
   googleLogin,
+  requestCancelMembership,
+  confirmCancelMembership,
 } from "../controllers/userAuthController";
 
 const router = express.Router();
@@ -23,5 +25,7 @@ router.post("/forgot/send-code", forgotPassword);
 router.post("/forgot/verify", resetPassword);
 router.post("/logout", userAuth, logout);
 router.post("/google-login", googleLogin);
+router.post("/cancel-membership/request", userAuth, requestCancelMembership);
+router.post("/cancel-membership/confirm", userAuth, confirmCancelMembership);
 
 export default router;

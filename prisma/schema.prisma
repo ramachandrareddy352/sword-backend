@@ -64,7 +64,7 @@ model User {
   isBanned   Boolean @default(false) // admin can block or unblock the user
   soundOn    Boolean @default(true)
 
-  anvilSword UserSword? @relation("UserAnvilSword", fields: [anvilSwordId], references: [id], onDelete: SetNull)
+  anvilSword UserSword? @relation("UserAnvilSword", fields: [anvilSwordId], references: [id], onDelete: Cascade)
 
   swords                       UserSword[]                   @relation("UserOwnedSwords")
   materials                    UserMaterial[] // materials can be buy from market or gifts or as by-products when sword is broken
@@ -90,7 +90,7 @@ model AdRewardSession {
   createdAt  DateTime  @default(now())
   rewardedAt DateTime?
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([nonce])
@@ -176,9 +176,9 @@ model SwordSynthesisHistory {
 
   createdAt DateTime @default(now())
 
-  user                 User                 @relation(fields: [userId], references: [id])
-  swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id])
-  createdSword         UserSword?           @relation(fields: [createdSwordId], references: [id])
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
+  createdSword         UserSword?           @relation(fields: [createdSwordId], references: [id], onDelete: Cascade)
 }
 
 model SwordUpgradeHistory {
@@ -198,8 +198,8 @@ model SwordUpgradeHistory {
 
   createdAt DateTime @default(now())
 
-  user  User      @relation(fields: [userId], references: [id])
-  sword UserSword @relation(fields: [swordId], references: [id])
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sword UserSword @relation(fields: [swordId], references: [id], onDelete: Cascade)
 }
 
 model UserSword {
@@ -218,7 +218,7 @@ model UserSword {
 
   user                      User                       @relation("UserOwnedSwords", fields: [userId], references: [id], onDelete: Cascade)
   anvilOwner                User?                      @relation("UserAnvilSword")
-  swordLevelDefinition      SwordLevelDefinition       @relation(fields: [swordLevelDefinitionId], references: [id])
+  swordLevelDefinition      SwordLevelDefinition       @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
   swordMarketplacePurchases SwordMarketplacePurchase[]
   swordSynthesisHistories   SwordSynthesisHistory[]
   swordUpgradeHistories     SwordUpgradeHistory[]
@@ -297,7 +297,7 @@ model UserMaterial {
   updatedAt DateTime @updatedAt
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  material Material @relation(fields: [materialId], references: [id])
+  material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
 
   @@id([userId, materialId])
   @@index([materialId])
@@ -316,7 +316,7 @@ model UserGift {
   claimedAt   DateTime?
 
   items UserGiftItem[]
-  user  User?          @relation(fields: [receiverId], references: [id])
+  user  User?          @relation(fields: [receiverId], references: [id], onDelete: Cascade)
 
   @@index([receiverId])
   @@index([status])
@@ -334,11 +334,11 @@ model UserGiftItem {
   // Material relation
   materialId       BigInt?   @db.UnsignedBigInt
   materialQunatity Int?      @db.UnsignedInt
-  material         Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  material         Material? @relation(fields: [materialId], references: [id], onDelete: Cascade)
 
   // Sword relation
   swordLevel           Int?                  @db.UnsignedInt
-  swordLevelDefinition SwordLevelDefinition? @relation(fields: [swordLevel], references: [level], onDelete: SetNull)
+  swordLevelDefinition SwordLevelDefinition? @relation(fields: [swordLevel], references: [level], onDelete: Cascade)
 
   gift UserGift @relation(fields: [giftId], references: [id], onDelete: Cascade)
 
@@ -372,9 +372,9 @@ model SwordMarketplacePurchase {
   priceGold   Int      @db.UnsignedInt
   purchasedAt DateTime @default(now())
 
-  user                 User                  @relation(fields: [userId], references: [id])
-  swordLevelDefinition SwordLevelDefinition? @relation(fields: [swordLevelDefinitionId], references: [id])
-  userSword            UserSword?            @relation(fields: [swordId], references: [id])
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  swordLevelDefinition SwordLevelDefinition? @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
+  userSword            UserSword?            @relation(fields: [swordId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([swordId])
@@ -391,8 +391,8 @@ model MaterialMarketplacePurchase {
   priceGold   Int      @db.UnsignedInt // quantity * price of single unit
   purchasedAt DateTime @default(now())
 
-  user     User     @relation(fields: [userId], references: [id])
-  material Material @relation(fields: [materialId], references: [id])
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -406,7 +406,7 @@ model ShieldMarketplacePurchase {
   priceGold   Int      @db.UnsignedInt // quantity * price of single unit
   purchasedAt DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
