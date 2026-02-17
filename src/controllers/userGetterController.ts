@@ -1219,20 +1219,21 @@ export const getUserDailyMissions = async (
 
       const conditions = mission.conditions as any[];
 
-      // Currently we support only ad-based conditions
       for (const condition of conditions) {
-        switch (condition.type) {
-          case "COMPLETE_GOLD_ADS":
-            currentProgress = user.oneDayAdsViewed;
-            break;
-
-          case "COMPLETE_SHIELD_ADS":
-            currentProgress = user.oneDayShieldAdsViewed;
-            break;
-
-          case "COMPLETE_SWORD_ADS":
-            currentProgress = user.oneDaySwordAdsViewed;
-            break;
+        if (condition.type === "completeAllAds") {
+          switch (condition.adType) {
+            case "GOLD":
+              currentProgress = user.oneDayAdsViewed;
+              break;
+            case "SHIELD":
+              currentProgress = user.oneDayShieldAdsViewed;
+              break;
+            case "OLD_SWORD":
+              currentProgress = user.oneDaySwordAdsViewed;
+              break;
+            default:
+              console.warn(`Unknown adType: ${condition.adType}`);
+          }
         }
       }
 

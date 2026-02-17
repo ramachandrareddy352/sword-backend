@@ -429,9 +429,10 @@ export async function logout(req: Request, res: Response) {
 export async function googleLogin(req: Request, res: Response) {
   try {
     const { idToken, os, isDev } = req.body;
-    const clientId = isDev
-      ? process.env.DEV_GOOGLE_WEB_CLIENT_ID
-      : process.env.GOOGLE_WEB_CLIENT_ID;
+    const clientId =
+      isDev === "true"
+        ? process.env.DEV_GOOGLE_WEB_CLIENT_ID
+        : process.env.GOOGLE_WEB_CLIENT_ID;
 
     const googleClient = new OAuth2Client(clientId);
 

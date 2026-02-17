@@ -1862,83 +1862,144 @@ export const claimDailyMission = async (
     if (!missionId || isNaN(Number(missionId))) {
       return res.status(400).json({
         success: false,
-        error: "Valid missionId required",
+        error: "Valid missionId is required",
       });
     }
 
-    await prisma.$transaction(async (tx) => {
-      // 1️⃣ Fetch mission
+    const missionIdBig = BigInt(missionId);
+
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Fetch the mission definition
       const mission = await tx.dailyMissionDefinition.findUnique({
-        where: { id: BigInt(missionId) },
+        where: { id: missionIdBig },
+        select: {
+          id: true,
+          title: true,
+          isActive: true,
+          conditions: true,
+          targetValue: true,
+          reward: true,
+        },
       });
 
-      if (!mission || !mission.isActive) {
-        throw new Error("Mission not found or not active");
+      if (!mission) {
+        throw new Error("Mission not found");
       }
 
-      const condition = mission.conditions as any;
-
-      if (!condition || condition.type !== "completeAllAds") {
-        throw new Error("Invalid mission type");
+      if (!mission.isActive) {
+        throw new Error("This mission is no longer active");
       }
 
-      // 2️⃣ Get user + config
+      // 2. Parse and validate conditions
+      let adType: string | undefined;
+
+      try {
+        const conditions = mission.conditions as any[];
+
+        if (!Array.isArray(conditions) || conditions.length === 0) {
+          throw new Error("Mission has no valid conditions");
+        }
+
+        // We expect exactly one condition of type "completeAllAds"
+        const adCondition = conditions.find(
+          (c) => c?.type === "completeAllAds" && c?.adType,
+        );
+
+        if (!adCondition) {
+          throw new Error(
+            `Mission does not contain a valid "completeAllAds" condition. ` +
+              `Found: ${JSON.stringify(conditions)}`,
+          );
+        }
+
+        adType = adCondition.adType;
+
+        if (!["GOLD", "SHIELD", "OLD_SWORD"].includes(adType!)) {
+          throw new Error(`Unsupported ad type: ${adType}`);
+        }
+      } catch (parseErr) {
+        console.error("Condition parse error:", parseErr, {
+          missionId,
+          conditions: mission.conditions,
+        });
+        throw new Error("Invalid mission configuration");
+      }
+
+      // 3. Fetch user and config
       const [user, config] = await Promise.all([
-        tx.user.findUnique({ where: { id: userId } }),
-        tx.adminConfig.findUnique({ where: { id: BigInt(1) } }),
+        tx.user.findUnique({
+          where: { id: userId },
+          select: {
+            oneDayAdsViewed: true,
+            oneDayShieldAdsViewed: true,
+            oneDaySwordAdsViewed: true,
+          },
+        }),
+        tx.adminConfig.findUnique({
+          where: { id: BigInt(1) },
+          select: {
+            maxDailyAds: true,
+            maxDailyShieldAds: true,
+            maxDailySwordAds: true,
+          },
+        }),
       ]);
 
-      if (!user || !config) {
-        throw new Error("User or config not found");
+      if (!user) {
+        throw new Error("User not found");
+      }
+      if (!config) {
+        throw new Error("Server configuration missing");
       }
 
-      // 3️⃣ Check if already claimed today
+      // 4. Check if already claimed today
       const progress = await tx.userDailyMissionProgress.findUnique({
         where: {
           userId_missionId: {
             userId,
-            missionId: BigInt(missionId),
+            missionId: missionIdBig,
           },
         },
       });
 
       const now = new Date();
-      const todayStart = new Date();
+      const todayStart = new Date(now);
       todayStart.setHours(0, 0, 0, 0);
 
-      if (progress?.lastClaimedAt && progress.lastClaimedAt >= todayStart) {
-        throw new Error("Mission already claimed today");
+      if (
+        progress?.lastClaimedAt &&
+        new Date(progress.lastClaimedAt) >= todayStart
+      ) {
+        throw new Error("You have already claimed this mission today");
       }
 
-      // 4️⃣ Validate ad completion
+      // 5. Validate completion
       let eligible = false;
 
-      switch (condition.adType) {
+      switch (adType) {
         case "GOLD":
           eligible = user.oneDayAdsViewed >= config.maxDailyAds;
           break;
-
         case "SHIELD":
           eligible = user.oneDayShieldAdsViewed >= config.maxDailyShieldAds;
           break;
-
         case "OLD_SWORD":
           eligible = user.oneDaySwordAdsViewed >= config.maxDailySwordAds;
           break;
-
-        default:
-          throw new Error("Invalid ad type in mission");
       }
 
       if (!eligible) {
-        throw new Error("Ad mission not completed yet");
+        throw new Error("You have not completed the required ads yet");
       }
 
-      // 5️⃣ Grant reward
+      // 6. Grant reward
       const reward = mission.reward as any;
 
-      switch (reward.type) {
+      switch (reward?.type) {
         case "gold":
+          if (typeof reward.amount !== "number" || reward.amount <= 0) {
+            throw new Error("Invalid gold reward amount");
+          }
           await tx.user.update({
             where: { id: userId },
             data: { gold: { increment: reward.amount } },
@@ -1946,6 +2007,9 @@ export const claimDailyMission = async (
           break;
 
         case "trustPoints":
+          if (typeof reward.amount !== "number" || reward.amount <= 0) {
+            throw new Error("Invalid trust points reward amount");
+          }
           await tx.user.update({
             where: { id: userId },
             data: { trustPoints: { increment: reward.amount } },
@@ -1953,34 +2017,46 @@ export const claimDailyMission = async (
           break;
 
         case "shield":
+          if (typeof reward.quantity !== "number" || reward.quantity <= 0) {
+            throw new Error("Invalid shield reward quantity");
+          }
           await tx.user.update({
             where: { id: userId },
             data: { totalShields: { increment: reward.quantity } },
           });
           break;
 
-        case "sword": {
-          const def = await tx.swordLevelDefinition.findUnique({
+        case "sword":
+          if (typeof reward.level !== "number" || reward.level < 1) {
+            throw new Error("Invalid sword reward level");
+          }
+          const swordDef = await tx.swordLevelDefinition.findUnique({
             where: { level: reward.level },
           });
-
-          if (!def) throw new Error("Invalid sword reward");
-
+          if (!swordDef) {
+            throw new Error(`Sword level ${reward.level} not found`);
+          }
           await tx.userSword.create({
             data: {
               code: generateSecureCode(12),
               userId,
-              level: def.level,
-              swordLevelDefinitionId: def.id,
+              level: swordDef.level,
+              swordLevelDefinitionId: swordDef.id,
               isOnAnvil: false,
               isSolded: false,
               isBroken: false,
             },
           });
           break;
-        }
 
         case "material":
+          if (
+            typeof reward.materialId !== "number" ||
+            typeof reward.quantity !== "number" ||
+            reward.quantity <= 0
+          ) {
+            throw new Error("Invalid material reward data");
+          }
           await tx.userMaterial.upsert({
             where: {
               userId_materialId: {
@@ -2001,17 +2077,14 @@ export const claimDailyMission = async (
           break;
 
         default:
-          throw new Error("Invalid reward type");
+          throw new Error(`Unsupported reward type: ${reward?.type}`);
       }
 
-      // 6️⃣ Update mission progress
+      // 7. Record claim / update progress
       if (progress) {
         await tx.userDailyMissionProgress.update({
           where: {
-            userId_missionId: {
-              userId,
-              missionId: BigInt(missionId),
-            },
+            userId_missionId: { userId, missionId: missionIdBig },
           },
           data: {
             claimedTimes: { increment: 1 },
@@ -2022,23 +2095,37 @@ export const claimDailyMission = async (
         await tx.userDailyMissionProgress.create({
           data: {
             userId,
-            missionId: BigInt(missionId),
+            missionId: missionIdBig,
             claimedTimes: 1,
             lastClaimedAt: now,
           },
         });
       }
+
+      return { success: true };
     });
 
     return res.json({
       success: true,
-      message: "Daily ad mission claimed successfully",
+      message: "Daily mission claimed successfully",
     });
   } catch (err: any) {
-    console.error("Claim daily ad mission error:", err);
-    return res.status(400).json({
+    console.error("claimDailyMission error:", {
+      userId: req.user?.userId,
+      missionId: req.body?.missionId,
+      error: err.message,
+      stack: err.stack,
+    });
+
+    const status =
+      err.message.includes("not found") ||
+      err.message.includes("already claimed")
+        ? 400
+        : 500;
+
+    return res.status(status).json({
       success: false,
-      error: err.message || "Failed to claim mission",
+      error: err.message || "Failed to claim daily mission",
     });
   }
 };
@@ -2164,7 +2251,6 @@ export const claimOneTimeMission = async (
               where: {
                 userId,
                 createdAt: dateFilter,
-                success: true,
                 ...(cond.level && {
                   sword: {
                     level: cond.level,
