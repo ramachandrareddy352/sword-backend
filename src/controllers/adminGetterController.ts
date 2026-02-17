@@ -1195,3 +1195,284 @@ export const getAllUsersSynthesisHistory = async (
     });
   }
 };
+
+// 12) GET ALL DAILY MISSIONS
+export const getAllDailyMissions = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const { active, rewardType, sortCreatedAt = "desc" } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const where: any = {};
+
+    // Active filter
+    if (active === "true") where.isActive = true;
+    if (active === "false") where.isActive = false;
+
+    // Reward type filter (reward is Json)
+    if (rewardType) {
+      where.reward = {
+        path: ["type"],
+        equals: rewardType,
+      };
+    }
+
+    const orderBy: any[] = [];
+    if (["asc", "desc"].includes(sortCreatedAt as string)) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+    if (orderBy.length === 0) {
+      orderBy.push({ createdAt: "desc" });
+    }
+
+    const total = await prisma.dailyMissionDefinition.count({ where });
+
+    const missions = await prisma.dailyMissionDefinition.findMany({
+      where,
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      include: {
+        userDailyMissionProgresses: {
+          select: {
+            userId: true,
+            claimedTimes: true,
+            lastClaimedAt: true,
+          },
+        },
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Daily missions fetched successfully",
+      data: serializeBigInt(missions),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error("getAllDailyMissions error:", err);
+    return res.status(500).json({ success: false, error: "Server error" });
+  }
+};
+
+// 13) GET ALL ONE-TIME MISSIONS
+export const getAllOneTimeMissions = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const { active, expired, rewardType, sortCreatedAt = "desc" } = req.query;
+
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const where: any = {};
+
+    // Active filter
+    if (active === "true") where.isActive = true;
+    if (active === "false") where.isActive = false;
+
+    // Expiry filter
+    if (expired === "true") {
+      where.expiresAt = { lt: new Date() };
+    }
+    if (expired === "false") {
+      where.OR = [{ expiresAt: null }, { expiresAt: { gte: new Date() } }];
+    }
+
+    // Reward filter
+    if (rewardType) {
+      where.reward = {
+        path: ["type"],
+        equals: rewardType,
+      };
+    }
+
+    const orderBy: any[] = [];
+    if (["asc", "desc"].includes(sortCreatedAt as string)) {
+      orderBy.push({ createdAt: sortCreatedAt });
+    }
+
+    if (orderBy.length === 0) {
+      orderBy.push({ createdAt: "desc" });
+    }
+
+    const total = await prisma.oneTimeMissionDefinition.count({ where });
+
+    const missions = await prisma.oneTimeMissionDefinition.findMany({
+      where,
+      orderBy,
+      skip: pagination.skip,
+      take: pagination.take,
+      include: {
+        userOneTimeMissionProgresses: {
+          select: {
+            userId: true,
+            claimedAt: true,
+          },
+        },
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "One-time missions fetched successfully",
+      data: serializeBigInt(missions),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error("getAllOneTimeMissions error:", err);
+    return res.status(500).json({ success: false, error: "Server error" });
+  }
+};
+
+// 14) GET ALL USERS DAILY MISSION COMPLETIONS
+export const getAllUsersDailyMissionProgress = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const total = await prisma.userDailyMissionProgress.count();
+
+    const progress = await prisma.userDailyMissionProgress.findMany({
+      skip: pagination.skip,
+      take: pagination.take,
+      include: {
+        user: {
+          select: { id: true, email: true, name: true },
+        },
+        mission: {
+          select: { id: true, title: true, reward: true },
+        },
+      },
+      orderBy: { lastClaimedAt: "desc" },
+    });
+
+    return res.json({
+      success: true,
+      message: "All users daily mission progress fetched",
+      data: serializeBigInt(progress),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, error: "Server error" });
+  }
+};
+
+// 15) GET ALL USERS ONE-TIME MISSION COMPLETIONS
+export const getAllUsersOneTimeMissionProgress = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const pagination = getPagination(req.query);
+    if (!pagination) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid pagination parameters",
+      });
+    }
+
+    const total = await prisma.userOneTimeMissionProgress.count();
+
+    const progress = await prisma.userOneTimeMissionProgress.findMany({
+      skip: pagination.skip,
+      take: pagination.take,
+      include: {
+        user: {
+          select: { id: true, email: true, name: true },
+        },
+        mission: {
+          select: { id: true, title: true, reward: true },
+        },
+      },
+      orderBy: { claimedAt: "desc" },
+    });
+
+    return res.json({
+      success: true,
+      message: "All users one-time mission progress fetched",
+      data: serializeBigInt(progress),
+      total,
+      page: pagination.page,
+      limit: pagination.limit,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, error: "Server error" });
+  }
+};
+
+// 16) GET PARTICULAR USER MISSIONS (ADMIN ONLY)
+export const getUserMissionsByUserId = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "userId is required",
+      });
+    }
+
+    const uid = BigInt(userId as string);
+
+    const daily = await prisma.userDailyMissionProgress.findMany({
+      where: { userId: uid },
+      include: {
+        mission: true,
+      },
+      orderBy: { lastClaimedAt: "desc" },
+    });
+
+    const oneTime = await prisma.userOneTimeMissionProgress.findMany({
+      where: { userId: uid },
+      include: {
+        mission: true,
+      },
+      orderBy: { claimedAt: "desc" },
+    });
+
+    return res.json({
+      success: true,
+      message: "User mission data fetched successfully",
+      dailyMissions: serializeBigInt(daily),
+      oneTimeMissions: serializeBigInt(oneTime),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, error: "Server error" });
+  }
+};

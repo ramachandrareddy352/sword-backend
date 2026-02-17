@@ -1149,3 +1149,275 @@ export const getUserSynthesisHistory = async (
       .json({ success: false, error: "Internal server error" });
   }
 };
+
+// 13) Get daily missions for authenticated user
+export const getUserDailyMissions = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    // Fetch user ad counters
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        oneDayAdsViewed: true,
+        oneDayShieldAdsViewed: true,
+        oneDaySwordAdsViewed: true,
+        isBanned: true,
+      },
+    });
+
+    if (!user || user.isBanned) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found or banned",
+      });
+    }
+
+    // Fetch admin config (for max limits)
+    const config = await prisma.adminConfig.findUnique({
+      where: { id: BigInt(1) },
+      select: {
+        maxDailyAds: true,
+        maxDailyShieldAds: true,
+        maxDailySwordAds: true,
+      },
+    });
+
+    if (!config) {
+      return res.status(500).json({
+        success: false,
+        error: "Admin config not found",
+      });
+    }
+
+    // Fetch all active daily missions
+    const missions = await prisma.dailyMissionDefinition.findMany({
+      where: { isActive: true },
+      include: {
+        userDailyMissionProgresses: {
+          where: { userId },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const result = missions.map((mission) => {
+      const progress = mission.userDailyMissionProgresses[0];
+
+      // Check if claimed today
+      const claimedToday =
+        progress?.lastClaimedAt &&
+        new Date(progress.lastClaimedAt) >= todayStart;
+
+      let currentProgress = 0;
+
+      const conditions = mission.conditions as any[];
+
+      // Currently we support only ad-based conditions
+      for (const condition of conditions) {
+        switch (condition.type) {
+          case "COMPLETE_GOLD_ADS":
+            currentProgress = user.oneDayAdsViewed;
+            break;
+
+          case "COMPLETE_SHIELD_ADS":
+            currentProgress = user.oneDayShieldAdsViewed;
+            break;
+
+          case "COMPLETE_SWORD_ADS":
+            currentProgress = user.oneDaySwordAdsViewed;
+            break;
+        }
+      }
+
+      const isCompleted = currentProgress >= mission.targetValue;
+      const canClaim = isCompleted && !claimedToday;
+
+      return {
+        missionId: mission.id.toString(),
+        title: mission.title,
+        description: mission.description,
+        targetValue: mission.targetValue,
+        currentProgress,
+        isCompleted,
+        claimedToday: !!claimedToday,
+        canClaim,
+        reward: mission.reward,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Daily missions fetched successfully",
+      data: serializeBigInt(result),
+    });
+  } catch (err: any) {
+    console.error("getUserDailyMissions error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+// 14) GET Active One-Time Missions with eligibility + claimed status
+export const getUserOneTimeMissions = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+    const now = new Date();
+
+    // Fetch only ACTIVE + valid time missions
+    const missions = await prisma.oneTimeMissionDefinition.findMany({
+      where: {
+        isActive: true,
+        startAt: { lte: now },
+        OR: [{ expiresAt: null }, { expiresAt: { gte: now } }],
+      },
+    });
+
+    if (missions.length === 0) {
+      return res.json({
+        success: true,
+        message: "No active one-time missions",
+        data: [],
+      });
+    }
+
+    const missionResults = [];
+
+    for (const mission of missions) {
+      const conditions = mission.conditions as any[];
+      let progressValue = 0;
+
+      // Time filter range
+      const timeFilter: any = {
+        gte: mission.startAt,
+      };
+
+      if (mission.expiresAt) {
+        timeFilter.lte = mission.expiresAt;
+      }
+
+      for (const cond of conditions) {
+        switch (cond.type) {
+          // ================= BUY SWORD =================
+          case "buySword":
+            progressValue += await prisma.swordMarketplacePurchase.count({
+              where: {
+                userId,
+                purchasedAt: timeFilter,
+                ...(cond.level && {
+                  swordLevelDefinition: { level: cond.level },
+                }),
+              },
+            });
+            break;
+
+          // ================= BUY MATERIAL =================
+          case "buyMaterial":
+            progressValue += await prisma.materialMarketplacePurchase.count({
+              where: {
+                userId,
+                purchasedAt: timeFilter,
+                ...(cond.materialId && {
+                  materialId: BigInt(cond.materialId),
+                }),
+              },
+            });
+            break;
+
+          // ================= BUY SHIELD =================
+          case "buyShield":
+            const shieldPurchases =
+              await prisma.shieldMarketplacePurchase.findMany({
+                where: {
+                  userId,
+                  purchasedAt: timeFilter,
+                },
+                select: { quantity: true },
+              });
+
+            progressValue += shieldPurchases.reduce(
+              (sum, s) => sum + s.quantity,
+              0,
+            );
+            break;
+
+          // ================= UPGRADE SWORD =================
+          case "upgradeSword":
+            progressValue += await prisma.swordUpgradeHistory.count({
+              where: {
+                userId,
+                createdAt: timeFilter,
+                success: true,
+                ...(cond.level && {
+                  sword: { level: cond.level },
+                }),
+              },
+            });
+            break;
+
+          // ================= SYNTHESIZE =================
+          case "synthesize":
+            progressValue += await prisma.swordSynthesisHistory.count({
+              where: {
+                userId,
+                createdAt: timeFilter,
+                ...(cond.level && {
+                  swordLevelDefinition: { level: cond.level },
+                }),
+              },
+            });
+            break;
+        }
+      }
+
+      // Check if already claimed
+      const claimedRecord = await prisma.userOneTimeMissionProgress.findUnique({
+        where: {
+          userId_missionId: {
+            userId,
+            missionId: mission.id,
+          },
+        },
+      });
+
+      const claimed = !!claimedRecord;
+      const canClaim = !claimed && progressValue >= mission.targetValue;
+
+      missionResults.push({
+        missionId: mission.id.toString(),
+        title: mission.title,
+        description: mission.description,
+        reward: mission.reward,
+        targetValue: mission.targetValue,
+        progressValue,
+        claimed,
+        canClaim,
+        startAt: mission.startAt,
+        expiresAt: mission.expiresAt,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Active one-time missions fetched",
+      data: serializeBigInt(missionResults),
+    });
+  } catch (err: any) {
+    console.error("getUserOneTimeMissions error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};

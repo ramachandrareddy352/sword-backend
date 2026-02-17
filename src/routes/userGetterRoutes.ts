@@ -14,6 +14,8 @@ import {
   getUserPurchasedShields,
   getUserUpgradeHistory,
   getUserSynthesisHistory,
+  getUserDailyMissions,
+  getUserOneTimeMissions,
 } from "../controllers/userGetterController";
 
 const router = express.Router();
@@ -41,5 +43,9 @@ router.get("/user/purchases/shields", userAuth, getUserPurchasedShields);
 /* ───────────────────── HISTORY ─────────────────────── */
 router.get("/user/history/upgrades", userAuth, getUserUpgradeHistory);
 router.get("/user/history/synthesis", userAuth, getUserSynthesisHistory);
+
+/* ───────────────────── MISSIONS ─────────────────────── */
+router.get("/user/missions/daily", userAuth, getUserDailyMissions);
+router.get("/user/missions/one-time", userAuth, getUserOneTimeMissions);
 
 export default router;

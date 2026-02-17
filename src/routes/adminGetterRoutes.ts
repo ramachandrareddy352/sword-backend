@@ -13,6 +13,11 @@ import {
   getAllUsersVouchers,
   getAllUsersUpgradeHistory,
   getAllUsersSynthesisHistory,
+  getAllDailyMissions,
+  getAllOneTimeMissions,
+  getAllUsersDailyMissionProgress,
+  getAllUsersOneTimeMissionProgress,
+  getUserMissionsByUserId,
 } from "../controllers/adminGetterController";
 
 const router = express.Router();
@@ -43,5 +48,20 @@ router.get(
 
 /* ───────────────────── ADMIN CONFIG ───────────────────────── */
 router.get("/config", adminAuth, getAdminConfig);
+
+/* ───────────────────── MISSIONS ───────────────────────── */
+router.get("/missions/daily/all", adminAuth, getAllDailyMissions);
+router.get("/missions/one-time/all", adminAuth, getAllOneTimeMissions);
+router.get(
+  "/missions/daily/users-progress",
+  adminAuth,
+  getAllUsersDailyMissionProgress,
+);
+router.get(
+  "/missions/one-time/users-progress",
+  adminAuth,
+  getAllUsersOneTimeMissionProgress,
+);
+router.get("/missions/user", adminAuth, getUserMissionsByUserId);
 
 export default router;
