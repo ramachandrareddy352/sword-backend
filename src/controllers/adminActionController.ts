@@ -1868,3 +1868,302 @@ export async function deleteGift(req: AdminAuthRequest, res: Response) {
       .json({ success: false, error: "Failed to delete gift" });
   }
 }
+
+// 14) create daily missions
+export async function createDailyMission(req: AdminAuthRequest, res: Response) {
+  try {
+    const { title, description, conditions, targetValue, reward } = req.body;
+
+    if (!title || !conditions || !reward || !targetValue) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields",
+      });
+    }
+
+    if (!Array.isArray(conditions)) {
+      return res.status(400).json({
+        success: false,
+        error: "conditions must be array",
+      });
+    }
+
+    if (Number(targetValue) <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: "targetValue must be positive integer",
+      });
+    }
+
+    const mission = await prisma.dailyMissionDefinition.create({
+      data: {
+        title,
+        description,
+        conditions,
+        targetValue,
+        reward,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Daily mission created",
+      data: serializeBigInt(mission),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to create daily mission",
+    });
+  }
+}
+
+// 15) Pause / Activate Daily Mission
+export async function toggleDailyMission(req: AdminAuthRequest, res: Response) {
+  try {
+    const { id, isActive } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: "Mission id is required",
+      });
+    }
+
+    const missionId = BigInt(id);
+
+    const existing = await prisma.dailyMissionDefinition.findUnique({
+      where: { id: missionId },
+      select: { id: true, isActive: true },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: "Daily mission not found",
+      });
+    }
+
+    if (existing.isActive === Boolean(isActive)) {
+      return res.json({
+        success: true,
+        message: `Mission already ${isActive ? "active" : "paused"}`,
+      });
+    }
+
+    const updated = await prisma.dailyMissionDefinition.update({
+      where: { id: missionId },
+      data: { isActive: Boolean(isActive) },
+    });
+
+    return res.json({
+      success: true,
+      message: `Daily mission ${isActive ? "activated" : "paused"} successfully`,
+      data: serializeBigInt(updated),
+    });
+  } catch (err) {
+    console.error("toggleDailyMission error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to update daily mission",
+    });
+  }
+}
+
+// 16) Delete Daily Mission
+export async function deleteDailyMission(req: AdminAuthRequest, res: Response) {
+  try {
+    const { id } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: "Mission id is required",
+      });
+    }
+
+    const missionId = BigInt(id);
+
+    const existing = await prisma.dailyMissionDefinition.findUnique({
+      where: { id: missionId },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: "Daily mission not found",
+      });
+    }
+
+    await prisma.dailyMissionDefinition.delete({
+      where: { id: missionId },
+    });
+
+    return res.json({
+      success: true,
+      message: "Daily mission deleted successfully",
+    });
+  } catch (err) {
+    console.error("deleteDailyMission error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to delete daily mission",
+    });
+  }
+}
+
+// 17) Create One-Time Mission
+export async function createOneTimeMission(
+  req: AdminAuthRequest,
+  res: Response,
+) {
+  try {
+    const {
+      title,
+      description,
+      conditions,
+      targetValue,
+      reward,
+      startAt,
+      expiresAt,
+    } = req.body;
+
+    if (
+      !title ||
+      !conditions ||
+      !reward ||
+      !targetValue ||
+      !startAt ||
+      !expiresAt
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields",
+      });
+    }
+
+    const startDate = new Date(startAt);
+    const expiryDate = new Date(expiresAt);
+
+    if (expiryDate <= startDate) {
+      return res.status(400).json({
+        success: false,
+        error: "expiresAt must be after startAt",
+      });
+    }
+
+    const mission = await prisma.oneTimeMissionDefinition.create({
+      data: {
+        title,
+        description,
+        conditions,
+        targetValue,
+        reward,
+        startAt: startDate,
+        expiresAt: expiryDate,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "One-time mission created",
+      data: serializeBigInt(mission),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to create one-time mission",
+    });
+  }
+}
+
+// 18) Pause / Activate One-Time Mission
+export async function toggleOneTimeMission(
+  req: AdminAuthRequest,
+  res: Response,
+) {
+  try {
+    const { id, isActive } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: "Mission id is required",
+      });
+    }
+
+    const missionId = BigInt(id);
+
+    const result = await prisma.oneTimeMissionDefinition.updateMany({
+      where: { id: missionId },
+      data: { isActive: Boolean(isActive) },
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "One-time mission not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Mission ${isActive ? "activated" : "paused"} successfully`,
+    });
+  } catch (err) {
+    console.error("toggleOneTimeMissionFast error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to update mission",
+    });
+  }
+}
+
+// 19) Delete One-Time Mission
+export async function deleteOneTimeMission(
+  req: AdminAuthRequest,
+  res: Response,
+) {
+  try {
+    const { id } = req.body;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: "Mission id is required",
+      });
+    }
+
+    const missionId = BigInt(id);
+
+    const existing = await prisma.oneTimeMissionDefinition.findUnique({
+      where: { id: missionId },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: "One-time mission not found",
+      });
+    }
+
+    await prisma.oneTimeMissionDefinition.delete({
+      where: { id: missionId },
+    });
+
+    return res.json({
+      success: true,
+      message: "One-time mission deleted successfully",
+    });
+  } catch (err) {
+    console.error("deleteOneTimeMission error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Failed to delete one-time mission",
+    });
+  }
+}

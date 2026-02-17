@@ -16,6 +16,12 @@ import {
   deleteGift,
   toggleUserBan,
   replyToSupportTicket,
+  createDailyMission,
+  toggleDailyMission,
+  deleteDailyMission,
+  createOneTimeMission,
+  toggleOneTimeMission,
+  deleteOneTimeMission,
 } from "../controllers/adminActionController";
 
 const router = express.Router();
@@ -78,5 +84,15 @@ router.patch("/user/ban-toggle", adminAuth, toggleUserBan);
 
 /* ───────────────────── SUPPORT SYSTEM ─────────────────── */
 router.post("/support/reply", adminAuth, replyToSupportTicket);
+
+/* ───────────────────── DAILY MISSIONS ───────────────────── */
+router.post("/mission/daily/create", adminAuth, createDailyMission);
+router.patch("/mission/daily/toggle", adminAuth, toggleDailyMission);
+router.delete("/mission/daily/delete", adminAuth, deleteDailyMission);
+
+/* ─────────────────── ONE-TIME MISSIONS ─────────────────── */
+router.post("/mission/one-time/create", adminAuth, createOneTimeMission);
+router.patch("/mission/one-time/toggle", adminAuth, toggleOneTimeMission);
+router.delete("/mission/one-time/delete", adminAuth, deleteOneTimeMission);
 
 export default router;

@@ -1849,3 +1849,452 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
       .json({ success: false, error: err.message || "Internal server Error" });
   }
 };
+
+// 20) daily missions claim
+export const claimDailyMission = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+    const { missionId } = req.body;
+
+    if (!missionId || isNaN(Number(missionId))) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid missionId required",
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1️⃣ Fetch mission
+      const mission = await tx.dailyMissionDefinition.findUnique({
+        where: { id: BigInt(missionId) },
+      });
+
+      if (!mission || !mission.isActive) {
+        throw new Error("Mission not found or not active");
+      }
+
+      const condition = mission.conditions as any;
+
+      if (!condition || condition.type !== "completeAllAds") {
+        throw new Error("Invalid mission type");
+      }
+
+      // 2️⃣ Get user + config
+      const [user, config] = await Promise.all([
+        tx.user.findUnique({ where: { id: userId } }),
+        tx.adminConfig.findUnique({ where: { id: BigInt(1) } }),
+      ]);
+
+      if (!user || !config) {
+        throw new Error("User or config not found");
+      }
+
+      // 3️⃣ Check if already claimed today
+      const progress = await tx.userDailyMissionProgress.findUnique({
+        where: {
+          userId_missionId: {
+            userId,
+            missionId: BigInt(missionId),
+          },
+        },
+      });
+
+      const now = new Date();
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      if (progress?.lastClaimedAt && progress.lastClaimedAt >= todayStart) {
+        throw new Error("Mission already claimed today");
+      }
+
+      // 4️⃣ Validate ad completion
+      let eligible = false;
+
+      switch (condition.adType) {
+        case "GOLD":
+          eligible = user.oneDayAdsViewed >= config.maxDailyAds;
+          break;
+
+        case "SHIELD":
+          eligible = user.oneDayShieldAdsViewed >= config.maxDailyShieldAds;
+          break;
+
+        case "OLD_SWORD":
+          eligible = user.oneDaySwordAdsViewed >= config.maxDailySwordAds;
+          break;
+
+        default:
+          throw new Error("Invalid ad type in mission");
+      }
+
+      if (!eligible) {
+        throw new Error("Ad mission not completed yet");
+      }
+
+      // 5️⃣ Grant reward
+      const reward = mission.reward as any;
+
+      switch (reward.type) {
+        case "gold":
+          await tx.user.update({
+            where: { id: userId },
+            data: { gold: { increment: reward.amount } },
+          });
+          break;
+
+        case "trustPoints":
+          await tx.user.update({
+            where: { id: userId },
+            data: { trustPoints: { increment: reward.amount } },
+          });
+          break;
+
+        case "shield":
+          await tx.user.update({
+            where: { id: userId },
+            data: { totalShields: { increment: reward.quantity } },
+          });
+          break;
+
+        case "sword": {
+          const def = await tx.swordLevelDefinition.findUnique({
+            where: { level: reward.level },
+          });
+
+          if (!def) throw new Error("Invalid sword reward");
+
+          await tx.userSword.create({
+            data: {
+              code: generateSecureCode(12),
+              userId,
+              level: def.level,
+              swordLevelDefinitionId: def.id,
+              isOnAnvil: false,
+              isSolded: false,
+              isBroken: false,
+            },
+          });
+          break;
+        }
+
+        case "material":
+          await tx.userMaterial.upsert({
+            where: {
+              userId_materialId: {
+                userId,
+                materialId: BigInt(reward.materialId),
+              },
+            },
+            update: {
+              unsoldQuantity: { increment: reward.quantity },
+            },
+            create: {
+              userId,
+              materialId: BigInt(reward.materialId),
+              unsoldQuantity: reward.quantity,
+              soldedQuantity: 0,
+            },
+          });
+          break;
+
+        default:
+          throw new Error("Invalid reward type");
+      }
+
+      // 6️⃣ Update mission progress
+      if (progress) {
+        await tx.userDailyMissionProgress.update({
+          where: {
+            userId_missionId: {
+              userId,
+              missionId: BigInt(missionId),
+            },
+          },
+          data: {
+            claimedTimes: { increment: 1 },
+            lastClaimedAt: now,
+          },
+        });
+      } else {
+        await tx.userDailyMissionProgress.create({
+          data: {
+            userId,
+            missionId: BigInt(missionId),
+            claimedTimes: 1,
+            lastClaimedAt: now,
+          },
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: "Daily ad mission claimed successfully",
+    });
+  } catch (err: any) {
+    console.error("Claim daily ad mission error:", err);
+    return res.status(400).json({
+      success: false,
+      error: err.message || "Failed to claim mission",
+    });
+  }
+};
+
+// 21) one time missions claim
+export const claimOneTimeMission = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+    const { missionId } = req.body;
+
+    if (!missionId || isNaN(Number(missionId))) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid missionId required",
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1️⃣ Fetch mission
+      const mission = await tx.oneTimeMissionDefinition.findUnique({
+        where: { id: BigInt(missionId) },
+      });
+
+      if (!mission || !mission.isActive) {
+        throw new Error("Mission not active");
+      }
+
+      const now = new Date();
+
+      // 2️⃣ Check time window
+      if (mission.startAt > now) {
+        throw new Error("Mission not started yet");
+      }
+
+      if (mission.expiresAt && mission.expiresAt < now) {
+        throw new Error("Mission expired");
+      }
+
+      // 3️⃣ Check already claimed
+      const existing = await tx.userOneTimeMissionProgress.findUnique({
+        where: {
+          userId_missionId: {
+            userId,
+            missionId: BigInt(missionId),
+          },
+        },
+      });
+
+      if (existing) {
+        throw new Error("Mission already claimed");
+      }
+
+      const conditions = mission.conditions as any[];
+      const targetValue = mission.targetValue;
+
+      let totalProgress = 0;
+
+      const dateFilter = {
+        gte: mission.startAt,
+        ...(mission.expiresAt && { lte: mission.expiresAt }),
+      };
+
+      for (const cond of conditions) {
+        switch (cond.type) {
+          // ================= BUY SWORD =================
+          case "buySword": {
+            const count = await tx.swordMarketplacePurchase.count({
+              where: {
+                userId,
+                purchasedAt: dateFilter,
+                ...(cond.level && {
+                  swordLevelDefinition: {
+                    level: cond.level,
+                  },
+                }),
+              },
+            });
+            totalProgress += count;
+            break;
+          }
+
+          // ================= BUY MATERIAL =================
+          case "buyMaterial": {
+            const count = await tx.materialMarketplacePurchase.aggregate({
+              where: {
+                userId,
+                purchasedAt: dateFilter,
+                ...(cond.materialId && {
+                  materialId: BigInt(cond.materialId),
+                }),
+              },
+              _sum: {
+                quantity: true,
+              },
+            });
+
+            totalProgress += Number(count._sum.quantity || 0);
+            break;
+          }
+
+          // ================= BUY SHIELD =================
+          case "buyShield": {
+            const count = await tx.shieldMarketplacePurchase.aggregate({
+              where: {
+                userId,
+                purchasedAt: dateFilter,
+              },
+              _sum: {
+                quantity: true,
+              },
+            });
+
+            totalProgress += Number(count._sum.quantity || 0);
+            break;
+          }
+
+          // ================= UPGRADE SWORD =================
+          case "upgradeSword": {
+            const count = await tx.swordUpgradeHistory.count({
+              where: {
+                userId,
+                createdAt: dateFilter,
+                success: true,
+                ...(cond.level && {
+                  sword: {
+                    level: cond.level,
+                  },
+                }),
+              },
+            });
+
+            totalProgress += count;
+            break;
+          }
+
+          // ================= SYNTHESIZE =================
+          case "synthesize": {
+            const count = await tx.swordSynthesisHistory.count({
+              where: {
+                userId,
+                createdAt: dateFilter,
+                ...(cond.level && {
+                  swordLevelDefinition: {
+                    level: cond.level,
+                  },
+                }),
+              },
+            });
+
+            totalProgress += count;
+            break;
+          }
+
+          default:
+            throw new Error(`Unsupported mission condition: ${cond.type}`);
+        }
+      }
+
+      // 4️⃣ Check completion
+      if (totalProgress < targetValue) {
+        throw new Error(
+          `Mission not completed. Progress: ${totalProgress}/${targetValue}`,
+        );
+      }
+
+      // 5️⃣ Grant reward
+      const reward = mission.reward as any;
+
+      switch (reward.type) {
+        case "gold":
+          await tx.user.update({
+            where: { id: userId },
+            data: { gold: { increment: reward.amount } },
+          });
+          break;
+
+        case "trustPoints":
+          await tx.user.update({
+            where: { id: userId },
+            data: { trustPoints: { increment: reward.amount } },
+          });
+          break;
+
+        case "shield":
+          await tx.user.update({
+            where: { id: userId },
+            data: { totalShields: { increment: reward.quantity } },
+          });
+          break;
+
+        case "sword": {
+          const def = await tx.swordLevelDefinition.findUnique({
+            where: { level: reward.level },
+          });
+
+          if (!def) throw new Error("Invalid sword reward");
+
+          await tx.userSword.create({
+            data: {
+              code: generateSecureCode(12),
+              userId,
+              level: def.level,
+              swordLevelDefinitionId: def.id,
+              isOnAnvil: false,
+              isSolded: false,
+              isBroken: false,
+            },
+          });
+          break;
+        }
+
+        case "material":
+          await tx.userMaterial.upsert({
+            where: {
+              userId_materialId: {
+                userId,
+                materialId: BigInt(reward.materialId),
+              },
+            },
+            update: {
+              unsoldQuantity: { increment: reward.quantity },
+            },
+            create: {
+              userId,
+              materialId: BigInt(reward.materialId),
+              unsoldQuantity: reward.quantity,
+              soldedQuantity: 0,
+            },
+          });
+          break;
+
+        default:
+          throw new Error("Invalid reward type");
+      }
+
+      // 6️⃣ Mark claimed
+      await tx.userOneTimeMissionProgress.create({
+        data: {
+          userId,
+          missionId: BigInt(missionId),
+        },
+      });
+    });
+
+    return res.json({
+      success: true,
+      message: "One-time mission claimed successfully",
+    });
+  } catch (err: any) {
+    console.error("Claim one-time mission error:", err);
+    return res.status(400).json({
+      success: false,
+      error: err.message || "Failed to claim mission",
+    });
+  }
+};

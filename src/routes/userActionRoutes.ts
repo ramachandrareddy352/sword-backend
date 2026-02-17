@@ -21,6 +21,8 @@ import {
   toggleShieldProtection,
   createAdSession,
   verifyAdSession,
+  claimOneTimeMission,
+  claimDailyMission,
 } from "../controllers/userActionController";
 
 const router = express.Router();
@@ -60,4 +62,9 @@ router.patch("/shield/toggle", userAuth, toggleShieldProtection);
 /* ───────────────────── ADS ────────────────────────────── */
 router.post("/ad/start-session", userAuth, createAdSession);
 router.post("/ad/claim-reward", userAuth, verifyAdSession);
+
+/* ───────────────────── MISSIONS ───────────────────── */
+router.post("/mission/daily/claim", userAuth, claimDailyMission);
+router.post("/mission/one-time/claim", userAuth, claimOneTimeMission);
+
 export default router;

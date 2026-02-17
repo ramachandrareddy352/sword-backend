@@ -70,7 +70,6 @@ model User {
   materials                    UserMaterial[] // materials can be buy from market or gifts or as by-products when sword is broken
   gifts                        UserGift[]
   customerSupports             CustomerSupport[] // complaints given by the user
-  // missions UserMission[] // missions done or on hold, have to set daily, and normal missions
   vouchers                     UserVoucher[] // vouchers created by user to use them in shopping app
   swordMarketplacePurchases    SwordMarketplacePurchase[]
   materialMarketplacePurchases MaterialMarketplacePurchase[]
@@ -78,6 +77,91 @@ model User {
   swordSynthesisHistories      SwordSynthesisHistory[]
   swordUpgradeHistories        SwordUpgradeHistory[]
   adRewardSessions             AdRewardSession[]
+  userDailyMissionProgresses   UserDailyMissionProgress[]
+  userOneTimeMissionProgresses UserOneTimeMissionProgress[]
+}
+
+model DailyMissionDefinition {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+
+  title       String
+  description String
+
+  isActive Boolean @default(true)
+
+  // Dynamic condition system
+  // Example:
+  // [
+  //   {"type": "ownSwords", "minCount": 10},
+  //   {"type": "upgradeSword", "minLevel": 5}
+  // ]
+  conditions Json
+
+  targetValue Int @db.UnsignedInt // e.g. do 5 times
+
+  // Dynamic reward:
+  // {"type": "gold", "amount": 100}
+  // {"type": "trustPoints", "amount": 50}
+  // {"type": "sword", "level": 3}
+  // {"type": "material", "materialId": 12, "quantity": 5}
+  // {"type": "shield", "quantity": 2}
+  reward Json
+
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
+  userDailyMissionProgresses UserDailyMissionProgress[]
+}
+
+model UserDailyMissionProgress {
+  userId    BigInt @db.UnsignedBigInt
+  missionId BigInt @db.UnsignedBigInt
+
+  claimedTimes  Int       @db.UnsignedInt // how many times users claimed this mission(increases every time)
+  lastClaimedAt DateTime?
+
+  user    User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mission DailyMissionDefinition @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, missionId])
+}
+
+model OneTimeMissionDefinition {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+
+  title       String
+  description String
+
+  isActive Boolean @default(true)
+
+  startAt   DateTime
+  expiresAt DateTime?
+
+  // Dynamic structured conditions
+  // Example:
+  // [
+  //   {"type": "synthesize", "level": 5},
+  //   {"type": "buyMaterial", "materialId": 10, "minQuantity": 3}
+  // ]
+  conditions Json
+
+  targetValue Int @db.UnsignedInt
+
+  reward Json
+
+  createdAt                    DateTime                     @default(now())
+  updatedAt                    DateTime                     @updatedAt
+  userOneTimeMissionProgresses UserOneTimeMissionProgress[]
+}
+
+model UserOneTimeMissionProgress {
+  userId    BigInt   @db.UnsignedBigInt
+  missionId BigInt   @db.UnsignedBigInt
+  claimedAt DateTime @default(now())
+
+  user    User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mission OneTimeMissionDefinition @relation(fields: [missionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, missionId])
 }
 
 model AdRewardSession {
