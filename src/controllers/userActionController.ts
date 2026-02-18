@@ -2080,6 +2080,14 @@ export const claimDailyMission = async (
           throw new Error(`Unsupported reward type: ${reward?.type}`);
       }
 
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          todayMissionsDone: { increment: 1 },
+          totalMissionsDone: { increment: 1 },
+        },
+      });
+
       // 7. Record claim / update progress
       if (progress) {
         await tx.userDailyMissionProgress.update({
@@ -2362,6 +2370,14 @@ export const claimOneTimeMission = async (
         default:
           throw new Error("Invalid reward type");
       }
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          todayMissionsDone: { increment: 1 },
+          totalMissionsDone: { increment: 1 },
+        },
+      });
 
       // 6️⃣ Mark claimed
       await tx.userOneTimeMissionProgress.create({

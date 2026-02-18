@@ -1216,6 +1216,7 @@ export const getUserDailyMissions = async (
         new Date(progress.lastClaimedAt) >= todayStart;
 
       let currentProgress = 0;
+      let dynamicTargetValue = mission.targetValue;
 
       const conditions = mission.conditions as any[];
 
@@ -1224,12 +1225,15 @@ export const getUserDailyMissions = async (
           switch (condition.adType) {
             case "GOLD":
               currentProgress = user.oneDayAdsViewed;
+              dynamicTargetValue = config.maxDailyAds;
               break;
             case "SHIELD":
               currentProgress = user.oneDayShieldAdsViewed;
+              dynamicTargetValue = config.maxDailyShieldAds;
               break;
             case "OLD_SWORD":
               currentProgress = user.oneDaySwordAdsViewed;
+              dynamicTargetValue = config.maxDailySwordAds;
               break;
             default:
               console.warn(`Unknown adType: ${condition.adType}`);
@@ -1237,14 +1241,14 @@ export const getUserDailyMissions = async (
         }
       }
 
-      const isCompleted = currentProgress >= mission.targetValue;
+      const isCompleted = currentProgress >= dynamicTargetValue;
       const canClaim = isCompleted && !claimedToday;
 
       return {
         missionId: mission.id.toString(),
         title: mission.title,
         description: mission.description,
-        targetValue: mission.targetValue,
+        targetValue: dynamicTargetValue,
         currentProgress,
         isCompleted,
         claimedToday: !!claimedToday,

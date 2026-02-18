@@ -2030,24 +2030,17 @@ export async function createOneTimeMission(
       expiresAt,
     } = req.body;
 
-    if (
-      !title ||
-      !conditions ||
-      !reward ||
-      !targetValue ||
-      !startAt ||
-      !expiresAt
-    ) {
+    if (!title || !conditions || !reward || !targetValue) {
       return res.status(400).json({
         success: false,
         error: "Missing required fields",
       });
     }
 
-    const startDate = new Date(startAt);
-    const expiryDate = new Date(expiresAt);
+    const startDate = startAt ? new Date(startAt) : new Date(); // default to now
+    const expiryDate = expiresAt ? new Date(expiresAt) : null;
 
-    if (expiryDate <= startDate) {
+    if (expiryDate && expiryDate <= startDate) {
       return res.status(400).json({
         success: false,
         error: "expiresAt must be after startAt",
