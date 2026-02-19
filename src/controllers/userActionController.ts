@@ -1952,7 +1952,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     await prisma.adRewardSession.deleteMany({
       where: {
         createdAt: {
-          lt: new Date(Date.now() - 5 * 60 * 1000),
+          lt: new Date(Date.now() - 15 * 60 * 1000),
         },
       },
     });
@@ -1964,7 +1964,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     if (
       !session ||
       session.userId !== userId ||
-      session.rewarded === true ||
+      session.rewarded !== true ||
       session.rewardedAt !== null
     ) {
       return res
