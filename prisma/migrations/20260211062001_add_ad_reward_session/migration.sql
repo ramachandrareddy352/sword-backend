@@ -1,5 +1,0 @@
--- AlterTable
-ALTER TABLE `adminconfig` MODIFY `swordLevelReward` INTEGER UNSIGNED NOT NULL DEFAULT 1;
-
--- AlterTable
-ALTER TABLE `user` ADD COLUMN `oneDaySwordAdsViewed` INTEGER UNSIGNED NOT NULL DEFAULT 0;

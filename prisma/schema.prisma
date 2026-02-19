@@ -67,10 +67,12 @@ model User {
   anvilSword UserSword? @relation("UserAnvilSword", fields: [anvilSwordId], references: [id], onDelete: Cascade)
 
   swords                       UserSword[]                   @relation("UserOwnedSwords")
+  createdVouchers              UserVoucher[]                 @relation("CreatedVouchers")
+  allowedVouchers              UserVoucher[]                 @relation("AllowedVouchers")
+  redeemedVouchers             UserVoucher[]                 @relation("RedeemedVouchers")
   materials                    UserMaterial[] // materials can be buy from market or gifts or as by-products when sword is broken
   gifts                        UserGift[]
   customerSupports             CustomerSupport[] // complaints given by the user
-  vouchers                     UserVoucher[] // vouchers created by user to use them in shopping app
   swordMarketplacePurchases    SwordMarketplacePurchase[]
   materialMarketplacePurchases MaterialMarketplacePurchase[]
   shieldMarketplacePurchases   ShieldMarketplacePurchase[]
@@ -79,6 +81,43 @@ model User {
   adRewardSessions             AdRewardSession[]
   userDailyMissionProgresses   UserDailyMissionProgress[]
   userOneTimeMissionProgresses UserOneTimeMissionProgress[]
+}
+
+// ========================== USER VOUCHERS ========================= //
+model UserVoucher {
+  id   BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  code String @unique // secure random voucher code
+
+  // Creator (who locked gold)
+  createdById BigInt @db.UnsignedBigInt
+
+  // Who is allowed to redeem
+  allowedUserId BigInt? @db.UnsignedBigInt // only set by others, not him self and. if he want ot use this then set to null
+
+  goldAmount Int           @db.UnsignedInt
+  status     VoucherStatus @default(PENDING)
+
+  redeemedById BigInt? @db.UnsignedBigInt
+
+  redeemedAt  DateTime?
+  cancelledAt DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  createdBy   User  @relation("CreatedVouchers", fields: [createdById], references: [id], onDelete: Cascade)
+  allowedUser User? @relation("AllowedVouchers", fields: [allowedUserId], references: [id], onDelete: SetNull)
+  redeemedBy  User? @relation("RedeemedVouchers", fields: [redeemedById], references: [id], onDelete: SetNull)
+
+  @@index([createdById])
+  @@index([allowedUserId])
+  @@index([status])
+}
+
+enum VoucherStatus {
+  PENDING // created, not used
+  REDEEMED // used on shopping website
+  CANCELLED // user cancelled, gold refunded
+  EXPIRED // expired, gold refunded
 }
 
 model DailyMissionDefinition {
@@ -308,33 +347,6 @@ model UserSword {
   swordUpgradeHistories     SwordUpgradeHistory[]
 
   @@index([userId])
-}
-
-// ========================== USER VOUCHERS ========================= //
-model UserVoucher {
-  id   BigInt @id @default(autoincrement()) @db.UnsignedBigInt
-  code String @unique // secure random voucher code
-
-  userId     BigInt        @db.UnsignedBigInt
-  goldAmount Int           @db.UnsignedInt // locked gold amount
-  status     VoucherStatus @default(PENDING)
-
-  redeemedAt  DateTime?
-  cancelledAt DateTime?
-  expiresAt   DateTime?
-  createdAt   DateTime  @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([status])
-}
-
-enum VoucherStatus {
-  PENDING // created, not used
-  REDEEMED // used on shopping website
-  CANCELLED // user cancelled, gold refunded
-  EXPIRED // expired, gold refunded
 }
 
 // =========================== MATERIAL =========================== //

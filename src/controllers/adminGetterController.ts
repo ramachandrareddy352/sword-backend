@@ -654,27 +654,44 @@ export const getAllUsersVouchers = async (
       orderBy.push({ createdAt: "desc" });
     }
 
-    const totalItems = await prisma.userVoucher.count({ where });
-
-    const vouchers = await prisma.userVoucher.findMany({
-      where,
-      orderBy,
-      skip: pagination.skip,
-      take: pagination.take,
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            profileLogo: true,
-            name: true,
-            isBanned: true,
-            gold: true,
-            trustPoints: true,
+    const [totalItems, vouchers] = await prisma.$transaction([
+      prisma.userVoucher.count({ where }),
+      prisma.userVoucher.findMany({
+        where,
+        orderBy,
+        skip: pagination.skip,
+        take: pagination.take,
+        include: {
+          createdBy: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              profileLogo: true,
+              isBanned: true,
+            },
+          },
+          allowedUser: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              profileLogo: true,
+              isBanned: true,
+            },
+          },
+          redeemedBy: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              profileLogo: true,
+              isBanned: true,
+            },
           },
         },
-      },
-    });
+      }),
+    ]);
 
     return res.status(200).json({
       success: true,
@@ -806,7 +823,7 @@ export const getUserFullDetails = async (
 
     // Vouchers
     const vouchers = await prisma.userVoucher.findMany({
-      where: { userId: user.id },
+      where: { createdById: user.id },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,

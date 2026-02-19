@@ -51,7 +51,6 @@ export const createVoucher = async (req: UserAuthRequest, res: Response) => {
       });
     }
 
-    const user = await userGuard(userId);
     const amount = Math.floor(goldAmount);
 
     const config = await prisma.adminConfig.findUnique({
@@ -73,46 +72,48 @@ export const createVoucher = async (req: UserAuthRequest, res: Response) => {
       });
     }
 
-    if (user.gold < amount) {
-      return res.status(400).json({
-        success: false,
-        error: "Insufficient gold balance",
-      });
-    }
-
-    let code: string;
     let voucher;
 
-    // Retry loop for unique code (up to 10 attempts)
+    // Retry loop for unique code
     for (let attempt = 0; attempt < 10; attempt++) {
-      code = generateSecureCode(12); // your helper function
+      const code = generateSecureCode(16); // increase entropy
 
       try {
         voucher = await prisma.$transaction(async (tx) => {
+          //  Always check balance inside transaction (race-safe)
+          const user = await userGuard(userId);
+
+          if (!user || user.gold < amount) {
+            throw new Error("Insufficient gold balance");
+          }
+
           // Deduct gold
           await tx.user.update({
             where: { id: userId },
-            data: { gold: { decrement: amount } },
+            data: {
+              gold: { decrement: amount },
+            },
           });
 
           // Create voucher
           return tx.userVoucher.create({
             data: {
-              userId,
               code,
+              createdById: userId,
+              allowedUserId: null, // initially null
               goldAmount: amount,
               status: VoucherStatus.PENDING,
             },
           });
         });
 
-        break; // Success → exit loop
+        break; // success
       } catch (err: any) {
         if (err.code === "P2002") {
-          // Unique constraint violation (code already exists) → retry
+          // Code collision → retry
           continue;
         }
-        throw new Error("Failed to generate code for coucher"); // Other error → fail
+        throw err;
       }
     }
 
@@ -125,11 +126,126 @@ export const createVoucher = async (req: UserAuthRequest, res: Response) => {
 
     return res.json({
       success: true,
-      message: "Voucher created successfully. Use this code for shopping.",
+      message: "Voucher created successfully.",
       data: serializeBigInt(voucher),
     });
   } catch (err: any) {
     console.error("Creating voucher error:", err);
+    return res.status(400).json({
+      success: false,
+      error: err.message || "Internal server error",
+    });
+  }
+};
+
+export const assignAllowedUserToVoucher = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const creatorId = BigInt(req.user.userId);
+    const { voucherId, allowedEmail } = req.body;
+
+    if (!voucherId || isNaN(Number(voucherId))) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid voucher ID required",
+      });
+    }
+
+    if (!allowedEmail) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid allowedEmail required",
+      });
+    }
+
+    const normalizedEmail = allowedEmail.trim().toLowerCase();
+
+    // 🔥 Validate creator
+    await userGuard(creatorId);
+
+    // 🔥 Find voucher
+    const voucher = await prisma.userVoucher.findUnique({
+      where: { id: BigInt(voucherId) },
+    });
+
+    if (!voucher) {
+      return res.status(404).json({
+        success: false,
+        error: "Voucher not found",
+      });
+    }
+
+    // 🔥 Ownership check
+    if (voucher.createdById !== creatorId) {
+      return res.status(403).json({
+        success: false,
+        error: "You can only assign your own vouchers",
+      });
+    }
+
+    // 🔥 Must be pending
+    if (voucher.status !== VoucherStatus.PENDING) {
+      return res.status(400).json({
+        success: false,
+        error: "Only pending vouchers can be assigned",
+      });
+    }
+
+    // 🔥 Expiry check (if enabled)
+    // if (voucher.expiresAt && voucher.expiresAt < new Date()) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     error: "Voucher has expired",
+    //   });
+    // }
+
+    // 🔥 Find allowed user by email
+    const allowedUser = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!allowedUser) {
+      return res.status(404).json({
+        success: false,
+        error: "Allowed user not found",
+      });
+    }
+
+    // 🔥 Check allowed user banned
+    if (allowedUser.isBanned) {
+      return res.status(400).json({
+        success: false,
+        error: "Allowed user is banned",
+      });
+    }
+
+    // 🔥 Prevent self-assign
+    if (allowedUser.id === creatorId) {
+      return res.status(400).json({
+        success: false,
+        error: "You cannot assign voucher to yourself",
+      });
+    }
+
+    // 🔥 Atomic update
+    await prisma.userVoucher.update({
+      where: {
+        id: BigInt(voucherId),
+        status: VoucherStatus.PENDING, // prevents race condition
+      },
+      data: {
+        allowedUserId: allowedUser.id,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Voucher successfully assigned to user",
+    });
+  } catch (err: any) {
+    console.error("Assign voucher error:", err);
     return res.status(400).json({
       success: false,
       error: err.message || "Internal server error",
@@ -154,7 +270,7 @@ export const cancelVoucher = async (req: UserAuthRequest, res: Response) => {
     const voucher = await prisma.userVoucher.findUnique({
       where: { id: BigInt(voucherId) },
       select: {
-        userId: true,
+        createdById: true,
         goldAmount: true,
         status: true,
       },
@@ -166,7 +282,7 @@ export const cancelVoucher = async (req: UserAuthRequest, res: Response) => {
         .json({ success: false, error: "Voucher not found" });
     }
 
-    if (voucher.userId !== userId) {
+    if (voucher.createdById !== userId) {
       return res.status(403).json({
         success: false,
         error: "You can only cancel your own vouchers",
@@ -1771,7 +1887,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     if (
       !session ||
       session.userId !== userId ||
-      session.rewarded === true ||
+      // session.rewarded === true ||
       session.rewardedAt !== null
     ) {
       return res

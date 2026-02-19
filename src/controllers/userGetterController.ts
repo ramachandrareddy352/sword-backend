@@ -562,11 +562,7 @@ export const getUserVouchers = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
 
-    const {
-      status, // "PENDING" | "REDEEMED" | "CANCELLED" | "EXPIRED"
-      sortCreatedAt, // "asc" | "desc"
-      sortGoldAmount, // "asc" | "desc"
-    } = req.query;
+    const { status, sortCreatedAt, sortGoldAmount } = req.query;
 
     const pagination = getPagination(req.query);
     if (!pagination) {
@@ -577,6 +573,7 @@ export const getUserVouchers = async (req: UserAuthRequest, res: Response) => {
     }
 
     /* ---------------- VALIDATION ---------------- */
+
     const validStatuses = ["PENDING", "REDEEMED", "CANCELLED", "EXPIRED"];
 
     let filterStatus: string | undefined;
@@ -592,8 +589,9 @@ export const getUserVouchers = async (req: UserAuthRequest, res: Response) => {
     }
 
     /* ---------------- WHERE ---------------- */
+
     const where: any = {
-      userId,
+      createdById: userId, // ✅ fixed
     };
 
     if (filterStatus) {
@@ -601,6 +599,7 @@ export const getUserVouchers = async (req: UserAuthRequest, res: Response) => {
     }
 
     /* ---------------- ORDER BY ---------------- */
+
     const orderBy: any[] = [];
 
     if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
@@ -612,26 +611,45 @@ export const getUserVouchers = async (req: UserAuthRequest, res: Response) => {
     }
 
     /* ---------------- FETCH ---------------- */
-    const vouchers = await prisma.userVoucher.findMany({
-      where,
-      orderBy: orderBy.length > 0 ? orderBy : [{ createdAt: "desc" }],
-      skip: pagination.skip,
-      take: pagination.take,
-    });
+
+    const [vouchers, total] = await prisma.$transaction([
+      prisma.userVoucher.findMany({
+        where,
+        include: {
+          allowedUser: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
+          redeemedBy: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: orderBy.length > 0 ? orderBy : [{ createdAt: "desc" }],
+        skip: pagination.skip,
+        take: pagination.take,
+      }),
+      prisma.userVoucher.count({ where }),
+    ]);
 
     return res.status(200).json({
       success: true,
       message: "Your vouchers fetched successfully",
       data: serializeBigInt(vouchers),
-      total: vouchers.length,
+      total,
       page: pagination.page,
       limit: pagination.limit,
     });
   } catch (err: any) {
     console.error("getUserVouchers error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
   }
 };
 

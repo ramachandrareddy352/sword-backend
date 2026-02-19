@@ -138,6 +138,8 @@ app.get("/api/admob/ssv-callback", async (req: Request, res: Response) => {
       data: { rewarded: true },
     });
 
+    console.log("Verified correctely");
+
     return res.status(200).send("OK");
   } catch (err) {
     console.error("SSV error:", err);

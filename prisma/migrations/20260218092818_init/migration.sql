@@ -5,10 +5,13 @@ CREATE TABLE `AdminConfig` (
     `maxDailyShieldAds` INTEGER UNSIGNED NOT NULL DEFAULT 1,
     `maxShieldHold` INTEGER UNSIGNED NOT NULL DEFAULT 1,
     `shieldActiveOnMarketplace` BOOLEAN NOT NULL DEFAULT true,
+    `maxDailySwordAds` INTEGER UNSIGNED NOT NULL DEFAULT 10,
+    `swordLevelReward` INTEGER UNSIGNED NOT NULL DEFAULT 1,
     `maxDailyAds` INTEGER UNSIGNED NOT NULL DEFAULT 10,
     `maxDailyMissions` INTEGER UNSIGNED NOT NULL DEFAULT 20,
     `defaultTrustPoints` INTEGER UNSIGNED NOT NULL DEFAULT 100,
     `defaultGold` INTEGER UNSIGNED NOT NULL DEFAULT 5000,
+    `goldReward` INTEGER UNSIGNED NOT NULL DEFAULT 10,
     `minVoucherGold` INTEGER UNSIGNED NOT NULL DEFAULT 10,
     `maxVoucherGold` INTEGER UNSIGNED NOT NULL DEFAULT 1000,
     `voucherExpiryDays` INTEGER UNSIGNED NOT NULL DEFAULT 7,
@@ -37,14 +40,82 @@ CREATE TABLE `User` (
     `oneDayAdsViewed` INTEGER UNSIGNED NOT NULL DEFAULT 0,
     `totalAdsViewed` INTEGER UNSIGNED NOT NULL DEFAULT 0,
     `oneDayShieldAdsViewed` INTEGER UNSIGNED NOT NULL DEFAULT 0,
+    `oneDaySwordAdsViewed` INTEGER UNSIGNED NOT NULL DEFAULT 0,
     `todayMissionsDone` INTEGER UNSIGNED NOT NULL DEFAULT 0,
     `totalMissionsDone` INTEGER UNSIGNED NOT NULL DEFAULT 0,
+    `isShieldOn` BOOLEAN NOT NULL DEFAULT false,
     `isBanned` BOOLEAN NOT NULL DEFAULT false,
     `soundOn` BOOLEAN NOT NULL DEFAULT true,
-    `userBadgelevel` INTEGER UNSIGNED NOT NULL DEFAULT 0,
 
     UNIQUE INDEX `User_email_key`(`email`),
     UNIQUE INDEX `User_anvilSwordId_key`(`anvilSwordId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `DailyMissionDefinition` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `title` VARCHAR(191) NOT NULL,
+    `description` VARCHAR(191) NOT NULL,
+    `isActive` BOOLEAN NOT NULL DEFAULT true,
+    `conditions` JSON NOT NULL,
+    `targetValue` INTEGER UNSIGNED NOT NULL,
+    `reward` JSON NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `UserDailyMissionProgress` (
+    `userId` BIGINT UNSIGNED NOT NULL,
+    `missionId` BIGINT UNSIGNED NOT NULL,
+    `claimedTimes` INTEGER UNSIGNED NOT NULL,
+    `lastClaimedAt` DATETIME(3) NULL,
+
+    PRIMARY KEY (`userId`, `missionId`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `OneTimeMissionDefinition` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `title` VARCHAR(191) NOT NULL,
+    `description` VARCHAR(191) NOT NULL,
+    `isActive` BOOLEAN NOT NULL DEFAULT true,
+    `startAt` DATETIME(3) NOT NULL,
+    `expiresAt` DATETIME(3) NULL,
+    `conditions` JSON NOT NULL,
+    `targetValue` INTEGER UNSIGNED NOT NULL,
+    `reward` JSON NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `UserOneTimeMissionProgress` (
+    `userId` BIGINT UNSIGNED NOT NULL,
+    `missionId` BIGINT UNSIGNED NOT NULL,
+    `claimedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    PRIMARY KEY (`userId`, `missionId`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `AdRewardSession` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `userId` BIGINT UNSIGNED NOT NULL,
+    `nonce` VARCHAR(191) NOT NULL,
+    `rewardType` ENUM('GOLD', 'OLD_SWORD', 'SHIELD') NOT NULL,
+    `rewarded` BOOLEAN NOT NULL DEFAULT false,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `rewardedAt` DATETIME(3) NULL,
+
+    UNIQUE INDEX `AdRewardSession_nonce_key`(`nonce`),
+    INDEX `AdRewardSession_userId_idx`(`userId`),
+    INDEX `AdRewardSession_nonce_idx`(`nonce`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -54,7 +125,8 @@ CREATE TABLE `SwordLevelDefinition` (
     `level` INTEGER UNSIGNED NOT NULL,
     `name` VARCHAR(191) NOT NULL,
     `image` VARCHAR(191) NOT NULL,
-    `description` VARCHAR(191) NULL,
+    `description` TEXT NULL,
+    `synthesizeName` VARCHAR(191) NOT NULL,
     `upgradeCost` INTEGER UNSIGNED NOT NULL,
     `buyingCost` INTEGER UNSIGNED NOT NULL,
     `sellingCost` INTEGER UNSIGNED NOT NULL,
@@ -68,6 +140,7 @@ CREATE TABLE `SwordLevelDefinition` (
 
     UNIQUE INDEX `SwordLevelDefinition_level_key`(`level`),
     UNIQUE INDEX `SwordLevelDefinition_name_key`(`name`),
+    UNIQUE INDEX `SwordLevelDefinition_synthesizeName_key`(`synthesizeName`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -165,7 +238,7 @@ CREATE TABLE `Material` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `code` VARCHAR(191) NOT NULL,
     `name` VARCHAR(191) NOT NULL,
-    `description` VARCHAR(191) NULL,
+    `description` TEXT NULL,
     `image` VARCHAR(191) NOT NULL,
     `rarity` ENUM('COMMON', 'RARE', 'EPIC', 'LEGENDARY', 'MYTHIC') NOT NULL DEFAULT 'COMMON',
     `sellingCost` INTEGER UNSIGNED NOT NULL,
@@ -215,6 +288,7 @@ CREATE TABLE `UserGiftItem` (
     `type` ENUM('GOLD', 'TRUST_POINTS', 'MATERIAL', 'SWORD', 'SHIELD') NOT NULL,
     `amount` INTEGER UNSIGNED NULL,
     `materialId` BIGINT UNSIGNED NULL,
+    `materialQunatity` INTEGER UNSIGNED NULL,
     `swordLevel` INTEGER UNSIGNED NULL,
 
     INDEX `UserGiftItem_giftId_idx`(`giftId`),
@@ -283,7 +357,22 @@ CREATE TABLE `CustomerSupport` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- AddForeignKey
-ALTER TABLE `User` ADD CONSTRAINT `User_anvilSwordId_fkey` FOREIGN KEY (`anvilSwordId`) REFERENCES `UserSword`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `User` ADD CONSTRAINT `User_anvilSwordId_fkey` FOREIGN KEY (`anvilSwordId`) REFERENCES `UserSword`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `UserDailyMissionProgress` ADD CONSTRAINT `UserDailyMissionProgress_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `UserDailyMissionProgress` ADD CONSTRAINT `UserDailyMissionProgress_missionId_fkey` FOREIGN KEY (`missionId`) REFERENCES `DailyMissionDefinition`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `UserOneTimeMissionProgress` ADD CONSTRAINT `UserOneTimeMissionProgress_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `UserOneTimeMissionProgress` ADD CONSTRAINT `UserOneTimeMissionProgress_missionId_fkey` FOREIGN KEY (`missionId`) REFERENCES `OneTimeMissionDefinition`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `AdRewardSession` ADD CONSTRAINT `AdRewardSession_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `SwordSynthesisRequirement` ADD CONSTRAINT `SwordSynthesisRequirement_swordLevelDefinitionId_fkey` FOREIGN KEY (`swordLevelDefinitionId`) REFERENCES `SwordLevelDefinition`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -298,25 +387,25 @@ ALTER TABLE `SwordUpgradeDrop` ADD CONSTRAINT `SwordUpgradeDrop_swordLevelDefini
 ALTER TABLE `SwordUpgradeDrop` ADD CONSTRAINT `SwordUpgradeDrop_materialId_fkey` FOREIGN KEY (`materialId`) REFERENCES `Material`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `SwordSynthesisHistory` ADD CONSTRAINT `SwordSynthesisHistory_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `SwordSynthesisHistory` ADD CONSTRAINT `SwordSynthesisHistory_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `SwordSynthesisHistory` ADD CONSTRAINT `SwordSynthesisHistory_swordLevelDefinitionId_fkey` FOREIGN KEY (`swordLevelDefinitionId`) REFERENCES `SwordLevelDefinition`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `SwordSynthesisHistory` ADD CONSTRAINT `SwordSynthesisHistory_swordLevelDefinitionId_fkey` FOREIGN KEY (`swordLevelDefinitionId`) REFERENCES `SwordLevelDefinition`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `SwordSynthesisHistory` ADD CONSTRAINT `SwordSynthesisHistory_createdSwordId_fkey` FOREIGN KEY (`createdSwordId`) REFERENCES `UserSword`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `SwordSynthesisHistory` ADD CONSTRAINT `SwordSynthesisHistory_createdSwordId_fkey` FOREIGN KEY (`createdSwordId`) REFERENCES `UserSword`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `SwordUpgradeHistory` ADD CONSTRAINT `SwordUpgradeHistory_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `SwordUpgradeHistory` ADD CONSTRAINT `SwordUpgradeHistory_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `SwordUpgradeHistory` ADD CONSTRAINT `SwordUpgradeHistory_swordId_fkey` FOREIGN KEY (`swordId`) REFERENCES `UserSword`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `SwordUpgradeHistory` ADD CONSTRAINT `SwordUpgradeHistory_swordId_fkey` FOREIGN KEY (`swordId`) REFERENCES `UserSword`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `UserSword` ADD CONSTRAINT `UserSword_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `UserSword` ADD CONSTRAINT `UserSword_swordLevelDefinitionId_fkey` FOREIGN KEY (`swordLevelDefinitionId`) REFERENCES `SwordLevelDefinition`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `UserSword` ADD CONSTRAINT `UserSword_swordLevelDefinitionId_fkey` FOREIGN KEY (`swordLevelDefinitionId`) REFERENCES `SwordLevelDefinition`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `UserVoucher` ADD CONSTRAINT `UserVoucher_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
@@ -325,37 +414,37 @@ ALTER TABLE `UserVoucher` ADD CONSTRAINT `UserVoucher_userId_fkey` FOREIGN KEY (
 ALTER TABLE `UserMaterial` ADD CONSTRAINT `UserMaterial_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `UserMaterial` ADD CONSTRAINT `UserMaterial_materialId_fkey` FOREIGN KEY (`materialId`) REFERENCES `Material`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `UserMaterial` ADD CONSTRAINT `UserMaterial_materialId_fkey` FOREIGN KEY (`materialId`) REFERENCES `Material`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `UserGift` ADD CONSTRAINT `UserGift_receiverId_fkey` FOREIGN KEY (`receiverId`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `UserGift` ADD CONSTRAINT `UserGift_receiverId_fkey` FOREIGN KEY (`receiverId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `UserGiftItem` ADD CONSTRAINT `UserGiftItem_materialId_fkey` FOREIGN KEY (`materialId`) REFERENCES `Material`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `UserGiftItem` ADD CONSTRAINT `UserGiftItem_materialId_fkey` FOREIGN KEY (`materialId`) REFERENCES `Material`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `UserGiftItem` ADD CONSTRAINT `UserGiftItem_swordLevel_fkey` FOREIGN KEY (`swordLevel`) REFERENCES `SwordLevelDefinition`(`level`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `UserGiftItem` ADD CONSTRAINT `UserGiftItem_swordLevel_fkey` FOREIGN KEY (`swordLevel`) REFERENCES `SwordLevelDefinition`(`level`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `UserGiftItem` ADD CONSTRAINT `UserGiftItem_giftId_fkey` FOREIGN KEY (`giftId`) REFERENCES `UserGift`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `SwordMarketplacePurchase` ADD CONSTRAINT `SwordMarketplacePurchase_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `SwordMarketplacePurchase` ADD CONSTRAINT `SwordMarketplacePurchase_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `SwordMarketplacePurchase` ADD CONSTRAINT `SwordMarketplacePurchase_swordLevelDefinitionId_fkey` FOREIGN KEY (`swordLevelDefinitionId`) REFERENCES `SwordLevelDefinition`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `SwordMarketplacePurchase` ADD CONSTRAINT `SwordMarketplacePurchase_swordLevelDefinitionId_fkey` FOREIGN KEY (`swordLevelDefinitionId`) REFERENCES `SwordLevelDefinition`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `SwordMarketplacePurchase` ADD CONSTRAINT `SwordMarketplacePurchase_swordId_fkey` FOREIGN KEY (`swordId`) REFERENCES `UserSword`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `SwordMarketplacePurchase` ADD CONSTRAINT `SwordMarketplacePurchase_swordId_fkey` FOREIGN KEY (`swordId`) REFERENCES `UserSword`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `MaterialMarketplacePurchase` ADD CONSTRAINT `MaterialMarketplacePurchase_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `MaterialMarketplacePurchase` ADD CONSTRAINT `MaterialMarketplacePurchase_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `MaterialMarketplacePurchase` ADD CONSTRAINT `MaterialMarketplacePurchase_materialId_fkey` FOREIGN KEY (`materialId`) REFERENCES `Material`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `MaterialMarketplacePurchase` ADD CONSTRAINT `MaterialMarketplacePurchase_materialId_fkey` FOREIGN KEY (`materialId`) REFERENCES `Material`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE `ShieldMarketplacePurchase` ADD CONSTRAINT `ShieldMarketplacePurchase_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `ShieldMarketplacePurchase` ADD CONSTRAINT `ShieldMarketplacePurchase_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `CustomerSupport` ADD CONSTRAINT `CustomerSupport_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
