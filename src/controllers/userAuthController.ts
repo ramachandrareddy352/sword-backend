@@ -222,10 +222,10 @@ export async function verifyRegistration(req: Request, res: Response) {
     const token = jwt.sign(
       { userId: user.id.toString(), jti },
       process.env.JWT_SECRET!,
-      { expiresIn: "60m" },
+      { expiresIn: "2h" },
     );
 
-    await redis.set(`session:${jti}`, user.id.toString(), { EX: 3600 });
+    await redis.set(`session:${jti}`, user.id.toString(), { EX: 60 * 60 * 2 });
 
     return res.json({
       success: true,
@@ -270,9 +270,9 @@ export async function login(req: Request, res: Response) {
     const token = jwt.sign(
       { userId: user.id.toString(), jti },
       process.env.JWT_SECRET!,
-      { expiresIn: "60m" },
+      { expiresIn: "2h" },
     );
-    await redis.set(`session:${jti}`, user.id.toString(), { EX: 3600 }); // 15 minutes
+    await redis.set(`session:${jti}`, user.id.toString(), { EX: 60 * 60 * 2 }); // 120 minutes
 
     await prisma.user.update({
       where: { id: user.id },
@@ -519,10 +519,10 @@ export async function googleLogin(req: Request, res: Response) {
     const token = jwt.sign(
       { userId: user.id.toString(), jti },
       process.env.JWT_SECRET!,
-      { expiresIn: "60m" },
+      { expiresIn: "2h" },
     );
 
-    await redis.set(`session:${jti}`, user.id.toString(), { EX: 3600 });
+    await redis.set(`session:${jti}`, user.id.toString(), { EX: 60 * 60 * 2 });
 
     return res.json({
       success: true,

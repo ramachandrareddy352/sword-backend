@@ -23,6 +23,8 @@ import {
   verifyAdSession,
   claimOneTimeMission,
   claimDailyMission,
+  assignAllowedUserToVoucher,
+  removeAllowedUserFromVoucher,
 } from "../controllers/userActionController";
 
 const router = express.Router();
@@ -31,7 +33,14 @@ const router = express.Router();
 router.patch("/sound/toggle", userAuth, toggleSound);
 
 /* ───────────────────── VOUCHERS ───────────────────────── */
+
 router.post("/vouchers/create", userAuth, createVoucher);
+router.post("/vouchers/assign-user", userAuth, assignAllowedUserToVoucher);
+router.post(
+  "/vouchers/remove-assigned-user",
+  userAuth,
+  removeAllowedUserFromVoucher,
+);
 router.post("/vouchers/cancel", userAuth, cancelVoucher);
 
 /* ───────────────────── COMPLAINTS ─────────────────────── */

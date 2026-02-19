@@ -695,7 +695,7 @@ export const getAllUsersVouchers = async (
 
     return res.status(200).json({
       success: true,
-      message: "Usres vouchers fetched successfullt",
+      message: "Users vouchers fetched successfully",
       data: serializeBigInt(vouchers),
       total: totalItems,
       page: pagination.page,

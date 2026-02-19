@@ -253,6 +253,83 @@ export const assignAllowedUserToVoucher = async (
   }
 };
 
+// controllers/userActionController.ts
+
+export const removeAllowedUserFromVoucher = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const creatorId = BigInt(req.user.userId);
+    const { voucherId } = req.body;
+
+    if (!voucherId || isNaN(Number(voucherId))) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid voucher ID required",
+      });
+    }
+
+    await userGuard(creatorId);
+
+    const voucher = await prisma.userVoucher.findUnique({
+      where: { id: BigInt(voucherId) },
+      select: {
+        createdById: true,
+        status: true,
+        allowedUserId: true,
+      },
+    });
+
+    if (!voucher) {
+      return res.status(404).json({
+        success: false,
+        error: "Voucher not found",
+      });
+    }
+
+    if (voucher.createdById !== creatorId) {
+      return res.status(403).json({
+        success: false,
+        error: "You can only modify your own vouchers",
+      });
+    }
+
+    if (voucher.status !== VoucherStatus.PENDING) {
+      return res.status(400).json({
+        success: false,
+        error: "Only PENDING vouchers can have their assigned user removed",
+      });
+    }
+
+    if (!voucher.allowedUserId) {
+      return res.status(400).json({
+        success: false,
+        error: "No user is currently assigned to this voucher",
+      });
+    }
+
+    // Remove assignment
+    await prisma.userVoucher.update({
+      where: { id: BigInt(voucherId) },
+      data: {
+        allowedUserId: null,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Assigned user removed. Voucher is now redeemable by you.",
+    });
+  } catch (err: any) {
+    console.error("Remove allowed user error:", err);
+    return res.status(400).json({
+      success: false,
+      error: err.message || "Failed to remove assigned user",
+    });
+  }
+};
+
 // 3) Cancel Voucher (refund gold if pending)
 export const cancelVoucher = async (req: UserAuthRequest, res: Response) => {
   try {
