@@ -1964,7 +1964,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     if (
       !session ||
       session.userId !== userId ||
-      // session.rewarded === true ||
+      session.rewarded === true ||
       session.rewardedAt !== null
     ) {
       return res
