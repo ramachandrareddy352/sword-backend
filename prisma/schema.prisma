@@ -12,22 +12,26 @@ model AdminConfig {
   id BigInt @id @default(1) @db.UnsignedBigInt
 
   shieldGoldPrice           Int     @default(1) @db.UnsignedInt // amount used to buy single shield from marketplace
-  maxDailyShieldAds         Int     @default(1) @db.UnsignedInt // user can get shields daily by watching the ads
-  maxShieldHold             Int     @default(1) @db.UnsignedInt // maximum shields can be hold by user, can be set sa `0`, if `0` then there is no restriction
+  maxDailyShieldAds         Int     @default(10) @db.UnsignedInt // user can get shields daily by watching the ads
+  maxShieldHold             Int     @default(10) @db.UnsignedInt // maximum shields can be hold by user, can be set sa `0`, if `0` then there is no restriction
   shieldActiveOnMarketplace Boolean @default(true) // when it is true, then only user can able to buy shields from marketplace
 
-  maxDailySwordAds   Int @default(10) @db.UnsignedInt // we provide level-1 sword
-  swordLevelReward   Int @default(1) @db.UnsignedInt // sword level that we give as gift aftter viewing ad
-  maxDailyAds        Int @default(10) @db.UnsignedInt // if `0` then there is no restriction
-  maxDailyMissions   Int @default(20) @db.UnsignedInt // if `0` then there is no restriction
+  // new registrations get as default
   defaultTrustPoints Int @default(100) @db.UnsignedInt // can be `0`
   defaultGold        Int @default(5000) @db.UnsignedInt // can be `0`
-  goldReward         Int @default(10) @db.UnsignedInt // when user view ad we give that much gold
+
+  maxDailySwordAds Int @default(10) @db.UnsignedInt // we provide level-1 sword
+  swordLevelReward Int @default(1) @db.UnsignedInt // sword level that we give as gift after viewing ad
+
+  maxDailyGoldAds Int @default(10) @db.UnsignedInt // if `0` then there is no restriction
+  goldReward      Int @default(10) @db.UnsignedInt // when user view ad we give that much gold to user
 
   minVoucherGold    Int     @default(10) @db.UnsignedInt
   maxVoucherGold    Int     @default(1000) @db.UnsignedInt
   voucherExpiryDays Int     @default(7) @db.UnsignedInt // if `0` then no need to check for expiry
   expiryAllow       Boolean @default(false)
+
+  isShoppingAllowed Boolean @default(true) // if true, usres can use gold cooins in other shopping app
 
   adminEmailId String
   updatedAt    DateTime @updatedAt
@@ -43,44 +47,50 @@ model User {
   profileLogo String?
   password    String // Hashed password (bcrypt in application logic)
 
-  gold         Int     @default(0) @db.UnsignedInt
-  trustPoints  Int     @default(100) @db.UnsignedInt
-  totalShields Int     @default(0) @db.UnsignedInt
-  anvilSwordId BigInt? @unique @db.UnsignedBigInt // atleast sword should be in anvil(main), if sword is lost during upgrade, so we use optional here
+  gold            Int     @default(0) @db.UnsignedInt
+  trustPoints     Int     @default(100) @db.UnsignedInt
+  totalShields    Int     @default(0) @db.UnsignedInt
+  anvilSwordLevel BigInt? @unique @db.UnsignedBigInt // atleast sword should be in anvil(main), if sword is lost during upgrade, so we use optional here
 
   createdAt    DateTime  @default(now())
   lastReviewed DateTime // the last time the account is reviewed (e.g., for verification status)
   lastLoginAt  DateTime?
 
-  oneDayAdsViewed       Int @default(0) @db.UnsignedInt // maximum fetch from the admin config (make level wise views, like some people have 10 ads, some people having badges have some more ads to view)
-  totalAdsViewed        Int @default(0) @db.UnsignedInt
+  oneDayGoldAdsViewed   Int @default(0) @db.UnsignedInt
   oneDayShieldAdsViewed Int @default(0) @db.UnsignedInt
   oneDaySwordAdsViewed  Int @default(0) @db.UnsignedInt
 
-  todayMissionsDone Int @default(0) @db.UnsignedInt // check the maximum limi from admin config
+  totalAdsViewed    Int @default(0) @db.UnsignedInt
   totalMissionsDone Int @default(0) @db.UnsignedInt
 
   isShieldOn Boolean @default(false) // is shield protection on or not
   isBanned   Boolean @default(false) // admin can block or unblock the user
-  soundOn    Boolean @default(true)
 
-  anvilSword UserSword? @relation("UserAnvilSword", fields: [anvilSwordId], references: [id], onDelete: Cascade)
+  createdVouchers  UserVoucher[] @relation("CreatedVouchers")
+  allowedVouchers  UserVoucher[] @relation("AllowedVouchers")
+  redeemedVouchers UserVoucher[] @relation("RedeemedVouchers")
 
-  swords                       UserSword[]                   @relation("UserOwnedSwords")
-  createdVouchers              UserVoucher[]                 @relation("CreatedVouchers")
-  allowedVouchers              UserVoucher[]                 @relation("AllowedVouchers")
-  redeemedVouchers             UserVoucher[]                 @relation("RedeemedVouchers")
-  materials                    UserMaterial[] // materials can be buy from market or gifts or as by-products when sword is broken
-  gifts                        UserGift[]
-  customerSupports             CustomerSupport[] // complaints given by the user
+  swords    UserSword[]
+  materials UserMaterial[]
+
+  gifts            UserGift[]
+  customerSupports CustomerSupport[]
+
   swordMarketplacePurchases    SwordMarketplacePurchase[]
   materialMarketplacePurchases MaterialMarketplacePurchase[]
   shieldMarketplacePurchases   ShieldMarketplacePurchase[]
-  swordSynthesisHistories      SwordSynthesisHistory[]
-  swordUpgradeHistories        SwordUpgradeHistory[]
-  adRewardSessions             AdRewardSession[]
+
+  swordSynthesisHistories SwordSynthesisHistory[]
+  swordUpgradeHistories   SwordUpgradeHistory[]
+
   userDailyMissionProgresses   UserDailyMissionProgress[]
   userOneTimeMissionProgresses UserOneTimeMissionProgress[]
+  adRewardSessions             AdRewardSession[]
+
+  swordSellHistories    SwordSellHistory[]
+  materialSellHistories MaterialSellHistory[]
+
+  @@index([anvilSwordLevel])
 }
 
 // ========================== USER VOUCHERS ========================= //
@@ -92,17 +102,15 @@ model UserVoucher {
   createdById BigInt @db.UnsignedBigInt
 
   // Who is allowed to redeem
-  allowedUserId BigInt? @db.UnsignedBigInt // only set by others, not him self and. if he want ot use this then set to null
+  allowedUserId BigInt? @db.UnsignedBigInt // only set to others, not him self and. if he want to use this then set to null
 
   goldAmount Int           @db.UnsignedInt
   status     VoucherStatus @default(PENDING)
 
-  redeemedById BigInt? @db.UnsignedBigInt
+  redeemedById BigInt? @db.UnsignedBigInt // who redeemed this?
 
-  redeemedAt  DateTime?
-  cancelledAt DateTime?
-  expiresAt   DateTime?
-  createdAt   DateTime  @default(now())
+  updatedAt DateTime? // (last status change)redeemedAt | cancelledAt | expiresAt. we upadte this ater any action done
+  createdAt DateTime  @default(now())
 
   createdBy   User  @relation("CreatedVouchers", fields: [createdById], references: [id], onDelete: Cascade)
   allowedUser User? @relation("AllowedVouchers", fields: [allowedUserId], references: [id], onDelete: SetNull)
@@ -110,6 +118,7 @@ model UserVoucher {
 
   @@index([createdById])
   @@index([allowedUserId])
+  @@index([redeemedById])
   @@index([status])
 }
 
@@ -146,9 +155,10 @@ model DailyMissionDefinition {
   // {"type": "shield", "quantity": 2}
   reward Json
 
-  createdAt                  DateTime                   @default(now())
-  updatedAt                  DateTime                   @updatedAt
-  userDailyMissionProgresses UserDailyMissionProgress[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  progress UserDailyMissionProgress[]
 }
 
 model UserDailyMissionProgress {
@@ -162,6 +172,8 @@ model UserDailyMissionProgress {
   mission DailyMissionDefinition @relation(fields: [missionId], references: [id], onDelete: Cascade)
 
   @@id([userId, missionId])
+  @@index([userId])
+  @@index([missionId])
 }
 
 model OneTimeMissionDefinition {
@@ -187,9 +199,10 @@ model OneTimeMissionDefinition {
 
   reward Json
 
-  createdAt                    DateTime                     @default(now())
-  updatedAt                    DateTime                     @updatedAt
-  userOneTimeMissionProgresses UserOneTimeMissionProgress[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  progress UserOneTimeMissionProgress[]
 }
 
 model UserOneTimeMissionProgress {
@@ -201,6 +214,8 @@ model UserOneTimeMissionProgress {
   mission OneTimeMissionDefinition @relation(fields: [missionId], references: [id], onDelete: Cascade)
 
   @@id([userId, missionId])
+  @@index([userId])
+  @@index([missionId])
 }
 
 model AdRewardSession {
@@ -216,7 +231,6 @@ model AdRewardSession {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([nonce])
 }
 
 enum AdRewardType {
@@ -228,7 +242,7 @@ enum AdRewardType {
 // ======================= SWORD DEFINITIONS ======================= //
 model SwordLevelDefinition {
   id    BigInt @id @default(autoincrement()) @db.UnsignedBigInt
-  level Int    @unique @db.UnsignedInt // 0, 1, 2, 3 ... 100
+  level Int    @unique @db.UnsignedInt // 1, 2, 3 ... 100(min = 1 & max = 100)
 
   name           String  @unique // sword name at this level
   image          String // sword image at this level
@@ -252,14 +266,14 @@ model SwordLevelDefinition {
   upgradeDrops          SwordUpgradeDrop[]
 
   userSwords                UserSword[]
-  userGiftItems             UserGiftItem[]
   swordMarketplacePurchases SwordMarketplacePurchase[]
+  swordSellHistories        SwordSellHistory[]
   swordSynthesisHistories   SwordSynthesisHistory[]
+  swordUpgradeHistories     SwordUpgradeHistory[]
+  userGifts                 UserGift[]
 }
 
 model SwordSynthesisRequirement {
-  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
-
   swordLevelDefinitionId BigInt @db.UnsignedBigInt
   materialId             BigInt @db.UnsignedBigInt
 
@@ -268,24 +282,23 @@ model SwordSynthesisRequirement {
   swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
   material             Material             @relation(fields: [materialId], references: [id])
 
-  @@unique([swordLevelDefinitionId, materialId])
+  @@unique([swordLevelDefinitionId])
   @@index([materialId])
 }
 
 model SwordUpgradeDrop {
-  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
-
   swordLevelDefinitionId BigInt @db.UnsignedBigInt
   materialId             BigInt @db.UnsignedBigInt
 
   dropPercentage Int @db.UnsignedInt // sum = 100 per sword level
-  minQuantity    Int @db.UnsignedInt
+  minQuantity    Int @db.UnsignedInt // can be zero also
   maxQuantity    Int @db.UnsignedInt
 
   swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
   material             Material             @relation(fields: [materialId], references: [id])
 
-  @@unique([swordLevelDefinitionId, materialId])
+  @@unique([swordLevelDefinitionId])
+  @@index([materialId])
 }
 
 model SwordSynthesisHistory {
@@ -293,27 +306,25 @@ model SwordSynthesisHistory {
 
   userId                 BigInt @db.UnsignedBigInt
   swordLevelDefinitionId BigInt @db.UnsignedBigInt
-
-  createdSwordId BigInt? @db.UnsignedBigInt
-  goldSpent      Int     @db.UnsignedInt
+  goldSpent              Int    @db.UnsignedInt
 
   createdAt DateTime @default(now())
 
   user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
-  createdSword         UserSword?           @relation(fields: [createdSwordId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model SwordUpgradeHistory {
   id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
 
-  userId  BigInt @db.UnsignedBigInt
-  swordId BigInt @db.UnsignedBigInt
+  userId BigInt @db.UnsignedBigInt
 
   fromSwordLevelId BigInt  @db.UnsignedBigInt
   toSwordLevelId   BigInt? @db.UnsignedBigInt
 
-  success   Boolean
+  success   Boolean // is upgrade success or failed
   goldSpent Int     @db.UnsignedInt
 
   droppedMaterialId BigInt? @db.UnsignedBigInt
@@ -321,38 +332,51 @@ model SwordUpgradeHistory {
 
   createdAt DateTime @default(now())
 
-  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sword UserSword @relation(fields: [swordId], references: [id], onDelete: Cascade)
+  user                     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromSwordLevelDefinition SwordLevelDefinition @relation(fields: [fromSwordLevelId], references: [id], onDelete: Cascade)
+  toSwordLevelDefinition   SwordLevelDefinition @relation(fields: [toSwordLevelId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SwordSellHistory {
+  id                     BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  userId                 BigInt   @db.UnsignedBigInt
+  swordLevelDefinitionId BigInt   @db.UnsignedBigInt
+  quantity               Int      @db.UnsignedInt
+  priceGold              Int      @db.UnsignedInt // total received
+  soldAt                 DateTime @default(now())
+
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Restrict)
+
+  @@index([userId, soldAt(sort: Desc)]) // user's sell history
+  @@index([swordLevelDefinitionId, soldAt])
 }
 
 model UserSword {
-  id   BigInt @id @default(autoincrement()) @db.UnsignedBigInt
-  code String @unique // unique 12-digit sword code
+  userId  BigInt @db.UnsignedBigInt
+  swordId Int    @db.UnsignedInt // references SwordLevelDefinition.level
 
-  userId                 BigInt  @db.UnsignedBigInt
-  level                  Int     @db.UnsignedInt
-  isOnAnvil              Boolean
-  swordLevelDefinitionId BigInt  @db.UnsignedBigInt
-  isSolded               Boolean @default(false)
-  isBroken               Boolean @default(false)
+  isOnAnvil      Boolean @default(false)
+  unsoldQuantity Int     @default(0) @db.UnsignedInt
+  soldedQuantity Int     @default(0) @db.UnsignedInt
+  brokenQuantity Int     @default(0) @db.UnsignedInt
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user                      User                       @relation("UserOwnedSwords", fields: [userId], references: [id], onDelete: Cascade)
-  anvilOwner                User?                      @relation("UserAnvilSword")
-  swordLevelDefinition      SwordLevelDefinition       @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
-  swordMarketplacePurchases SwordMarketplacePurchase[]
-  swordSynthesisHistories   SwordSynthesisHistory[]
-  swordUpgradeHistories     SwordUpgradeHistory[]
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  swordLevelDefinition SwordLevelDefinition @relation(fields: [swordId], references: [id], onDelete: Cascade)
 
+  @@id([userId, swordId])
+  @@index([swordId])
   @@index([userId])
 }
 
 // =========================== MATERIAL =========================== //
 model Material {
-  id   BigInt @id @default(autoincrement()) @db.UnsignedBigInt
-  code String @unique
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
 
   name        String         @unique
   description String?        @db.Text
@@ -368,10 +392,11 @@ model Material {
   updatedAt DateTime @updatedAt
 
   materialMarketplaceItems   MaterialMarketplacePurchase[]
+  materialSellHistories      MaterialSellHistory[]
   userMaterials              UserMaterial[]
-  userGiftItems              UserGiftItem[]
   swordSynthesisRequirements SwordSynthesisRequirement[]
   swordUpgradeDrops          SwordUpgradeDrop[]
+  userGifts                  UserGift[]
 }
 
 enum MaterialRarity {
@@ -380,6 +405,21 @@ enum MaterialRarity {
   EPIC
   LEGENDARY
   MYTHIC
+}
+
+model MaterialSellHistory {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  userId     BigInt   @db.UnsignedBigInt
+  materialId BigInt   @db.UnsignedBigInt
+  quantity   Int      @db.UnsignedInt
+  priceGold  Int      @db.UnsignedInt
+  soldAt     DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  material Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
+
+  @@index([userId, soldAt(sort: Desc)])
+  @@index([materialId])
 }
 
 model UserMaterial {
@@ -396,6 +436,7 @@ model UserMaterial {
   material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
 
   @@id([userId, materialId])
+  @@index([userId])
   @@index([materialId])
 }
 
@@ -405,42 +446,37 @@ model UserGift {
   receiverId BigInt @db.UnsignedBigInt
 
   status GiftStatus @default(PENDING)
-  note   String? // optional admin note
+  note   String? // optional admin / sender note
 
+  // ─── Gift content (exactly one of these should be non-null) ───────────────────────
+  type GiftItemType
+
+  // For GOLD, TRUST_POINTS, SHIELD
+  amount Int? @db.UnsignedInt
+
+  // For MATERIAL
+  materialId       BigInt?   @db.UnsignedBigInt
+  materialQuantity Int?      @db.UnsignedInt
+  material         Material? @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  // For SWORD
+  swordId              Int?                  @db.UnsignedInt
+  swordQuantity        Int?                  @db.UnsignedInt
+  swordLevelDefinition SwordLevelDefinition? @relation(fields: [swordId], references: [id], onDelete: Cascade)
+
+  // Timestamps
   createdAt   DateTime  @default(now())
   cancelledAt DateTime?
   claimedAt   DateTime?
 
-  items UserGiftItem[]
-  user  User?          @relation(fields: [receiverId], references: [id], onDelete: Cascade)
+  // Relations
+  receiver User? @relation(fields: [receiverId], references: [id], onDelete: Cascade)
 
-  @@index([receiverId])
-  @@index([status])
-}
-
-model UserGiftItem {
-  id     BigInt @id @default(autoincrement()) @db.UnsignedBigInt
-  giftId BigInt @db.UnsignedBigInt
-
-  type GiftItemType
-
-  // Gold / Trust points / Shields
-  amount Int? @db.UnsignedInt
-
-  // Material relation
-  materialId       BigInt?   @db.UnsignedBigInt
-  materialQunatity Int?      @db.UnsignedInt
-  material         Material? @relation(fields: [materialId], references: [id], onDelete: Cascade)
-
-  // Sword relation
-  swordLevel           Int?                  @db.UnsignedInt
-  swordLevelDefinition SwordLevelDefinition? @relation(fields: [swordLevel], references: [level], onDelete: Cascade)
-
-  gift UserGift @relation(fields: [giftId], references: [id], onDelete: Cascade)
-
-  @@index([giftId])
-  @@index([materialId])
-  @@index([swordLevel])
+  @@index([receiverId, status]) // → "show all pending gifts for this user"
+  @@index([type, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)]) // → "recent pending/claimed gifts", admin view
+  @@index([receiverId, claimedAt]) // → "what has this user already claimed"
+  @@index([createdAt(sort: Desc)]) // → global recent gifts (admin)
 }
 
 enum GiftStatus {
@@ -462,18 +498,16 @@ model SwordMarketplacePurchase {
   id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
 
   userId                 BigInt @db.UnsignedBigInt
-  swordId                BigInt @db.UnsignedBigInt // this maps to current status of the sword
-  swordLevelDefinitionId BigInt @db.UnsignedBigInt // this is map to on which levle the sword is bough
+  swordLevelDefinitionId BigInt @db.UnsignedBigInt // this maps to current status of the sword
+  quantity               Int    @default(1) @db.UnsignedInt
 
-  priceGold   Int      @db.UnsignedInt
+  priceGold   Int      @db.UnsignedInt // quantity * prize of single sword
   purchasedAt DateTime @default(now())
 
-  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  swordLevelDefinition SwordLevelDefinition? @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
-  userSword            UserSword?            @relation(fields: [swordId], references: [id], onDelete: Cascade)
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([swordId])
   @@index([swordLevelDefinitionId])
 }
 
@@ -491,6 +525,7 @@ model MaterialMarketplacePurchase {
   material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([materialId])
 }
 
 model ShieldMarketplacePurchase {
