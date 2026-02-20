@@ -172,8 +172,7 @@ CREATE TABLE `SwordSynthesisRequirement` (
     `materialId` BIGINT UNSIGNED NOT NULL,
     `requiredQuantity` INTEGER UNSIGNED NOT NULL,
 
-    INDEX `SwordSynthesisRequirement_materialId_idx`(`materialId`),
-    UNIQUE INDEX `SwordSynthesisRequirement_swordLevelDefinitionId_key`(`swordLevelDefinitionId`)
+    UNIQUE INDEX `SwordSynthesisRequirement_swordLevelDefinitionId_materialId_key`(`swordLevelDefinitionId`, `materialId`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
@@ -184,8 +183,7 @@ CREATE TABLE `SwordUpgradeDrop` (
     `minQuantity` INTEGER UNSIGNED NOT NULL,
     `maxQuantity` INTEGER UNSIGNED NOT NULL,
 
-    INDEX `SwordUpgradeDrop_materialId_idx`(`materialId`),
-    UNIQUE INDEX `SwordUpgradeDrop_swordLevelDefinitionId_key`(`swordLevelDefinitionId`)
+    UNIQUE INDEX `SwordUpgradeDrop_swordLevelDefinitionId_materialId_key`(`swordLevelDefinitionId`, `materialId`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable

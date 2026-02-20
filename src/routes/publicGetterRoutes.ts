@@ -6,9 +6,9 @@ import {
   getSword,
   getMaterial,
   getLeaderboard,
-  getPurchasedSwords,
-  getPurchasedMaterials,
-  getPurchasedShields,
+  // getPurchasedSwords,
+  // getPurchasedMaterials,
+  // getPurchasedShields,
   getAdminConfig,
 } from "../controllers/publicGetterController";
 
@@ -31,13 +31,13 @@ router.get("/single/material", getMaterial);
 router.get("/leaderboard", getLeaderboard);
 
 // All sword purchases
-router.get("/marketplace/swords/purchases", getPurchasedSwords);
+// router.get("/marketplace/swords/purchases", getPurchasedSwords);
 
 // All material purchases
-router.get("/marketplace/materials/purchases", getPurchasedMaterials);
+// router.get("/marketplace/materials/purchases", getPurchasedMaterials);
 
 // All shield purchases
-router.get("/marketplace/shields/purchases", getPurchasedShields);
+// router.get("/marketplace/shields/purchases", getPurchasedShields);
 
 // All shield purchases
 router.get("/admin/config", getAdminConfig);

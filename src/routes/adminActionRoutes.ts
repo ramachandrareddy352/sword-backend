@@ -53,10 +53,10 @@ router.patch(
   updateSynthesizeRequirements,
 );
 
-// Update ONLY upgrade drops (percent + min/max)
+// Update ONLY upgrade drops (percent + min/max) (no add/remove)
 router.patch("/sword/update/upgrades", adminAuth, updateUpgradeDrops);
 
-// FULL replace synthesize + upgrade materials
+// FULL replace synthesize + upgrade materials (can add/remove)
 router.patch("/sword/update/materials", adminAuth, updateSwordMaterials);
 
 /* ─────────────────────── MATERIALS ────────────────────── */

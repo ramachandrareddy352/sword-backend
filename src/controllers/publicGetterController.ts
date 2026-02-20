@@ -247,12 +247,12 @@ export const getAllMaterials = async (req: Request, res: Response) => {
   }
 };
 
-// 4) Single material by id, code or name
+// 4) Single material by id or name
 export const getMaterial = async (req: Request, res: Response) => {
   try {
-    const { id, code, name } = req.query;
+    const { id, name } = req.query;
 
-    if (!id && !code && !name) {
+    if (!id && !name) {
       return res.status(400).json({
         success: false,
         error: "Provide 'id', 'code' or 'name' query parameter",
@@ -263,24 +263,6 @@ export const getMaterial = async (req: Request, res: Response) => {
     if (id) {
       material = await prisma.material.findUnique({
         where: { id: BigInt(id as string) },
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          description: true,
-          image: true,
-          rarity: true,
-          buyingCost: true,
-          sellingCost: true,
-          isBuyingAllow: true,
-          isSellingAllow: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-    } else if (code) {
-      material = await prisma.material.findUnique({
-        where: { code: code as string },
         select: {
           id: true,
           name: true,
@@ -300,7 +282,6 @@ export const getMaterial = async (req: Request, res: Response) => {
         where: { name: name as string },
         select: {
           id: true,
-          code: true,
           name: true,
           description: true,
           image: true,
@@ -397,8 +378,7 @@ export const getLeaderboard = async (req: Request, res: Response) => {
         totalAdsViewed: true,
         totalMissionsDone: true,
         swords: {
-          where: { isSolded: false, isBroken: false },
-          select: { id: true }, // just count
+          select: { unsoldQuantity: true },
         },
         materials: {
           select: { unsoldQuantity: true },
@@ -416,7 +396,7 @@ export const getLeaderboard = async (req: Request, res: Response) => {
       totalShields: u.totalShields,
       totalAdsViewed: u.totalAdsViewed,
       totalMissionsDone: u.totalMissionsDone,
-      totalSwords: u.swords.length,
+      totalSwords: u.swords.reduce((sum, s) => sum + s.unsoldQuantity, 0),
       totalMaterials: u.materials.reduce((sum, m) => sum + m.unsoldQuantity, 0),
     }));
 
@@ -519,8 +499,6 @@ export const getPurchasedSwords = async (req: Request, res: Response) => {
             email: true,
             profileLogo: true,
             isBanned: true,
-            gold: true,
-            trustPoints: true,
           },
         },
         swordLevelDefinition: {
@@ -531,6 +509,7 @@ export const getPurchasedSwords = async (req: Request, res: Response) => {
             successRate: true,
           },
         },
+        quantity: true,
         priceGold: true,
         purchasedAt: true,
       },
@@ -606,8 +585,6 @@ export const getPurchasedMaterials = async (req: Request, res: Response) => {
             email: true,
             profileLogo: true,
             isBanned: true,
-            gold: true,
-            trustPoints: true,
           },
         },
         material: {
@@ -689,8 +666,6 @@ export const getPurchasedShields = async (req: Request, res: Response) => {
             email: true,
             profileLogo: true,
             isBanned: true,
-            gold: true,
-            trustPoints: true,
             totalShields: true,
           },
         },

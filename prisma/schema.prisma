@@ -280,7 +280,8 @@ model SwordSynthesisRequirement {
   swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
   material             Material             @relation(fields: [materialId], references: [id])
 
-  @@unique([swordLevelDefinitionId])
+  @@unique([swordLevelDefinitionId, materialId])
+  @@index([swordLevelDefinitionId])
   @@index([materialId])
 }
 
@@ -295,7 +296,8 @@ model SwordUpgradeDrop {
   swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
   material             Material             @relation(fields: [materialId], references: [id])
 
-  @@unique([swordLevelDefinitionId])
+  @@unique([swordLevelDefinitionId, materialId])
+  @@index([swordLevelDefinitionId])
   @@index([materialId])
 }
 

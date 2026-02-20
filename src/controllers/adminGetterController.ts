@@ -1,6 +1,6 @@
 import type { Response } from "express";
 import prisma from "../database/client";
-import { MaterialRarity, VoucherStatus } from "@prisma/client";
+import { GiftItemType, MaterialRarity, VoucherStatus } from "@prisma/client";
 import type { AdminAuthRequest } from "../middleware/adminAuth";
 import { getPagination } from "../services/queryHelpers";
 import { serializeBigInt } from "../services/serializeBigInt";
@@ -108,15 +108,11 @@ export const getAllUsers = async (req: AdminAuthRequest, res: Response) => {
         trustPoints: true,
         totalShields: true,
         totalAdsViewed: true,
-        oneDayAdsViewed: true,
         totalMissionsDone: true,
-        todayMissionsDone: true,
         createdAt: true,
         lastReviewed: true,
         lastLoginAt: true,
         isBanned: true,
-        anvilSwordId: true,
-        soundOn: true,
       },
     });
 
@@ -158,8 +154,7 @@ export const getAllUsersSwords = async (
     const {
       sortCreatedAt, // 'asc' | 'desc'
       sortLevel, // 'asc' | 'desc'
-      sold, // 'true' | 'false' | undefined (filter isSolded)
-      broken, // 'true' | 'false' | undefined (filter isBroken)
+      isOnAnvil, // 'true' | 'false'
     } = req.query;
 
     const pagination = getPagination(req.query);
@@ -173,93 +168,107 @@ export const getAllUsersSwords = async (
     // Build where clause
     const where: any = {};
 
-    // Sold filter
-    if (sold === "true") {
-      where.isSolded = true;
-    } else if (sold === "false") {
-      where.isSolded = false;
+    // Filter by anvil status
+    if (isOnAnvil === "true") {
+      where.isOnAnvil = true;
+    } else if (isOnAnvil === "false") {
+      where.isOnAnvil = false;
     }
 
-    // Broken filter
-    if (broken === "true") {
-      where.isBroken = true;
-    } else if (broken === "false") {
-      where.isBroken = false;
-    }
-
-    // Build orderBy array (multiple sorts supported)
+    // Build orderBy
     const orderBy: any[] = [];
 
-    // Direct fields on UserSword
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+    if (sortCreatedAt === "asc" || sortCreatedAt === "desc") {
       orderBy.push({ createdAt: sortCreatedAt });
     }
-    if (sortLevel && ["asc", "desc"].includes(sortLevel as string)) {
-      orderBy.push({ level: sortLevel });
+
+    if (sortLevel === "asc" || sortLevel === "desc") {
+      orderBy.push({
+        swordLevelDefinition: {
+          level: sortLevel,
+        },
+      });
     }
 
-    // Default sort if none provided: newest first
+    // Default sort: newest first
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
 
-    // Get total count
-    const totalItems = await prisma.userSword.count({ where });
+    // ─── Single round-trip with $transaction ─────────────────────────────
+    const [userSwords, total] = await prisma.$transaction([
+      prisma.userSword.findMany({
+        where,
+        orderBy,
+        skip: pagination.skip,
+        take: pagination.take,
+        select: {
+          userId: true,
+          swordId: true,
+          isOnAnvil: true,
+          unsoldQuantity: true,
+          soldedQuantity: true,
+          brokenQuantity: true,
+          createdAt: true,
+          updatedAt: true,
 
-    // Fetch swords with user & sword definition details
-    const swords = await prisma.userSword.findMany({
-      where,
-      orderBy,
-      skip: pagination.skip,
-      take: pagination.take,
-      select: {
-        id: true,
-        code: true,
-        level: true,
-        isOnAnvil: true,
-        isSolded: true,
-        isBroken: true,
-        createdAt: true,
-        updatedAt: true,
-        user: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            profileLogo: true,
-            isBanned: true,
-            gold: true,
-            trustPoints: true,
+          user: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              profileLogo: true,
+              isBanned: true,
+            },
+          },
+
+          swordLevelDefinition: {
+            select: {
+              level: true,
+              name: true,
+              image: true,
+              description: true,
+              upgradeCost: true,
+              buyingCost: true,
+              sellingCost: true,
+              synthesizeCost: true,
+              successRate: true,
+              isBuyingAllow: true,
+              isSellingAllow: true,
+              isSynthesizeAllow: true,
+            },
           },
         },
-        swordLevelDefinition: {
-          select: {
-            name: true,
-            image: true,
-            description: true,
-            upgradeCost: true,
-            sellingCost: true,
-            buyingCost: true,
-            synthesizeCost: true,
-            successRate: true,
-          },
-        },
-      },
-    });
+      }),
+
+      prisma.userSword.count({ where }),
+    ]);
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Optional: enrich response with total owned per sword (unsold + sold + broken)
+    const enriched = userSwords.map((entry) => ({
+      ...entry,
+      totalOwned:
+        entry.unsoldQuantity + entry.soldedQuantity + entry.brokenQuantity,
+      swordLevel: entry.swordLevelDefinition?.level, // for easier frontend use
+    }));
 
     return res.status(200).json({
       success: true,
-      message: "Users' swords fetched successfully",
-      data: serializeBigInt(swords),
-      total: totalItems,
+      message: enriched.length
+        ? "Users' swords fetched successfully"
+        : "No sword ownership records found",
+      data: serializeBigInt(enriched),
+      total,
       page: pagination.page,
       limit: pagination.limit,
     });
   } catch (error) {
     console.error("getAllUsersSwords error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
   }
 };
 
@@ -349,7 +358,6 @@ export const getAllUsersMaterials = async (
         material: {
           select: {
             id: true,
-            code: true,
             name: true,
             description: true,
             image: true,
@@ -408,12 +416,16 @@ export const getAdminConfig = async (_req: AdminAuthRequest, res: Response) => {
 };
 
 // 5) Admin GET all users' gifts with optional status filter, optional itemType filter, sorting (createdAt, status), pagination
-export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
+export const getAllUsersGifts = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
   try {
     const {
-      status, // optional: "PENDING" | "CLAIMED" | "CANCELLED"
-      itemType, // optional: "GOLD" | "TRUST_POINTS" | "MATERIAL" | "SWORD" | "SHIELD"
+      status, // "PENDING" | "CLAIMED" | "CANCELLED"
+      type, // "GOLD" | "TRUST_POINTS" | "MATERIAL" | "SWORD" | "SHIELD"
       sortCreatedAt, // "asc" | "desc"
+      receiverId, // optional filter by user
     } = req.query;
 
     const pagination = getPagination(req.query);
@@ -427,7 +439,6 @@ export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
     // Build where clause
     const where: any = {};
 
-    // Status filter
     if (
       status &&
       ["PENDING", "CLAIMED", "CANCELLED"].includes(status as string)
@@ -435,93 +446,114 @@ export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
       where.status = status;
     }
 
-    // Item Type filter (gifts that contain at least one item of this type)
-    if (
-      itemType &&
-      ["GOLD", "TRUST_POINTS", "MATERIAL", "SWORD", "SHIELD"].includes(
-        itemType as string,
-      )
-    ) {
-      where.items = {
-        some: {
-          type: itemType,
-        },
-      };
+    if (type && Object.values(GiftItemType).includes(type as GiftItemType)) {
+      where.type = type;
     }
 
-    // Build orderBy (for direct fields on UserGift)
-    const orderBy: any[] = [];
+    if (receiverId) {
+      try {
+        where.receiverId = BigInt(receiverId as string);
+      } catch {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid receiverId format (must be numeric)",
+        });
+      }
+    }
 
-    if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt as string)) {
+    // Build orderBy
+    const orderBy: any[] = [];
+    if (sortCreatedAt === "asc" || sortCreatedAt === "desc") {
       orderBy.push({ createdAt: sortCreatedAt });
     }
-    // Default sort: newest first
+    // Default: newest first
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
 
-    // Fetch gifts with deep relations
-    const gifts = await prisma.userGift.findMany({
-      where,
-      orderBy,
-      skip: pagination.skip,
-      take: pagination.take,
-      include: {
-        items: {
-          select: {
-            id: true,
-            type: true,
-            amount: true, // used for GOLD, TRUST_POINTS, SHIELD
-            materialId: true,
-            materialQunatity: true,
-            material: {
-              select: {
-                id: true,
-                name: true,
-                code: true,
-                image: true,
-                description: true,
-                buyingCost: true,
-                sellingCost: true,
-                rarity: true,
-              },
-            },
-            swordLevel: true,
-            swordLevelDefinition: {
-              select: {
-                id: true,
-                level: true,
-                name: true,
-                image: true,
-                description: true,
-                upgradeCost: true,
-                sellingCost: true,
-                successRate: true,
-              },
-            },
-          },
-        },
-        user: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            isBanned: true,
-            gold: true,
-            trustPoints: true,
-          },
-        },
-      },
-    });
+    // Single round-trip with transaction (count + data)
+    const [gifts, total] = await prisma.$transaction([
+      prisma.userGift.findMany({
+        where,
+        orderBy,
+        skip: pagination.skip,
+        take: pagination.take,
+        select: {
+          id: true,
+          receiverId: true,
+          status: true,
+          note: true,
+          type: true,
+          amount: true, // GOLD, TRUST_POINTS, SHIELD
+          materialId: true,
+          materialQuantity: true, // note: corrected spelling
+          swordId: true, // this is actually the level (Int)
+          swordQuantity: true,
+          createdAt: true,
+          claimedAt: true,
+          cancelledAt: true,
 
-    // Total count
-    const totalItems = await prisma.userGift.count({ where });
+          receiver: {
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              profileLogo: true,
+              isBanned: true,
+              gold: true,
+              trustPoints: true,
+            },
+          },
+
+          material:
+            type === "MATERIAL"
+              ? {
+                  select: {
+                    id: true,
+                    name: true,
+                    description: true,
+                    image: true,
+                    rarity: true,
+                    buyingCost: true,
+                    sellingCost: true,
+                    isBuyingAllow: true,
+                    isSellingAllow: true,
+                  },
+                }
+              : undefined,
+
+          swordLevelDefinition:
+            type === "SWORD"
+              ? {
+                  select: {
+                    level: true,
+                    name: true,
+                    image: true,
+                    description: true,
+                    upgradeCost: true,
+                    buyingCost: true,
+                    sellingCost: true,
+                    synthesizeCost: true,
+                    successRate: true,
+                    isBuyingAllow: true,
+                    isSellingAllow: true,
+                    isSynthesizeAllow: true,
+                  },
+                }
+              : undefined,
+        },
+      }),
+
+      prisma.userGift.count({ where }),
+    ]);
 
     return res.status(200).json({
       success: true,
-      message: "Gifts fetched successfully",
+      message: gifts.length
+        ? "User gifts fetched successfully"
+        : "No gifts found matching the criteria",
       data: serializeBigInt(gifts),
-      total: totalItems,
+      total,
       page: pagination.page,
       limit: pagination.limit,
     });
@@ -532,7 +564,7 @@ export async function getAllUsersGifts(req: AdminAuthRequest, res: Response) {
       error: "Failed to fetch gifts",
     });
   }
-}
+};
 
 // 6) Admin GET all customer support — no rarity/type filter (only sorting), added message
 export const getAllCustomerSupports = async (
@@ -781,7 +813,6 @@ export const getUserFullDetails = async (
       });
     }
 
-    // Find user by email or id
     let user;
     if (userId) {
       user = await prisma.user.findUnique({
@@ -800,7 +831,7 @@ export const getUserFullDetails = async (
       });
     }
 
-    // Core user data (safe fields only for admin)
+    // ─── Core user data ───────────────────────────────────────────────
     const safeUser = {
       id: user.id.toString(),
       email: user.email,
@@ -809,105 +840,50 @@ export const getUserFullDetails = async (
       gold: user.gold,
       trustPoints: user.trustPoints,
       totalShields: user.totalShields,
+      anvilSwordLevel: user.anvilSwordLevel?.toString() ?? null,
       createdAt: user.createdAt,
       lastLoginAt: user.lastLoginAt,
       lastReviewed: user.lastReviewed,
-      oneDayAdsViewed: user.oneDayAdsViewed,
+      oneDayGoldAdsViewed: user.oneDayGoldAdsViewed,
+      oneDayShieldAdsViewed: user.oneDayShieldAdsViewed,
+      oneDaySwordAdsViewed: user.oneDaySwordAdsViewed,
       totalAdsViewed: user.totalAdsViewed,
-      todayMissionsDone: user.todayMissionsDone,
       totalMissionsDone: user.totalMissionsDone,
+      isShieldOn: user.isShieldOn,
       isBanned: user.isBanned,
-      soundOn: user.soundOn,
-      anvilSwordId: user.anvilSwordId,
     };
 
-    // Vouchers
-    const vouchers = await prisma.userVoucher.findMany({
-      where: { createdById: user.id },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        code: true,
-        goldAmount: true,
-        status: true,
-        redeemedAt: true,
-        cancelledAt: true,
-        expiresAt: true,
-        createdAt: true,
-      },
-    });
-
-    // Swords with level definition
-    const swords = await prisma.userSword.findMany({
-      where: { userId: user.id },
-      include: {
-        swordLevelDefinition: {
-          select: {
-            level: true,
-            name: true,
-            image: true,
-            description: true,
-            upgradeCost: true,
-            sellingCost: true,
-            successRate: true,
-          },
+    // ─── Parallel queries for better performance ──────────────────────
+    const [
+      vouchers,
+      swords,
+      materials,
+      gifts,
+      swordMarketplacePurchases,
+      materialMarketplacePurchases,
+      shieldMarketplacePurchases,
+      synthesisHistories,
+      upgradeHistories,
+      swordSellHistories,
+      materialSellHistories,
+      customerSupports,
+    ] = await Promise.all([
+      // Vouchers (created by this user)
+      prisma.userVoucher.findMany({
+        where: { createdById: user.id },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          code: true,
+          goldAmount: true,
+          status: true,
+          updatedAt: true,
+          createdAt: true,
         },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+      }),
 
-    // Materials with material details
-    const materials = await prisma.userMaterial.findMany({
-      where: { userId: user.id },
-      include: {
-        material: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            description: true,
-            image: true,
-            rarity: true,
-            buyingCost: true,
-            sellingCost: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    // Gifts with items (full details)
-    const gifts = await prisma.userGift.findMany({
-      where: { receiverId: user.id },
-      include: {
-        items: {
-          include: {
-            material: {
-              select: {
-                id: true,
-                name: true,
-                code: true,
-                rarity: true,
-                image: true,
-              },
-            },
-            swordLevelDefinition: {
-              select: {
-                level: true,
-                name: true,
-                image: true,
-                description: true,
-              },
-            },
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    // Sword Marketplace Purchases
-    const swordMarketplacePurchases =
-      await prisma.swordMarketplacePurchase.findMany({
+      // Owned swords (current inventory)
+      prisma.userSword.findMany({
         where: { userId: user.id },
         include: {
           swordLevelDefinition: {
@@ -916,116 +892,215 @@ export const getUserFullDetails = async (
               name: true,
               image: true,
               description: true,
+              upgradeCost: true,
+              sellingCost: true,
               successRate: true,
             },
           },
-          userSword: {
-            select: {
-              code: true,
-              isSolded: true,
-              isBroken: true,
-            },
-          },
         },
-        orderBy: { purchasedAt: "desc" },
-      });
+        orderBy: { createdAt: "desc" },
+      }),
 
-    // Material Marketplace Purchases
-    const materialMarketplacePurchases =
-      await prisma.materialMarketplacePurchase.findMany({
+      // Owned materials (current inventory)
+      prisma.userMaterial.findMany({
         where: { userId: user.id },
         include: {
           material: {
             select: {
               id: true,
               name: true,
-              code: true,
+              description: true,
+              image: true,
+              rarity: true,
+              buyingCost: true,
+              sellingCost: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+
+      // Received gifts
+      prisma.userGift.findMany({
+        where: { receiverId: user.id },
+        include: {
+          material: {
+            select: {
+              id: true,
+              name: true,
+              rarity: true,
+              image: true,
+            },
+          },
+          swordLevelDefinition: {
+            select: {
+              level: true,
+              name: true,
+              image: true,
+              // add more fields if needed: description, upgradeCost, etc.
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+
+      // Sword marketplace purchases (bought)
+      prisma.swordMarketplacePurchase.findMany({
+        where: { userId: user.id },
+        include: {
+          swordLevelDefinition: {
+            select: {
+              level: true,
+              name: true,
+              image: true,
+              successRate: true,
+            },
+          },
+        },
+        orderBy: { purchasedAt: "desc" },
+      }),
+
+      // Material marketplace purchases (bought)
+      prisma.materialMarketplacePurchase.findMany({
+        where: { userId: user.id },
+        include: {
+          material: {
+            select: {
+              id: true,
+              name: true,
               rarity: true,
               image: true,
             },
           },
         },
         orderBy: { purchasedAt: "desc" },
-      });
+      }),
 
-    // Shield Marketplace Purchases
-    const shieldMarketplacePurchases =
-      await prisma.shieldMarketplacePurchase.findMany({
+      // Shield marketplace purchases (bought)
+      prisma.shieldMarketplacePurchase.findMany({
         where: { userId: user.id },
         orderBy: { purchasedAt: "desc" },
-      });
+      }),
 
-    // Sword Synthesis History
-    const synthesisHistories = await prisma.swordSynthesisHistory.findMany({
-      where: { userId: user.id },
-      include: {
-        swordLevelDefinition: {
-          select: {
-            level: true,
-            name: true,
+      // Synthesis history
+      prisma.swordSynthesisHistory.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+      }),
+
+      // Upgrade history
+      prisma.swordUpgradeHistory.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+      }),
+
+      // **New** – Sword selling history
+      prisma.swordSellHistory.findMany({
+        where: { userId: user.id },
+        include: {
+          swordLevelDefinition: {
+            select: {
+              level: true,
+              name: true,
+              image: true,
+              sellingCost: true,
+            },
           },
         },
-        createdSword: {
-          select: {
-            code: true,
-            level: true,
+        orderBy: { soldAt: "desc" },
+      }),
+
+      // **New** – Material selling history
+      prisma.materialSellHistory.findMany({
+        where: { userId: user.id },
+        include: {
+          material: {
+            select: {
+              id: true,
+              name: true,
+              rarity: true,
+              image: true,
+              sellingCost: true,
+            },
           },
         },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+        orderBy: { soldAt: "desc" },
+      }),
 
-    // Sword Upgrade History
-    const upgradeHistories = await prisma.swordUpgradeHistory.findMany({
-      where: { userId: user.id },
-      include: {
-        sword: {
-          select: {
-            code: true,
-            level: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    // Customer Support Tickets
-    const customerSupports = await prisma.customerSupport.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: "desc" },
-    });
+      // Support tickets
+      prisma.customerSupport.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
 
     return res.status(200).json({
       success: true,
       message: "User full details fetched successfully",
-      user: serializeBigInt(safeUser),
-      vouchers: { list: serializeBigInt(vouchers), total: vouchers.length },
-      swords: { list: serializeBigInt(swords), total: swords.length },
-      materials: { list: serializeBigInt(materials), total: materials.length },
-      gifts: { list: serializeBigInt(gifts), total: gifts.length },
-      swordMarketplacePurchases: {
-        list: serializeBigInt(swordMarketplacePurchases),
-        total: swordMarketplacePurchases.length,
-      },
-      materialMarketplacePurchases: {
-        list: serializeBigInt(materialMarketplacePurchases),
-        total: materialMarketplacePurchases.length,
-      },
-      shieldMarketplacePurchases: {
-        list: serializeBigInt(shieldMarketplacePurchases),
-        total: shieldMarketplacePurchases.length,
-      },
-      synthesisHistories: {
-        list: serializeBigInt(synthesisHistories),
-        total: synthesisHistories.length,
-      },
-      upgradeHistories: {
-        list: serializeBigInt(upgradeHistories),
-        total: upgradeHistories.length,
-      },
-      customerSupports: {
-        list: serializeBigInt(customerSupports),
-        total: customerSupports.length,
+      data: {
+        user: serializeBigInt(safeUser),
+
+        vouchers: {
+          list: serializeBigInt(vouchers),
+          total: vouchers.length,
+        },
+
+        inventory: {
+          swords: {
+            list: serializeBigInt(swords),
+            total: swords.length,
+          },
+          materials: {
+            list: serializeBigInt(materials),
+            total: materials.length,
+          },
+        },
+
+        giftsReceived: {
+          list: serializeBigInt(gifts),
+          total: gifts.length,
+        },
+
+        purchases: {
+          swords: {
+            list: serializeBigInt(swordMarketplacePurchases),
+            total: swordMarketplacePurchases.length,
+          },
+          materials: {
+            list: serializeBigInt(materialMarketplacePurchases),
+            total: materialMarketplacePurchases.length,
+          },
+          shields: {
+            list: serializeBigInt(shieldMarketplacePurchases),
+            total: shieldMarketplacePurchases.length,
+          },
+        },
+
+        activity: {
+          synthesis: {
+            list: serializeBigInt(synthesisHistories),
+            total: synthesisHistories.length,
+          },
+          upgrades: {
+            list: serializeBigInt(upgradeHistories),
+            total: upgradeHistories.length,
+          },
+          sales: {
+            swords: {
+              list: serializeBigInt(swordSellHistories),
+              total: swordSellHistories.length,
+            },
+            materials: {
+              list: serializeBigInt(materialSellHistories),
+              total: materialSellHistories.length,
+            },
+          },
+        },
+
+        support: {
+          list: serializeBigInt(customerSupports),
+          total: customerSupports.length,
+        },
       },
     });
   } catch (error: any) {
@@ -1108,14 +1183,6 @@ export const getAllUsersUpgradeHistory = async (
             name: true,
           },
         },
-        sword: {
-          select: {
-            id: true,
-            code: true,
-            level: true,
-            isBroken: true,
-          },
-        },
       },
     });
 
@@ -1177,20 +1244,6 @@ export const getAllUsersSynthesisHistory = async (
             id: true,
             email: true,
             name: true,
-          },
-        },
-        swordLevelDefinition: {
-          select: {
-            level: true,
-            name: true,
-            image: true,
-          },
-        },
-        createdSword: {
-          select: {
-            id: true,
-            code: true,
-            level: true,
           },
         },
       },
@@ -1259,7 +1312,7 @@ export const getAllDailyMissions = async (
       skip: pagination.skip,
       take: pagination.take,
       include: {
-        userDailyMissionProgresses: {
+        progress: {
           select: {
             userId: true,
             claimedTimes: true,
@@ -1338,7 +1391,7 @@ export const getAllOneTimeMissions = async (
       skip: pagination.skip,
       take: pagination.take,
       include: {
-        userOneTimeMissionProgresses: {
+        progress: {
           select: {
             userId: true,
             claimedAt: true,

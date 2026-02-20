@@ -2,7 +2,6 @@ import type { Response } from "express";
 import prisma from "../database/client";
 import { MaterialRarity, GiftItemType, GiftStatus } from "@prisma/client";
 import type { AdminAuthRequest } from "../middleware/adminAuth";
-import { generateSecureCode } from "../services/generateCode";
 import { serializeBigInt } from "../services/serializeBigInt";
 import { uploadToCloudinary } from "../services/uploadToCloudinary";
 import cloudinary from "../config/cloudinary";
@@ -42,27 +41,26 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
     const data = req.body;
     const updateData: Record<string, any> = {};
 
-    const validateUnsignedInt = (value: any, field: string) => {
+    // Helper to validate non-negative integers
+    const validateUnsignedInt = (value: any, fieldName: string) => {
       if (!Number.isInteger(value) || value < 0) {
-        throw new Error(`Invalid ${field}`);
+        throw new Error(`Invalid ${fieldName}: must be a non-negative integer`);
       }
     };
 
     // ================= Shield Config =================
     if (data.shieldGoldPrice !== undefined) {
-      validateUnsignedInt(data.shieldGoldPrice, "shield Gold Price");
+      validateUnsignedInt(data.shieldGoldPrice, "shieldGoldPrice");
       updateData.shieldGoldPrice = data.shieldGoldPrice;
     }
 
     if (data.maxDailyShieldAds !== undefined) {
-      validateUnsignedInt(data.maxDailyShieldAds, "maximum daily shield Ads");
+      validateUnsignedInt(data.maxDailyShieldAds, "maxDailyShieldAds");
       updateData.maxDailyShieldAds = data.maxDailyShieldAds;
     }
 
     if (data.maxShieldHold !== undefined) {
-      if (!Number.isInteger(data.maxShieldHold)) {
-        throw new Error("Invalid maximum shiled hold value type");
-      }
+      validateUnsignedInt(data.maxShieldHold, "maxShieldHold");
       updateData.maxShieldHold = data.maxShieldHold;
     }
 
@@ -72,65 +70,50 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
       );
     }
 
-    // ================= Ads & Missions =================
+    // ================= Sword & Gold Ads =================
     if (data.maxDailySwordAds !== undefined) {
-      validateUnsignedInt(
-        data.maxDailySwordAds,
-        "Invalid maximum daily sword Ads value.",
-      );
+      validateUnsignedInt(data.maxDailySwordAds, "maxDailySwordAds");
       updateData.maxDailySwordAds = data.maxDailySwordAds;
     }
 
     if (data.swordLevelReward !== undefined) {
-      validateUnsignedInt(data.maxDailySwordAds, "Invalid sword level value.");
+      validateUnsignedInt(data.swordLevelReward, "swordLevelReward");
       updateData.swordLevelReward = data.swordLevelReward;
     }
 
+    if (data.maxDailyGoldAds !== undefined) {
+      validateUnsignedInt(data.maxDailyGoldAds, "maxDailyGoldAds");
+      updateData.maxDailyGoldAds = data.maxDailyGoldAds;
+    }
+
     if (data.goldReward !== undefined) {
-      validateUnsignedInt(data.maxDailySwordAds, "Invalid gold ad reward.");
+      validateUnsignedInt(data.goldReward, "goldReward");
       updateData.goldReward = data.goldReward;
     }
 
-    if (data.maxDailyAds !== undefined) {
-      if (!Number.isInteger(data.maxDailyAds)) {
-        throw new Error("Invalid maximum daily Ads value type");
-      }
-      updateData.maxDailyAds = data.maxDailyAds;
-    }
-
-    if (data.maxDailyMissions !== undefined) {
-      if (!Number.isInteger(data.maxDailyMissions)) {
-        throw new Error("Invalid maximum Missions Ads value type");
-      }
-      updateData.maxDailyMissions = data.maxDailyMissions;
-    }
-
-    // ================= Defaults =================
+    // ================= Default values for new users =================
     if (data.defaultTrustPoints !== undefined) {
-      if (!Number.isInteger(data.defaultTrustPoints)) {
-        throw new Error("Invalid default trust points  value type");
-      }
+      validateUnsignedInt(data.defaultTrustPoints, "defaultTrustPoints");
       updateData.defaultTrustPoints = data.defaultTrustPoints;
     }
 
     if (data.defaultGold !== undefined) {
-      if (!Number.isInteger(data.defaultGold)) {
-        throw new Error("Invalid default Gold value type");
-      }
+      validateUnsignedInt(data.defaultGold, "defaultGold");
       updateData.defaultGold = data.defaultGold;
     }
 
-    // ================= Voucher =================
+    // ================= Voucher settings =================
     if (data.minVoucherGold !== undefined) {
-      validateUnsignedInt(data.minVoucherGold, "minimum Voucher Gold");
+      validateUnsignedInt(data.minVoucherGold, "minVoucherGold");
       updateData.minVoucherGold = data.minVoucherGold;
     }
 
     if (data.maxVoucherGold !== undefined) {
-      validateUnsignedInt(data.maxVoucherGold, "maximum Voucher Gold");
+      validateUnsignedInt(data.maxVoucherGold, "maxVoucherGold");
       updateData.maxVoucherGold = data.maxVoucherGold;
     }
 
+    // Cross-field validation for voucher range
     if (
       updateData.minVoucherGold !== undefined &&
       updateData.maxVoucherGold !== undefined &&
@@ -143,9 +126,7 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
     }
 
     if (data.voucherExpiryDays !== undefined) {
-      if (!Number.isInteger(data.voucherExpiryDays)) {
-        throw new Error("Invalid voucher Expiry Days value type");
-      }
+      validateUnsignedInt(data.voucherExpiryDays, "voucherExpiryDays");
       updateData.voucherExpiryDays = data.voucherExpiryDays;
     }
 
@@ -153,36 +134,46 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
       updateData.expiryAllow = Boolean(data.expiryAllow);
     }
 
-    // ================= Security =================
+    // ================= Shopping permission =================
+    if (data.isShoppingAllowed !== undefined) {
+      updateData.isShoppingAllowed = Boolean(data.isShoppingAllowed);
+    }
+
+    // ================= Protected fields =================
     if (data.adminEmailId !== undefined) {
       return res.status(403).json({
         success: false,
-        error: "Admin EmailId update not allowed through API",
+        error: "adminEmailId cannot be updated via this endpoint",
       });
     }
 
+    // ================= Final checks =================
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({
         success: false,
-        error: "No valid fields to update",
+        error: "No valid fields provided for update",
       });
     }
 
-    const config = await prisma.adminConfig.update({
-      where: { id: 1 },
+    const updatedConfig = await prisma.adminConfig.update({
+      where: { id: 1n },
       data: updateData,
     });
 
-    return res.json({
+    return res.status(200).json({
       success: true,
-      message: "Admin configuration updated",
-      data: serializeBigInt(config),
+      message: "Admin configuration updated successfully",
+      data: serializeBigInt(updatedConfig),
     });
   } catch (err: any) {
-    console.error("Error while updating the config", err);
-    return res.status(400).json({
+    console.error("updateAdminConfig error:", err);
+
+    const status = err.message?.includes("Invalid") ? 400 : 500;
+    const message = err.message || "Internal server error";
+
+    return res.status(status).json({
       success: false,
-      error: err.message || "Internal server error",
+      error: message,
     });
   }
 }
@@ -261,7 +252,6 @@ export async function createMaterial(req: AdminAuthRequest, res: Response) {
       try {
         created = await prisma.material.create({
           data: {
-            code: generateSecureCode(12),
             name,
             description: description ?? null,
             image,
@@ -305,7 +295,6 @@ export async function createMaterial(req: AdminAuthRequest, res: Response) {
 export async function updateMaterial(req: AdminAuthRequest, res: Response) {
   try {
     const {
-      code,
       name,
       description,
       buyingCost,
@@ -316,15 +305,15 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
       isImageChanged,
     } = req.body;
 
-    if (!code) {
+    if (!name) {
       return res.status(400).json({
         success: false,
-        error: "Material code is required",
+        error: "Material name is required",
       });
     }
 
     const existing = await prisma.material.findUnique({
-      where: { code },
+      where: { name },
     });
 
     if (!existing) {
@@ -384,9 +373,8 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
 
     // ================= Update =================
     const updated = await prisma.material.update({
-      where: { code },
+      where: { name },
       data: {
-        name: name ?? existing.name,
         description: description ?? existing.description,
         image: image ?? existing.image,
         buyingCost:
@@ -1634,149 +1622,190 @@ export async function updateSwordMaterials(
 // }
 export async function createGift(req: AdminAuthRequest, res: Response) {
   try {
-    const { email, userId, items, note } = req.body;
-    let receiverId: bigint;
-    let receiverUser;
+    const {
+      email,
+      userId,
+      type,
+      amount,
+      materialId,
+      materialQuantity,
+      swordLevel,
+      swordQuantity,
+      note,
+    } = req.body;
 
-    // ---------- Resolve User ----------
+    // Only one item type per gift (schema constraint: exactly one non-null content field)
+    if (!Object.values(GiftItemType).includes(type)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid gift type. Allowed: ${Object.values(GiftItemType).join(", ")}`,
+      });
+    }
+
+    // ---------- Resolve Receiver ----------
+    let receiverId: bigint;
+    let receiver;
+
     if (userId) {
-      receiverUser = await prisma.user.findUnique({
+      receiver = await prisma.user.findUnique({
         where: { id: BigInt(userId) },
         select: { id: true, isBanned: true },
       });
-      if (!receiverUser) {
+      if (!receiver) {
         return res
           .status(404)
-          .json({ success: false, error: "User not found with this userId" });
+          .json({ success: false, error: "User not found (by userId)" });
       }
     } else if (email) {
-      receiverUser = await prisma.user.findUnique({
-        where: { email },
+      receiver = await prisma.user.findUnique({
+        where: { email: email as string },
         select: { id: true, isBanned: true },
       });
-      if (!receiverUser) {
+      if (!receiver) {
         return res
           .status(404)
-          .json({ success: false, error: "User not found with this email" });
+          .json({ success: false, error: "User not found (by email)" });
       }
     } else {
       return res
         .status(400)
-        .json({ success: false, error: "Provide userId or email" });
+        .json({ success: false, error: "Provide either userId or email" });
     }
 
-    // BANNED USER CHECK
-    if (receiverUser.isBanned) {
+    if (receiver.isBanned) {
       return res
         .status(403)
-        .json({ success: false, error: "Cannot send gifts to a banned user" });
-    }
-    receiverId = receiverUser.id;
-
-    // ---------- Validate Items ----------
-    if (!Array.isArray(items) || items.length === 0) {
-      return res
-        .status(400)
-        .json({ success: false, error: "At least one gift item is required" });
+        .json({ success: false, error: "Cannot send gifts to banned users" });
     }
 
-    // ---------- Validate & Verify Each Item ----------
-    for (const item of items) {
-      if (!Object.values(GiftItemType).includes(item.type)) {
-        return res.status(400).json({
-          success: false,
-          error: `Invalid gift item type: ${item.type}`,
-        });
-      }
+    receiverId = receiver.id;
 
-      // GOLD, TRUST_POINTS, SHIELD → require amount > 0
-      if (
-        ["GOLD", "TRUST_POINTS", "SHIELD"].includes(item.type) &&
-        (!item.amount || typeof item.amount !== "number" || item.amount <= 0)
-      ) {
-        return res.status(400).json({
-          success: false,
-          error: `${item.type} requires a positive amount`,
-        });
-      }
+    // ---------- Validate Content based on type ----------
+    let giftData: any = {
+      receiverId,
+      status: GiftStatus.PENDING,
+      note: note || null,
+      type,
+    };
 
-      // MATERIAL → require materialId & materialQuantity > 0
-      if (item.type === GiftItemType.MATERIAL) {
-        if (!item.materialId || Number(item.materialId) <= 0) {
+    switch (type) {
+      case GiftItemType.GOLD:
+      case GiftItemType.TRUST_POINTS:
+      case GiftItemType.SHIELD:
+        if (
+          typeof amount !== "number" ||
+          amount <= 0 ||
+          !Number.isInteger(amount)
+        ) {
           return res.status(400).json({
             success: false,
-            error: "Material gift requires valid materialId (integer)",
+            error: `${type} requires a positive integer amount`,
           });
         }
-        if (!item.materialQuantity || Number(item.materialQuantity) <= 0) {
+        giftData.amount = amount;
+        break;
+
+      case GiftItemType.MATERIAL:
+        if (!materialId || BigInt(materialId) <= 0n) {
           return res.status(400).json({
             success: false,
-            error: "Material gift requires positive materialQuantity",
+            error: "Valid materialId (positive bigint) required",
+          });
+        }
+        if (
+          !materialQuantity ||
+          !Number.isInteger(materialQuantity) ||
+          materialQuantity <= 0
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "Positive integer materialQuantity required",
           });
         }
 
-        const materialExists = await prisma.material.findUnique({
-          where: { id: BigInt(item.materialId) },
+        const material = await prisma.material.findUnique({
+          where: { id: BigInt(materialId) },
           select: { id: true },
         });
-        if (!materialExists) {
+        if (!material) {
           return res.status(404).json({
             success: false,
-            error: `Material not found (id=${item.materialId})`,
+            error: `Material not found (id=${materialId})`,
           });
         }
-      }
 
-      // SWORD → require swordLevel (integer)
-      if (item.type === GiftItemType.SWORD) {
-        if (item.swordLevel === undefined || Number(item.swordLevel) <= 0) {
+        giftData.materialId = BigInt(materialId);
+        giftData.materialQuantity = materialQuantity;
+        break;
+
+      case GiftItemType.SWORD:
+        if (!swordLevel || !Number.isInteger(swordLevel) || swordLevel <= 0) {
           return res.status(400).json({
             success: false,
-            error:
-              "Sword gift requires valid swordLevel (non-negative integer)",
+            error: "Valid swordLevel (positive integer) required",
+          });
+        }
+        if (
+          !swordQuantity ||
+          !Number.isInteger(swordQuantity) ||
+          swordQuantity <= 0
+        ) {
+          return res.status(400).json({
+            success: false,
+            error: "Positive integer swordQuantity required",
           });
         }
 
-        const swordLevelExists = await prisma.swordLevelDefinition.findUnique({
-          where: { level: item.swordLevel },
+        const swordDef = await prisma.swordLevelDefinition.findUnique({
+          where: { level: swordLevel },
           select: { id: true },
         });
-        if (!swordLevelExists) {
+        if (!swordDef) {
           return res.status(404).json({
             success: false,
-            error: `Sword level not found (level=${item.swordLevel})`,
+            error: `Sword level ${swordLevel} not found`,
           });
         }
-      }
+
+        giftData.swordId = swordDef.id; // note: swordId references .level (Int)
+        giftData.swordQuantity = swordQuantity;
+        break;
+
+      default:
+        return res
+          .status(400)
+          .json({ success: false, error: "Unsupported gift type" });
     }
 
-    // ---------- Create Gift ----------
-    const gift = await prisma.userGift.create({
-      data: {
-        receiverId,
-        note: note || null,
-        items: {
-          create: items.map((item: any) => ({
-            type: item.type,
-            amount: item.amount ? Number(item.amount) : null, // GOLD, TRUST_POINTS, SHIELD
-            materialId: item.materialId ? BigInt(item.materialId) : null,
-            materialQunatity: item.materialQuantity
-              ? Number(item.materialQuantity)
-              : null,
-            swordLevel: Number(item.swordLevel) ?? null,
-          })),
-        },
+    // Create the gift
+    const createdGift = await prisma.userGift.create({
+      data: giftData,
+      include: {
+        receiver: { select: { id: true, name: true, email: true } },
+        material:
+          type === GiftItemType.MATERIAL
+            ? { select: { id: true, name: true, rarity: true } }
+            : undefined,
+        swordLevelDefinition:
+          type === GiftItemType.SWORD
+            ? { select: { level: true, name: true } }
+            : undefined,
       },
-      include: { items: true },
     });
 
-    return res.json({
+    return res.status(201).json({
       success: true,
       message: "Gift created successfully",
-      data: serializeBigInt(gift),
+      data: serializeBigInt(createdGift),
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("createGift error:", err);
+    if (err.code === "P2003") {
+      // foreign key violation
+      return res
+        .status(400)
+        .json({ success: false, error: "Invalid reference (material/sword)" });
+    }
     return res
       .status(500)
       .json({ success: false, error: "Failed to create gift" });
@@ -1810,15 +1839,14 @@ export async function cancelGift(req: AdminAuthRequest, res: Response) {
       });
     }
 
-    const updated = await prisma.userGift.update({
+    await prisma.userGift.update({
       where: { id: BigInt(giftId) },
-      data: { status: GiftStatus.CANCELLED },
+      data: { status: GiftStatus.CANCELLED, cancelledAt: new Date() },
     });
 
     return res.json({
       success: true,
       message: "Gift cancelled successfully",
-      data: serializeBigInt(updated),
     });
   } catch (err) {
     console.error("cancelGift error:", err);
@@ -1856,7 +1884,6 @@ export async function deleteGift(req: AdminAuthRequest, res: Response) {
     }
 
     await prisma.$transaction([
-      prisma.userGiftItem.deleteMany({ where: { giftId: BigInt(giftId) } }),
       prisma.userGift.delete({ where: { id: BigInt(giftId) } }),
     ]);
 
