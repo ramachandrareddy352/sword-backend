@@ -166,20 +166,22 @@ export async function verifyRegistration(req: Request, res: Response) {
       });
     }
 
-    const levelOneSword = await prisma.swordLevelDefinition.findFirst({
+    // Find level 1 sword definition
+    const levelOneSwordDef = await prisma.swordLevelDefinition.findFirst({
       where: { level: 1 },
       select: { id: true, level: true },
     });
 
-    if (!levelOneSword) {
+    if (!levelOneSwordDef) {
       return res.status(500).json({
         success: false,
-        error: "Starter sword (level 1) not found",
+        error: "Starter sword definition (level 1) not found",
       });
     }
 
-    const user = await prisma.$transaction(async (tx) => {
-      const newUser = await tx.user.create({
+    const newUser = await prisma.$transaction(async (tx) => {
+      // Create the user
+      const createdUser = await tx.user.create({
         data: {
           email,
           name,
@@ -191,25 +193,34 @@ export async function verifyRegistration(req: Request, res: Response) {
         },
       });
 
-      const swordCode = generateSecureCode(12);
-      const createdSword = await tx.userSword.create({
-        data: {
-          code: swordCode,
-          userId: newUser.id,
-          level: levelOneSword.level,
+      // Directly give starter sword (level 1) with quantity 1
+      await tx.userSword.upsert({
+        where: {
+          userId_swordId: {
+            userId: createdUser.id,
+            swordId: BigInt(levelOneSwordDef.id),
+          },
+        },
+        update: {
+          unsoldQuantity: { increment: 1 },
+        },
+        create: {
+          userId: createdUser.id,
+          swordId: BigInt(levelOneSwordDef.id),
           isOnAnvil: true,
-          swordLevelDefinitionId: levelOneSword.id,
-          isSolded: false,
-          isBroken: false,
+          unsoldQuantity: 1,
+          soldedQuantity: 0,
+          brokenQuantity: 0,
         },
       });
 
+      // Set as anvil sword
       await tx.user.update({
-        where: { id: newUser.id },
-        data: { anvilSwordId: createdSword.id },
+        where: { id: createdUser.id },
+        data: { anvilSwordLevel: BigInt(levelOneSwordDef.id) },
       });
 
-      return newUser;
+      return createdUser;
     });
 
     // Cleanup Redis
@@ -220,18 +231,21 @@ export async function verifyRegistration(req: Request, res: Response) {
     // Create JWT session
     const jti = uuidv4();
     const token = jwt.sign(
-      { userId: user.id.toString(), jti },
+      { userId: newUser.id.toString(), jti },
       process.env.JWT_SECRET!,
       { expiresIn: "2h" },
     );
 
-    await redis.set(`session:${jti}`, user.id.toString(), { EX: 60 * 60 * 2 });
+    await redis.set(`session:${jti}`, newUser.id.toString(), {
+      EX: 60 * 60 * 2,
+    });
 
     return res.json({
       success: true,
-      message: "Registration successful! Welcome to the game.",
+      message:
+        "Registration successful! Welcome to the game. You received a starter sword (Level 1) and it has been placed on your anvil.",
       token,
-      data: serializeBigInt(user),
+      data: serializeBigInt(newUser),
     });
   } catch (err: any) {
     console.error("verifyRegistration error:", err);
@@ -465,15 +479,30 @@ export async function googleLogin(req: Request, res: Response) {
       where: { email },
     });
 
-    // 3️⃣ If not exists → create user
+    // 3️⃣ If not exists → create user + give starter sword directly
     if (!user) {
       const config = await prisma.adminConfig.findUnique({
         where: { id: BigInt(1) },
       });
 
-      const levelOneSword = await prisma.swordLevelDefinition.findFirst({
+      if (!config) {
+        return res.status(500).json({
+          success: false,
+          error: "Admin config not found",
+        });
+      }
+
+      const levelOneSwordDef = await prisma.swordLevelDefinition.findFirst({
         where: { level: 1 },
+        select: { id: true, level: true },
       });
+
+      if (!levelOneSwordDef) {
+        return res.status(500).json({
+          success: false,
+          error: "Starter sword definition (level 1) not found",
+        });
+      }
 
       user = await prisma.$transaction(async (tx) => {
         const newUser = await tx.user.create({
@@ -481,39 +510,45 @@ export async function googleLogin(req: Request, res: Response) {
             email,
             name: name?.toLowerCase().replace(/\s/g, "") || "googleuser",
             password: "", // No password for Google
-            gold: config?.defaultGold ?? 0,
-            trustPoints: config?.defaultTrustPoints ?? 0,
+            gold: config.defaultGold ?? 0,
+            trustPoints: config.defaultTrustPoints ?? 0,
             lastReviewed: new Date(),
             lastLoginAt: new Date(),
           },
         });
 
-        if (levelOneSword) {
-          const swordCode = generateSecureCode(12);
-
-          const createdSword = await tx.userSword.create({
-            data: {
-              code: swordCode,
+        // Directly give starter sword (level 1) with quantity 1
+        await tx.userSword.upsert({
+          where: {
+            userId_swordId: {
               userId: newUser.id,
-              level: levelOneSword.level,
-              isOnAnvil: true,
-              swordLevelDefinitionId: levelOneSword.id,
-              isSolded: false,
-              isBroken: false,
+              swordId: BigInt(levelOneSwordDef.id),
             },
-          });
+          },
+          update: {
+            unsoldQuantity: { increment: 1 },
+          },
+          create: {
+            userId: newUser.id,
+            swordId: BigInt(levelOneSwordDef.id),
+            isOnAnvil: true,
+            unsoldQuantity: 1,
+            soldedQuantity: 0,
+            brokenQuantity: 0,
+          },
+        });
 
-          await tx.user.update({
-            where: { id: newUser.id },
-            data: { anvilSwordId: createdSword.id },
-          });
-        }
+        // Set as anvil sword
+        await tx.user.update({
+          where: { id: newUser.id },
+          data: { anvilSwordLevel: BigInt(levelOneSwordDef.id) },
+        });
 
         return newUser;
       });
     }
 
-    // 4️⃣ Create JWT session (same as normal login)
+    // 4️⃣ Create JWT session
     const jti = uuidv4();
 
     const token = jwt.sign(
@@ -532,6 +567,10 @@ export async function googleLogin(req: Request, res: Response) {
         email: user.email,
         name: user.name,
       },
+      message:
+        user.createdAt.getTime() === user.lastLoginAt?.getTime()
+          ? "Welcome! You received a starter sword (Level 1) placed on your anvil."
+          : "Login successful!",
     });
   } catch (err) {
     console.error("Google login error:", err);

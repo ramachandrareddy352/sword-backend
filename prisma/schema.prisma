@@ -345,7 +345,7 @@ model SwordSellHistory {
   soldAt                 DateTime @default(now())
 
   user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Restrict)
+  swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
 
   @@index([userId, soldAt(sort: Desc)]) // user's sell history
   @@index([swordLevelDefinitionId, soldAt])
@@ -413,7 +413,7 @@ model MaterialSellHistory {
   soldAt     DateTime @default(now())
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  material Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
 
   @@index([userId, soldAt(sort: Desc)])
   @@index([materialId])

@@ -23,9 +23,8 @@ export async function resetDailyAdCountersIfNeeded(userId: bigint) {
   await prisma.user.update({
     where: { id: userId },
     data: {
-      oneDayAdsViewed: 0,
+      oneDayGoldAdsViewed: 0,
       oneDayShieldAdsViewed: 0,
-      todayMissionsDone: 0,
       oneDaySwordAdsViewed: 0,
       lastReviewed: now,
     },

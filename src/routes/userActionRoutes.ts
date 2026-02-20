@@ -2,7 +2,6 @@ import express from "express";
 import userAuth from "../middleware/userAuth";
 
 import {
-  toggleSound,
   createVoucher,
   cancelVoucher,
   createComplaint,
@@ -28,9 +27,6 @@ import {
 } from "../controllers/userActionController";
 
 const router = express.Router();
-
-/* ───────────────────── USER SETTINGS ───────────────────── */
-router.patch("/sound/toggle", userAuth, toggleSound);
 
 /* ───────────────────── VOUCHERS ───────────────────────── */
 
