@@ -268,8 +268,6 @@ model SwordLevelDefinition {
   userSwords                UserSword[]
   swordMarketplacePurchases SwordMarketplacePurchase[]
   swordSellHistories        SwordSellHistory[]
-  swordSynthesisHistories   SwordSynthesisHistory[]
-  swordUpgradeHistories     SwordUpgradeHistory[]
   userGifts                 UserGift[]
 }
 
@@ -310,8 +308,7 @@ model SwordSynthesisHistory {
 
   createdAt DateTime @default(now())
 
-  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -332,9 +329,7 @@ model SwordUpgradeHistory {
 
   createdAt DateTime @default(now())
 
-  user                     User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fromSwordLevelDefinition SwordLevelDefinition @relation(fields: [fromSwordLevelId], references: [id], onDelete: Cascade)
-  toSwordLevelDefinition   SwordLevelDefinition @relation(fields: [toSwordLevelId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -356,7 +351,7 @@ model SwordSellHistory {
 
 model UserSword {
   userId  BigInt @db.UnsignedBigInt
-  swordId Int    @db.UnsignedInt // references SwordLevelDefinition.level
+  swordId BigInt @db.UnsignedBigInt // references SwordLevelDefinition.level
 
   isOnAnvil      Boolean @default(false)
   unsoldQuantity Int     @default(0) @db.UnsignedInt
@@ -460,7 +455,7 @@ model UserGift {
   material         Material? @relation(fields: [materialId], references: [id], onDelete: Cascade)
 
   // For SWORD
-  swordId              Int?                  @db.UnsignedInt
+  swordId              BigInt?               @db.UnsignedBigInt
   swordQuantity        Int?                  @db.UnsignedInt
   swordLevelDefinition SwordLevelDefinition? @relation(fields: [swordId], references: [id], onDelete: Cascade)
 

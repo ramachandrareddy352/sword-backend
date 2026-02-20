@@ -33,9 +33,7 @@ export const getAllSwords = async (req: Request, res: Response) => {
       orderBy,
       skip: pagination.skip,
       take: pagination.take,
-      // ────────────────────────────────────────────────
-      // Option A: Use include (recommended when you want relations)
-      // ────────────────────────────────────────────────
+      // Use include (recommended when you want relations)
       include:
         includeRelations === "true"
           ? {
@@ -47,7 +45,7 @@ export const getAllSwords = async (req: Request, res: Response) => {
               },
               upgradeDrops: {
                 select: {
-                  material: true, // Return full material data in upgrade
+                  material: true,
                   dropPercentage: true,
                   minQuantity: true,
                   maxQuantity: true,
@@ -56,17 +54,6 @@ export const getAllSwords = async (req: Request, res: Response) => {
             }
           : undefined,
     });
-
-    if (swords.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: "No swords found in the game",
-        data: [],
-        total,
-        page: pagination.page,
-        limit: pagination.limit,
-      });
-    }
 
     return res.status(200).json({
       success: true,
@@ -88,7 +75,11 @@ export const getAllSwords = async (req: Request, res: Response) => {
 // 2) Single sword by level or name (full details with relations)
 export const getSword = async (req: Request, res: Response) => {
   try {
-    const { level, name } = req.query;
+    const {
+      level,
+      name,
+      includeRelations, // 'true' to include relations
+    } = req.query;
 
     if (!level && !name) {
       return res.status(400).json({
@@ -101,48 +92,25 @@ export const getSword = async (req: Request, res: Response) => {
     if (level) {
       sword = await prisma.swordLevelDefinition.findUnique({
         where: { level: Number(level) },
-        include: {
-          synthesisRequirements: {
-            select: {
-              material: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  description: true,
-                  rarity: true,
-                  image: true,
-                  sellingCost: true,
-                  buyingCost: true,
-                  isBuyingAllow: true,
-                  isSellingAllow: true,
+        include:
+          includeRelations === "true"
+            ? {
+                synthesisRequirements: {
+                  select: {
+                    material: true,
+                    requiredQuantity: true,
+                  },
                 },
-              },
-              requiredQuantity: true,
-            },
-          },
-          upgradeDrops: {
-            select: {
-              dropPercentage: true,
-              minQuantity: true,
-              maxQuantity: true,
-              material: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  description: true,
-                  rarity: true,
-                  image: true,
-                  sellingCost: true,
-                  buyingCost: true,
-                  isBuyingAllow: true,
-                  isSellingAllow: true,
+                upgradeDrops: {
+                  select: {
+                    material: true,
+                    dropPercentage: true,
+                    minQuantity: true,
+                    maxQuantity: true,
+                  },
                 },
-              },
-            },
-          },
-        },
+              }
+            : undefined,
       });
     } else if (name) {
       sword = await prisma.swordLevelDefinition.findUnique({
@@ -243,26 +211,11 @@ export const getAllMaterials = async (req: Request, res: Response) => {
 
     // Count total (with filter applied)
     const total = await prisma.material.count({ where });
-
     const materials = await prisma.material.findMany({
       where,
       orderBy,
       skip: pagination.skip,
       take: pagination.take,
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        description: true,
-        image: true,
-        rarity: true,
-        buyingCost: true,
-        sellingCost: true,
-        isBuyingAllow: true,
-        isSellingAllow: true,
-        createdAt: true,
-        updatedAt: true,
-      },
     });
 
     if (materials.length === 0) {
@@ -330,7 +283,6 @@ export const getMaterial = async (req: Request, res: Response) => {
         where: { code: code as string },
         select: {
           id: true,
-          code: true,
           name: true,
           description: true,
           image: true,
@@ -662,7 +614,6 @@ export const getPurchasedMaterials = async (req: Request, res: Response) => {
           select: {
             id: true,
             name: true,
-            code: true,
             description: true,
             rarity: true,
             image: true,
@@ -770,23 +721,28 @@ export const getAdminConfig = async (_req: Request, res: Response) => {
   try {
     // Fetch the single AdminConfig row (id is fixed to 1 as per your schema)
     const config = await prisma.adminConfig.findUnique({
-      where: { id: 1 }, // BigInt literal (1n),
+      where: { id: 1n }, // BigInt literal (1n),
       select: {
         shieldGoldPrice: true,
         maxDailyShieldAds: true,
         maxShieldHold: true,
         shieldActiveOnMarketplace: true,
-        maxDailySwordAds: true,
-        swordLevelReward: true,
-        maxDailyAds: true,
-        maxDailyMissions: true,
+
         defaultTrustPoints: true,
         defaultGold: true,
+
+        maxDailySwordAds: true,
+        swordLevelReward: true,
+
+        maxDailyGoldAds: true,
         goldReward: true,
+
         minVoucherGold: true,
         maxVoucherGold: true,
         voucherExpiryDays: true,
         expiryAllow: true,
+
+        isShoppingAllowed: true,
       },
     });
 
