@@ -9,35 +9,22 @@ export const getUserRank = async (req: UserAuthRequest, res: Response) => {
   try {
     const userId = BigInt(req.user.userId);
 
-    // ─── Fetch current user + total active users count ──────────────────────
-    const [currentUser, totalActiveUsers] = await prisma.$transaction([
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          id: true,
-          gold: true,
-          trustPoints: true,
-          totalShields: true,
-          totalAdsViewed: true,
-          totalMissionsDone: true,
-          createdAt: true,
-          isBanned: true,
-          anvilSwordLevel: true,
-          // For totalSwords calculation
-          swords: {
-            select: { unsoldQuantity: true },
-          },
-          // For totalMaterials calculation
-          materials: {
-            select: { unsoldQuantity: true },
-          },
-        },
-      }),
-
-      prisma.user.count({
-        where: { isBanned: false },
-      }),
-    ]);
+    // Fetch current user
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        gold: true,
+        trustPoints: true,
+        totalShields: true,
+        totalAdsViewed: true,
+        totalMissionsDone: true,
+        createdAt: true,
+        isBanned: true,
+        swords: { select: { unsoldQuantity: true } },
+        materials: { select: { unsoldQuantity: true } },
+      },
+    });
 
     if (!currentUser || currentUser.isBanned) {
       return res.status(404).json({
@@ -46,7 +33,7 @@ export const getUserRank = async (req: UserAuthRequest, res: Response) => {
       });
     }
 
-    // Compute user's own stats
+    // Compute user's stats
     const userStats = {
       userId: userId.toString(),
       gold: Number(currentUser.gold),
@@ -63,10 +50,40 @@ export const getUserRank = async (req: UserAuthRequest, res: Response) => {
         0,
       ),
       createdAt: currentUser.createdAt,
-      anvilSwordLevel: currentUser.anvilSwordLevel?.toString() ?? null,
     };
 
-    // ─── Define ranking categories (same as your leaderboard) ───────────────
+    // Fetch ALL non-banned users (with minimal fields needed for ranking)
+    const allUsers = await prisma.user.findMany({
+      where: { isBanned: false },
+      select: {
+        id: true,
+        gold: true,
+        trustPoints: true,
+        totalShields: true,
+        totalAdsViewed: true,
+        totalMissionsDone: true,
+        createdAt: true,
+        swords: { select: { unsoldQuantity: true } },
+        materials: { select: { unsoldQuantity: true } },
+      },
+    });
+
+    const totalActiveUsers = allUsers.length;
+
+    // Compute stats for every user
+    const leaderboardData = allUsers.map((u) => ({
+      userId: u.id.toString(),
+      gold: Number(u.gold),
+      trustPoints: u.trustPoints,
+      totalShields: u.totalShields,
+      totalAdsViewed: u.totalAdsViewed,
+      totalMissionsDone: u.totalMissionsDone,
+      totalSwords: u.swords.reduce((sum, s) => sum + s.unsoldQuantity, 0),
+      totalMaterials: u.materials.reduce((sum, m) => sum + m.unsoldQuantity, 0),
+      createdAt: u.createdAt,
+    }));
+
+    // Define ranking categories
     const rankCategories = [
       "totalSwords",
       "totalMaterials",
@@ -85,29 +102,22 @@ export const getUserRank = async (req: UserAuthRequest, res: Response) => {
       { rank: number; value: number | Date; totalUsers: number }
     > = {} as any;
 
-    // ─── Compute rank for each category ─────────────────────────────────────
+    // Compute rank for each category
     for (const category of rankCategories) {
-      // We only need ordering + position → use find with orderBy
       let rank = 1;
 
       if (category === "createdAt") {
-        // Newer = better rank
-        const newerUsers = await prisma.user.count({
-          where: {
-            isBanned: false,
-            createdAt: { gt: userStats.createdAt },
-          },
-        });
-        rank = newerUsers + 1;
+        // Newer = better (higher rank = smaller number)
+        const better = leaderboardData.filter(
+          (u) => u.createdAt > userStats.createdAt,
+        ).length;
+        rank = better + 1;
       } else {
-        // Higher number = better rank
-        const betterUsers = await prisma.user.count({
-          where: {
-            isBanned: false,
-            [category]: { gt: userStats[category] },
-          },
-        });
-        rank = betterUsers + 1;
+        // Higher number = better
+        const better = leaderboardData.filter(
+          (u) => (u[category] as number) > (userStats[category] as number),
+        ).length;
+        rank = better + 1;
       }
 
       userRanks[category] = {
@@ -1318,7 +1328,7 @@ export const getUserOneTimeMissions = async (
                 createdAt: timeFilter,
                 success: true,
                 ...(cond.level && {
-                  sword: { level: cond.level },
+                  fromSwordLevelDefinition: { level: cond.level },
                 }),
               },
             });

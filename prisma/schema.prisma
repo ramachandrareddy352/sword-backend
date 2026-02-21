@@ -269,6 +269,8 @@ model SwordLevelDefinition {
   swordMarketplacePurchases SwordMarketplacePurchase[]
   swordSellHistories        SwordSellHistory[]
   userGifts                 UserGift[]
+  swordSynthesisHistories   SwordSynthesisHistory[]
+  swordUpgradeHistories     SwordUpgradeHistory[]
 }
 
 model SwordSynthesisRequirement {
@@ -312,6 +314,8 @@ model SwordSynthesisHistory {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  swordLevelDefinition SwordLevelDefinition @relation(fields: [swordLevelDefinitionId], references: [id], onDelete: Cascade)
+
   @@index([userId])
 }
 
@@ -332,6 +336,8 @@ model SwordUpgradeHistory {
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fromSwordLevelDefinition SwordLevelDefinition @relation(fields: [fromSwordLevelId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
