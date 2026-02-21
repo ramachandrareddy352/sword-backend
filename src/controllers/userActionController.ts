@@ -2165,8 +2165,8 @@ export const claimDailyMission = async (
 
     const missionIdBig = BigInt(missionId);
 
-    await prisma.$transaction(async (tx) => {
-      // 1. Fetch the mission definition
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Fetch mission definition
       const mission = await tx.dailyMissionDefinition.findUnique({
         where: { id: missionIdBig },
         select: {
@@ -2187,7 +2187,7 @@ export const claimDailyMission = async (
         throw new Error("This mission is no longer active");
       }
 
-      // 2. Parse and validate conditions
+      // 2. Validate "completeAllAds" condition and get adType
       let adType: string | undefined;
 
       try {
@@ -2221,7 +2221,7 @@ export const claimDailyMission = async (
         throw new Error("Invalid mission configuration");
       }
 
-      // 3. Fetch user and config
+      // 3. Fetch user ad views + admin config
       const [user, config] = await Promise.all([
         tx.user.findUnique({
           where: { id: userId },
@@ -2241,20 +2241,13 @@ export const claimDailyMission = async (
         }),
       ]);
 
-      if (!user) {
-        throw new Error("User not found");
-      }
-      if (!config) {
-        throw new Error("Server configuration missing");
-      }
+      if (!user) throw new Error("User not found");
+      if (!config) throw new Error("Server configuration missing");
 
       // 4. Check if already claimed today
       const progress = await tx.userDailyMissionProgress.findUnique({
         where: {
-          userId_missionId: {
-            userId,
-            missionId: missionIdBig,
-          },
+          userId_missionId: { userId, missionId: missionIdBig },
         },
       });
 
@@ -2269,7 +2262,7 @@ export const claimDailyMission = async (
         throw new Error("You have already claimed this mission today");
       }
 
-      // 5. Validate completion
+      // 5. Validate ad completion
       let eligible = false;
 
       switch (adType) {
@@ -2288,8 +2281,10 @@ export const claimDailyMission = async (
         throw new Error("You have not completed the required ads yet");
       }
 
-      // 6. Grant reward
+      // 6. Grant reward (now supports quantity for swords)
       const reward = mission.reward as any;
+
+      let rewardMessage = "";
 
       switch (reward?.type) {
         case "gold":
@@ -2300,6 +2295,7 @@ export const claimDailyMission = async (
             where: { id: userId },
             data: { gold: { increment: reward.amount } },
           });
+          rewardMessage = `${reward.amount} gold`;
           break;
 
         case "trustPoints":
@@ -2310,6 +2306,7 @@ export const claimDailyMission = async (
             where: { id: userId },
             data: { trustPoints: { increment: reward.amount } },
           });
+          rewardMessage = `${reward.amount} trust points`;
           break;
 
         case "shield":
@@ -2320,35 +2317,47 @@ export const claimDailyMission = async (
             where: { id: userId },
             data: { totalShields: { increment: reward.quantity } },
           });
+          rewardMessage = `${reward.quantity} shield${reward.quantity > 1 ? "s" : ""}`;
           break;
 
         case "sword":
-          if (typeof reward.level !== "number" || reward.level < 1) {
-            throw new Error("Invalid sword reward level");
+          if (
+            typeof reward.level !== "number" ||
+            reward.level < 1 ||
+            typeof reward.quantity !== "number" ||
+            reward.quantity < 1
+          ) {
+            throw new Error(
+              "Invalid sword reward: level and quantity required",
+            );
           }
+
           const swordDef = await tx.swordLevelDefinition.findUnique({
             where: { level: reward.level },
           });
+
           if (!swordDef) {
             throw new Error(`Sword level ${reward.level} not found`);
           }
 
           await tx.userSword.upsert({
             where: {
-              userId_swordId: { userId, swordId: BigInt(reward.level) },
+              userId_swordId: { userId, swordId: swordDef.id },
             },
             update: {
-              unsoldQuantity: { increment: 1 },
+              unsoldQuantity: { increment: reward.quantity },
             },
             create: {
               userId,
-              swordId: BigInt(reward.level),
+              swordId: swordDef.id,
               isOnAnvil: false,
-              unsoldQuantity: 1,
+              unsoldQuantity: reward.quantity,
               soldedQuantity: 0,
               brokenQuantity: 0,
             },
           });
+
+          rewardMessage = `${reward.quantity} × ${swordDef.name} (Lv ${reward.level})`;
           break;
 
         case "material":
@@ -2359,6 +2368,7 @@ export const claimDailyMission = async (
           ) {
             throw new Error("Invalid material reward data");
           }
+
           await tx.userMaterial.upsert({
             where: {
               userId_materialId: {
@@ -2376,13 +2386,15 @@ export const claimDailyMission = async (
               soldedQuantity: 0,
             },
           });
+
+          rewardMessage = `${reward.quantity} × material ID ${reward.materialId}`;
           break;
 
         default:
           throw new Error(`Unsupported reward type: ${reward?.type}`);
       }
 
-      // 7. Update mission counters
+      // 7. Update user mission counter
       await tx.user.update({
         where: { id: userId },
         data: {
@@ -2390,12 +2402,10 @@ export const claimDailyMission = async (
         },
       });
 
-      // 8. Record claim / update progress
+      // 8. Record / update progress
       if (progress) {
         await tx.userDailyMissionProgress.update({
-          where: {
-            userId_missionId: { userId, missionId: missionIdBig },
-          },
+          where: { userId_missionId: { userId, missionId: missionIdBig } },
           data: {
             claimedTimes: { increment: 1 },
             lastClaimedAt: now,
@@ -2412,13 +2422,13 @@ export const claimDailyMission = async (
         });
       }
 
-      return { success: true };
+      return {
+        success: true,
+        message: `Daily mission claimed successfully! Reward: ${rewardMessage}`,
+      };
     });
 
-    return res.json({
-      success: true,
-      message: "Daily mission claimed successfully",
-    });
+    return res.json(result);
   } catch (err: any) {
     console.error("claimDailyMission error:", {
       userId: req.user?.userId,
@@ -2428,8 +2438,9 @@ export const claimDailyMission = async (
     });
 
     const status =
-      err.message.includes("not found") ||
-      err.message.includes("already claimed")
+      err.message?.includes("not found") ||
+      err.message?.includes("already claimed") ||
+      err.message?.includes("Invalid")
         ? 400
         : 500;
 

@@ -505,42 +505,22 @@ export const getAllUsersGifts = async (
             },
           },
 
-          material:
-            type === "MATERIAL"
-              ? {
-                  select: {
-                    id: true,
-                    name: true,
-                    description: true,
-                    image: true,
-                    rarity: true,
-                    buyingCost: true,
-                    sellingCost: true,
-                    isBuyingAllow: true,
-                    isSellingAllow: true,
-                  },
-                }
-              : undefined,
+          material: {
+            select: {
+              id: true,
+              name: true,
+              image: true,
+              rarity: true,
+            },
+          },
 
-          swordLevelDefinition:
-            type === "SWORD"
-              ? {
-                  select: {
-                    level: true,
-                    name: true,
-                    image: true,
-                    description: true,
-                    upgradeCost: true,
-                    buyingCost: true,
-                    sellingCost: true,
-                    synthesizeCost: true,
-                    successRate: true,
-                    isBuyingAllow: true,
-                    isSellingAllow: true,
-                    isSynthesizeAllow: true,
-                  },
-                }
-              : undefined,
+          swordLevelDefinition: {
+            select: {
+              level: true,
+              name: true,
+              image: true,
+            },
+          },
         },
       }),
 
@@ -609,8 +589,6 @@ export const getAllCustomerSupports = async (
             email: true,
             name: true,
             isBanned: true,
-            gold: true,
-            trustPoints: true,
           },
         },
       },
