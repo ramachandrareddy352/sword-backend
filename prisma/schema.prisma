@@ -50,7 +50,7 @@ model User {
   gold            Int     @default(0) @db.UnsignedInt
   trustPoints     Int     @default(100) @db.UnsignedInt
   totalShields    Int     @default(0) @db.UnsignedInt
-  anvilSwordLevel BigInt? @unique @db.UnsignedBigInt // atleast sword should be in anvil(main), if sword is lost during upgrade, so we use optional here
+  anvilSwordLevel BigInt? @db.UnsignedBigInt // atleast sword should be in anvil(main), if sword is lost during upgrade, so we use optional here
 
   createdAt    DateTime  @default(now())
   lastReviewed DateTime // the last time the account is reviewed (e.g., for verification status)
