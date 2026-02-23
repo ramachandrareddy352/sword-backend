@@ -696,28 +696,40 @@ export const getAdminConfig = async (_req: Request, res: Response) => {
   try {
     // Fetch the single AdminConfig row (id is fixed to 1 as per your schema)
     const config = await prisma.adminConfig.findUnique({
-      where: { id: 1n }, // BigInt literal (1n),
+      where: { id: 1n }, // BigInt literal (1n)
       select: {
+        // ── Existing Shield Config ───────────────────────────────────────
         shieldGoldPrice: true,
         maxDailyShieldAds: true,
         maxShieldHold: true,
         shieldActiveOnMarketplace: true,
 
+        // ── Default values for new users ─────────────────────────────────
         defaultTrustPoints: true,
         defaultGold: true,
 
+        // ── Sword & Gold Ads ─────────────────────────────────────────────
         maxDailySwordAds: true,
         swordLevelReward: true,
-
         maxDailyGoldAds: true,
         goldReward: true,
 
+        // ── Voucher settings ─────────────────────────────────────────────
         minVoucherGold: true,
         maxVoucherGold: true,
         voucherExpiryDays: true,
         expiryAllow: true,
 
+        // ── Shopping permission ──────────────────────────────────────────
         isShoppingAllowed: true,
+
+        // ── NEW: App Version & Update Control Fields ─────────────────────
+        minRequiredVersion: true, // e.g. "1.2.0"
+        latestVersion: true, // e.g. "1.5.3"
+        mandatoryUpdateMessage: true, // Message for forced update
+        notificationUpdateMessage: true, // Message for optional update
+        playStoreLink: true, // Google Play Store URL
+        appStoreLink: true, // Apple App Store URL
       },
     });
 
@@ -739,6 +751,102 @@ export const getAdminConfig = async (_req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: "Failed to fetch admin configuration",
+    });
+  }
+};
+
+function parseVersion(version: string): [number, number, number] {
+  const parts = version.split(".").map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) {
+    throw new Error("Invalid version format. Expected: major.minor.patch");
+  }
+  return [parts[0], parts[1], parts[2]];
+}
+
+// GET /public/version-check?version=1.2.3&platform=android
+export const getAppVersionCheck = async (req: Request, res: Response) => {
+  try {
+    const { version, platform } = req.query;
+
+    if (!version || typeof version !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "version query parameter is required (e.g., '1.2.3')",
+      });
+    }
+
+    if (!platform || !["android", "ios"].includes(platform as string)) {
+      return res.status(400).json({
+        success: false,
+        error: "platform must be 'android' or 'ios'",
+      });
+    }
+
+    // Fetch config (cache if needed in production)
+    const config = await prisma.adminConfig.findUnique({
+      where: { id: BigInt(1) },
+      select: {
+        minRequiredVersion: true,
+        latestVersion: true,
+        mandatoryUpdateMessage: true,
+        notificationUpdateMessage: true,
+        playStoreLink: true,
+        appStoreLink: true,
+      },
+    });
+
+    if (!config || !config.minRequiredVersion || !config.latestVersion) {
+      return res.status(500).json({
+        success: false,
+        error: "Version configuration not set up",
+      });
+    }
+
+    let userVersionTuple: [number, number, number];
+    try {
+      userVersionTuple = parseVersion(version);
+    } catch {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid version format. Use major.minor.patch (e.g., '1.2.3')",
+      });
+    }
+
+    const minRequiredTuple = parseVersion(config.minRequiredVersion);
+    const latestTuple = parseVersion(config.latestVersion);
+
+    const link =
+      platform === "android" ? config.playStoreLink : config.appStoreLink;
+
+    if (userVersionTuple < minRequiredTuple) {
+      return res.json({
+        success: true,
+        required: true,
+        message:
+          config.mandatoryUpdateMessage ||
+          "Your app version is outdated. Please update to continue playing.",
+        link: link || null,
+      });
+    } else if (userVersionTuple < latestTuple) {
+      return res.json({
+        success: true,
+        required: false,
+        message:
+          config.notificationUpdateMessage ||
+          "A new version is available! Update for the latest features.",
+        link: link || null,
+      });
+    } else {
+      return res.json({
+        success: true,
+        upToDate: true,
+      });
+    }
+  } catch (err: any) {
+    console.error("getAppVersionCheck error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
     });
   }
 };

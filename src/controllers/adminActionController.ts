@@ -48,6 +48,19 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
       }
     };
 
+    // Helper to validate semantic version string (major.minor.patch)
+    const validateVersion = (value: any, fieldName: string) => {
+      if (typeof value !== "string") {
+        throw new Error(`${fieldName} must be a string`);
+      }
+      const parts = value.split(".");
+      if (parts.length !== 3 || parts.some((p) => !/^\d+$/.test(p))) {
+        throw new Error(
+          `Invalid ${fieldName} format. Expected: major.minor.patch (e.g., "1.2.3")`,
+        );
+      }
+    };
+
     // ================= Shield Config =================
     if (data.shieldGoldPrice !== undefined) {
       validateUnsignedInt(data.shieldGoldPrice, "shieldGoldPrice");
@@ -139,6 +152,82 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
       updateData.isShoppingAllowed = Boolean(data.isShoppingAllowed);
     }
 
+    // ================= NEW: App Version & Update Control =================
+    if (data.minRequiredVersion !== undefined) {
+      validateVersion(data.minRequiredVersion, "minRequiredVersion");
+      updateData.minRequiredVersion = data.minRequiredVersion.trim();
+    }
+
+    if (data.latestVersion !== undefined) {
+      validateVersion(data.latestVersion, "latestVersion");
+      updateData.latestVersion = data.latestVersion.trim();
+    }
+
+    // Cross-check: minRequiredVersion should not be higher than latestVersion
+    if (
+      updateData.minRequiredVersion &&
+      updateData.latestVersion &&
+      parseVersion(updateData.minRequiredVersion) >
+        parseVersion(updateData.latestVersion)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "minRequiredVersion cannot be higher than latestVersion",
+      });
+    }
+
+    if (data.mandatoryUpdateMessage !== undefined) {
+      if (
+        typeof data.mandatoryUpdateMessage !== "string" ||
+        data.mandatoryUpdateMessage.trim().length < 10
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "mandatoryUpdateMessage must be a string with at least 10 characters",
+        });
+      }
+      updateData.mandatoryUpdateMessage = data.mandatoryUpdateMessage.trim();
+    }
+
+    if (data.notificationUpdateMessage !== undefined) {
+      if (
+        typeof data.notificationUpdateMessage !== "string" ||
+        data.notificationUpdateMessage.trim().length < 5
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "notificationUpdateMessage must be a string with at least 5 characters",
+        });
+      }
+      updateData.notificationUpdateMessage =
+        data.notificationUpdateMessage.trim();
+    }
+
+    if (data.playStoreLink !== undefined) {
+      if (
+        typeof data.playStoreLink !== "string" ||
+        !data.playStoreLink.trim()
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: "playStoreLink must be a valid URL string",
+        });
+      }
+      updateData.playStoreLink = data.playStoreLink.trim();
+    }
+
+    if (data.appStoreLink !== undefined) {
+      if (typeof data.appStoreLink !== "string" || !data.appStoreLink.trim()) {
+        return res.status(400).json({
+          success: false,
+          error: "appStoreLink must be a valid URL string",
+        });
+      }
+      updateData.appStoreLink = data.appStoreLink.trim();
+    }
+
     // ================= Protected fields =================
     if (data.adminEmailId !== undefined) {
       return res.status(403).json({
@@ -168,7 +257,10 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
   } catch (err: any) {
     console.error("updateAdminConfig error:", err);
 
-    const status = err.message?.includes("Invalid") ? 400 : 500;
+    const status =
+      err.message?.includes("Invalid") || err.message?.includes("cannot")
+        ? 400
+        : 500;
     const message = err.message || "Internal server error";
 
     return res.status(status).json({
@@ -176,6 +268,15 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
       error: message,
     });
   }
+}
+
+// Helper function used above (you can place it inside the file or in a utils file)
+function parseVersion(version: string): [number, number, number] {
+  const parts = version.split(".").map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) {
+    throw new Error("Invalid version format. Expected: major.minor.patch");
+  }
+  return [parts[0], parts[1], parts[2]];
 }
 
 // 2) Create material, name should be unique

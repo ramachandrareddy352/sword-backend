@@ -33,6 +33,13 @@ model AdminConfig {
 
   isShoppingAllowed Boolean @default(true) // if true, usres can use gold cooins in other shopping app
 
+  minRequiredVersion        String? // e.g. "1.2.0"
+  latestVersion             String? // e.g. "1.5.0"
+  mandatoryUpdateMessage    String? // Message for mandatory update
+  notificationUpdateMessage String? // Message for optional notification
+  playStoreLink             String? // Google Play link
+  appStoreLink              String? // Apple App Store link
+
   adminEmailId String
   updatedAt    DateTime @updatedAt
 

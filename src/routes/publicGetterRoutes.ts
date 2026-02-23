@@ -10,6 +10,7 @@ import {
   // getPurchasedMaterials,
   // getPurchasedShields,
   getAdminConfig,
+  getAppVersionCheck,
 } from "../controllers/publicGetterController";
 
 const router = express.Router();
@@ -42,4 +43,5 @@ router.get("/leaderboard", getLeaderboard);
 // All shield purchases
 router.get("/admin/config", getAdminConfig);
 
+router.get("/version-check", getAppVersionCheck);
 export default router;
