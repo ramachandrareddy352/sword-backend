@@ -2051,7 +2051,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     if (
       !session ||
       session.userId !== userId ||
-      // session.rewarded !== true ||
+      session.rewarded !== true || // SSV Admob verification
       session.rewardedAt !== null
     ) {
       return res
