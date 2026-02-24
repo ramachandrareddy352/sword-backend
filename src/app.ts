@@ -8,6 +8,7 @@ config();
 
 const PORT = process.env.PORT || 5000;
 
+
 server.listen(PORT, async () => {
   await connectRedis();
   console.log(`Server running on port ${PORT}`);
