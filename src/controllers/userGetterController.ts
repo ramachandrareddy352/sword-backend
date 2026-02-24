@@ -161,7 +161,12 @@ export const getUserSwords = async (req: UserAuthRequest, res: Response) => {
     }
 
     // Build where clause (always scoped to current user)
-    const where: any = { userId };
+    const where: any = {
+      userId,
+      unsoldQuantity: {
+        gt: 0,
+      },
+    };
 
     // Build orderBy
     const orderBy: any[] = [];
@@ -338,6 +343,9 @@ export const getUserMaterials = async (req: UserAuthRequest, res: Response) => {
     /* ---------------- WHERE ---------------- */
     const where: any = {
       userId,
+      unsoldQuantity: {
+        gt: 0,
+      },
     };
 
     if (filterRarity) {
