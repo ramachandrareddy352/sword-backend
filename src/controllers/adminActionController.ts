@@ -877,12 +877,22 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
       _max: { level: true },
     });
 
-    const nextLevel = (maxLevel._max.level ?? 0) + 1;
+    const currentMax = maxLevel._max.level ?? 0;
+    const nextLevel = currentMax + 1;
 
     if (nextLevel > 100) {
       return res.status(400).json({
         success: false,
         error: "Maximum sword level (100) reached",
+      });
+    }
+
+    // Safety check: ensure no gap (someone deleted a record manually)
+    const count = await prisma.swordLevelDefinition.count();
+    if (count !== currentMax) {
+      return res.status(400).json({
+        success: false,
+        error: `Level sequence is broken (expected ${currentMax} records, found ${count}). Contact developer.`,
       });
     }
 
@@ -917,6 +927,7 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
     const sword = await prisma.$transaction(async (tx) => {
       const created = await tx.swordLevelDefinition.create({
         data: {
+          id: BigInt(nextLevel),
           level: nextLevel,
           name: name.trim(),
           synthesizeName: synthesizeName.trim(),
