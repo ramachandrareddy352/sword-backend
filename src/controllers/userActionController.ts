@@ -1433,7 +1433,7 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
       goldSpent: upgradeCost,
     };
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       // Always deduct cost
       await tx.user.update({
         where: { id: userId },
@@ -1584,21 +1584,31 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
                 (selectedDrop.maxQuantity - selectedDrop.minQuantity + 1),
             ) + selectedDrop.minQuantity;
 
-          await tx.userMaterial.upsert({
-            where: {
-              userId_materialId: {
+          let byproduct = null;
+
+          if (qty > 0) {
+            // Give material to user
+            await tx.userMaterial.upsert({
+              where: {
+                userId_materialId: {
+                  userId,
+                  materialId: selectedDrop.materialId,
+                },
+              },
+              update: { unsoldQuantity: { increment: qty } },
+              create: {
                 userId,
                 materialId: selectedDrop.materialId,
+                unsoldQuantity: qty,
+                soldedQuantity: 0,
               },
-            },
-            update: { unsoldQuantity: { increment: qty } },
-            create: {
-              userId,
+            });
+
+            byproduct = {
               materialId: selectedDrop.materialId,
-              unsoldQuantity: qty,
-              soldedQuantity: 0,
-            },
-          });
+              quantity: qty,
+            };
+          }
 
           historyData.droppedMaterialId = selectedDrop.materialId;
           historyData.droppedQuantity = qty;
@@ -1606,10 +1616,13 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
           result = {
             type: "broken_failure",
             message:
-              "Upgrade failed! Sword broke, but received random material as byproduct.",
+              "Upgrade failed! Sword broke" +
+              (qty > 0
+                ? ", but received random material as byproduct."
+                : ". No material dropped this time."),
             swordBroken: true,
             shieldConsumed: false,
-            byproduct: { materialId: selectedDrop.materialId, quantity: qty },
+            byproduct,
           };
         }
       }

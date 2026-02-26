@@ -834,7 +834,7 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
         });
       }
 
-      if (Number(m.minQuantity) <= 0 || isNaN(Number(m.minQuantity))) {
+      if (isNaN(Number(m.minQuantity)) || Number(m.minQuantity) < 0) {
         return res.status(400).json({
           success: false,
           error: `Material ID ${m.materialId}: minQuantity must be positive integer`,
@@ -848,10 +848,10 @@ export async function createSwordLevel(req: AdminAuthRequest, res: Response) {
         });
       }
 
-      if (Number(m.maxQuantity) < Number(m.minQuantity)) {
+      if (Number(m.maxQuantity) <= Number(m.minQuantity)) {
         return res.status(400).json({
           success: false,
-          error: `Material ID ${m.materialId}: maxQuantity must be ≥ minQuantity`,
+          error: `Material ID ${m.materialId}: maxQuantity must be > minQuantity`,
         });
       }
     }
@@ -1386,7 +1386,7 @@ export async function updateUpgradeDrops(req: AdminAuthRequest, res: Response) {
       if (
         typeof m.minQuantity !== "number" ||
         !Number.isInteger(m.minQuantity) ||
-        m.minQuantity <= 0
+        m.minQuantity < 0
       ) {
         return res.status(400).json({
           success: false,
@@ -1403,10 +1403,10 @@ export async function updateUpgradeDrops(req: AdminAuthRequest, res: Response) {
           error: `maxQuantity must be positive integer for material ${m.materialId}`,
         });
       }
-      if (m.maxQuantity < m.minQuantity) {
+      if (m.maxQuantity <= m.minQuantity) {
         return res.status(400).json({
           success: false,
-          error: `maxQuantity >= minQuantity required for material ${m.materialId}`,
+          error: `maxQuantity > minQuantity required for material ${m.materialId}`,
         });
       }
       totalDrop += m.dropPercentage;
@@ -1591,7 +1591,7 @@ export async function updateSwordMaterials(
       if (
         typeof m.minQuantity !== "number" ||
         !Number.isInteger(m.minQuantity) ||
-        m.minQuantity <= 0
+        m.minQuantity < 0
       ) {
         return res.status(400).json({
           success: false,
@@ -1610,10 +1610,10 @@ export async function updateSwordMaterials(
         });
       }
 
-      if (m.maxQuantity < m.minQuantity) {
+      if (m.maxQuantity <= m.minQuantity) {
         return res.status(400).json({
           success: false,
-          error: `maxQuantity >= minQuantity required for material ${mid}`,
+          error: `maxQuantity > minQuantity required for material ${mid}`,
         });
       }
 
