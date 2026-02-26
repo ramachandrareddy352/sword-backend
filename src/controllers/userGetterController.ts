@@ -382,6 +382,10 @@ export const getUserMaterials = async (req: UserAuthRequest, res: Response) => {
       orderBy.push({ createdAt: "desc" });
     }
 
+    const totalCount = await prisma.userMaterial.count({
+      where,
+    });
+
     /* ---------------- FETCH ---------------- */
     const materials = await prisma.userMaterial.findMany({
       where,
@@ -409,7 +413,7 @@ export const getUserMaterials = async (req: UserAuthRequest, res: Response) => {
       success: true,
       message: "Your materials fetched successfully",
       data: serializeBigInt(materials),
-      total: materials.length,
+      total: totalCount,
       page: pagination.page,
       limit: pagination.limit,
     });
