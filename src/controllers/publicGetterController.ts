@@ -722,6 +722,7 @@ export const getAdminConfig = async (_req: Request, res: Response) => {
 
         // ── Shopping permission ──────────────────────────────────────────
         isShoppingAllowed: true,
+        isGameStopped: true,
 
         // ── NEW: App Version & Update Control Fields ─────────────────────
         minRequiredVersion: true, // e.g. "1.2.0"
