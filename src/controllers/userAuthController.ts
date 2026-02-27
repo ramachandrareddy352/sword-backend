@@ -755,3 +755,80 @@ export async function confirmCancelMembership(
     });
   }
 }
+
+export async function googleWebLogin(req: Request, res: Response) {
+  try {
+    const { idToken, os, isDev } = req.body;
+    const clientId =
+      isDev === "true"
+        ? process.env.DEV_GOOGLE_WEB_CLIENT_ID
+        : process.env.GOOGLE_WEB_CLIENT_ID;
+
+    const googleClient = new OAuth2Client(clientId);
+
+    if (!idToken) {
+      return res.status(400).json({
+        success: false,
+        error: "Google ID token is required",
+      });
+    }
+
+    // 1️⃣ Verify token with Google
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: clientId,
+    });
+
+    const payload = ticket.getPayload();
+
+    if (!payload || !payload.email) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid Google token",
+      });
+    }
+
+    const { email } = payload;
+
+    // 2️⃣ Check if user exists
+    let user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    // 3️⃣ If not exists → error
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        error: "User account not found",
+      });
+    }
+
+    // 4️⃣ Create JWT session
+    const jti = uuidv4();
+
+    const token = jwt.sign(
+      { userId: user.id.toString(), jti },
+      process.env.JWT_SECRET!,
+      { expiresIn: "2h" },
+    );
+
+    await redis.set(`session:${jti}`, user.id.toString(), { EX: 60 * 60 * 2 });
+
+    return res.json({
+      success: true,
+      token,
+      data: {
+        id: user.id.toString(),
+        email: user.email,
+        name: user.name,
+      },
+      message: "Login successful!",
+    });
+  } catch (err) {
+    console.error("Google web login error:", err);
+    return res.status(400).json({
+      success: false,
+      error: "Google authentication failed",
+    });
+  }
+}
