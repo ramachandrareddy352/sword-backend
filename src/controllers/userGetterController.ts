@@ -1401,3 +1401,97 @@ export const getUserOneTimeMissions = async (
     });
   }
 };
+
+// user anvil sword details
+export const getUserAnvilSwordDetails = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+    const { level } = req.query;
+
+    if (!level || isNaN(Number(level))) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid 'level' query parameter is required",
+      });
+    }
+
+    const swordLevel = Number(level);
+
+    // ─── Fetch sword definition ────────────────────────────────────────
+    const swordDef = await prisma.swordLevelDefinition.findUnique({
+      where: { level: swordLevel },
+      select: {
+        id: true,
+        level: true,
+        name: true,
+        image: true,
+        upgradeCost: true,
+        sellingCost: true,
+        successRate: true,
+        isSellingAllow: true,
+        isBuyingAllow: true,
+        isSynthesizeAllow: true,
+        description: true,
+        upgradeDrops: {
+          select: {
+            material: {
+              select: {
+                id: true,
+                name: true,
+                image: true,
+                rarity: true,
+              },
+            },
+            dropPercentage: true,
+            minQuantity: true,
+            maxQuantity: true,
+          },
+        },
+      },
+    });
+
+    if (!swordDef) {
+      return res.status(404).json({
+        success: false,
+        error: `Sword level ${swordLevel} not found`,
+      });
+    }
+
+    // ─── Fetch user's ownership stats for this exact sword level ────────
+    const userSword = await prisma.userSword.findUnique({
+      where: {
+        userId_swordId: {
+          userId,
+          swordId: swordDef.id,
+        },
+      },
+      select: {
+        unsoldQuantity: true,
+        soldedQuantity: true,
+        brokenQuantity: true,
+        isOnAnvil: true,
+      },
+    });
+
+    // ─── Combine & respond ──────────────────────────────────────────────
+    return res.status(200).json({
+      success: true,
+      message: userSword
+        ? "Anvil sword details fetched successfully"
+        : "Sword definition found, but you do not own any of this level",
+      data: serializeBigInt({
+        swordDefinition: swordDef,
+        userOwnership: userSword || null, // null if user doesn't have it
+      }),
+    });
+  } catch (err: any) {
+    console.error("getUserAnvilSwordDetails error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};

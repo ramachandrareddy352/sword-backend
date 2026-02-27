@@ -16,6 +16,7 @@ import {
   getUserSynthesisHistory,
   getUserDailyMissions,
   getUserOneTimeMissions,
+  getUserAnvilSwordDetails,
 } from "../controllers/userGetterController";
 
 const router = express.Router();
@@ -23,6 +24,7 @@ const router = express.Router();
 /* ───────────────────── USER CORE ───────────────────── */
 router.get("/user/basic-info", userAuth, getUserBasicInfo);
 router.get("/user/rank", userAuth, getUserRank);
+router.get("/user/anvil-sword-details", userAuth, getUserAnvilSwordDetails);
 
 /* ───────────────────── INVENTORY ───────────────────── */
 router.get("/user/swords", userAuth, getUserSwords);
