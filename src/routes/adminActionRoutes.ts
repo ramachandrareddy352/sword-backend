@@ -22,9 +22,14 @@ import {
   createOneTimeMission,
   toggleOneTimeMission,
   deleteOneTimeMission,
+  createNotification,
+  deleteNotification,
 } from "../controllers/adminActionController";
 
 const router = express.Router();
+
+router.post("/notifications/create", adminAuth, createNotification);
+router.post("/notifications/delete", adminAuth, deleteNotification);
 
 /* ───────────────────── ADMIN CONFIG ───────────────────── */
 router.put("/config/update", adminAuth, updateAdminConfig);

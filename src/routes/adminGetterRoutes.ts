@@ -19,8 +19,11 @@ import {
   getAllUsersOneTimeMissionProgress,
   getUserMissionsByUserId,
 } from "../controllers/adminGetterController";
+import { getAllNotifications } from "../controllers/commonGetterController";
 
 const router = express.Router();
+
+router.get("/notifications/all", adminAuth, getAllNotifications);
 
 /* ───────────────────── USER ───────────────────── */
 router.get("/users/check-email", adminAuth, checkUserByEmail);

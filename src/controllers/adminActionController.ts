@@ -151,6 +151,9 @@ export async function updateAdminConfig(req: AdminAuthRequest, res: Response) {
     if (data.isShoppingAllowed !== undefined) {
       updateData.isShoppingAllowed = Boolean(data.isShoppingAllowed);
     }
+    if (data.isGameStopped !== undefined) {
+      updateData.isGameStopped = Boolean(data.isGameStopped);
+    }
 
     // ================= NEW: App Version & Update Control =================
     if (data.minRequiredVersion !== undefined) {
@@ -2299,3 +2302,85 @@ export async function deleteOneTimeMission(
     });
   }
 }
+
+export const createNotification = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const { title, description, webLink } = req.body;
+
+    if (!title || !description) {
+      return res.status(400).json({
+        success: false,
+        error: "Title and description are required",
+      });
+    }
+
+    const notification = await prisma.notification.create({
+      data: {
+        title,
+        description,
+        webLink,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Notification created successfully",
+      data: serializeBigInt(notification),
+    });
+  } catch (err: any) {
+    console.error("createNotification error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
+
+export const deleteNotification = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const { id } = req.body;
+
+    if (!id || isNaN(Number(id))) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid notification ID is required",
+      });
+    }
+
+    const notificationId = BigInt(id);
+
+    // Check if notification exists
+    const existing = await prisma.notification.findUnique({
+      where: { id: notificationId },
+    });
+
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: "Notification not found",
+      });
+    }
+
+    // Delete the notification
+    await prisma.notification.delete({
+      where: { id: notificationId },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Notification deleted successfully",
+    });
+  } catch (err: any) {
+    console.error("deleteNotification error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};

@@ -1495,3 +1495,59 @@ export const getUserAnvilSwordDetails = async (
     });
   }
 };
+
+export const getUnreadNotifications = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    // Fetch user with join date (createdAt) and last read time
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        createdAt: true, // join time
+        lastNotificationReadTime: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    const where: any = {
+      createdAt: {
+        gte: user.createdAt, // Only notifications after user joined
+      },
+    };
+
+    // If user has ever marked notifications as read, show only newer unread ones
+    if (user.lastNotificationReadTime) {
+      where.createdAt.gt = user.lastNotificationReadTime;
+    }
+
+    const notifications = await prisma.notification.findMany({
+      where,
+      orderBy: { createdAt: "desc" }, // Newest first
+    });
+
+    return res.status(200).json({
+      success: true,
+      message:
+        notifications.length > 0
+          ? "Unread notifications fetched"
+          : "No unread notifications",
+      data: serializeBigInt(notifications),
+    });
+  } catch (err: any) {
+    console.error("getUnreadNotifications error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};

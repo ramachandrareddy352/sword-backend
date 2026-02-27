@@ -31,7 +31,8 @@ model AdminConfig {
   voucherExpiryDays Int     @default(7) @db.UnsignedInt // if `0` then no need to check for expiry
   expiryAllow       Boolean @default(false)
 
-  isShoppingAllowed Boolean @default(true) // if true, usres can use gold cooins in other shopping app
+  isShoppingAllowed Boolean  @default(true) // if true, usres can use gold cooins in other shopping app
+  isGameStopped     Boolean? @default(false) // if true, game is not allowed to play by users
 
   minRequiredVersion        String? // e.g. "1.2.0"
   latestVersion             String? // e.g. "1.5.0"
@@ -44,6 +45,14 @@ model AdminConfig {
   updatedAt    DateTime @updatedAt
 
   @@index([adminEmailId])
+}
+
+model Notification {
+  id          BigInt   @id @default(autoincrement())
+  title       String
+  description String   @db.Text
+  webLink     String? // Optional web link
+  createdAt   DateTime @default(now())
 }
 
 // ======================= USERS =======================
@@ -59,9 +68,10 @@ model User {
   totalShields    Int     @default(0) @db.UnsignedInt
   anvilSwordLevel BigInt? @db.UnsignedBigInt // atleast sword should be in anvil(main), if sword is lost during upgrade, so we use optional here
 
-  createdAt    DateTime  @default(now())
-  lastReviewed DateTime // the last time the account is reviewed (e.g., for verification status)
-  lastLoginAt  DateTime?
+  createdAt                DateTime  @default(now())
+  lastReviewed             DateTime // the last time the account is reviewed (e.g., for verification status)
+  lastLoginAt              DateTime?
+  lastNotificationReadTime DateTime?
 
   oneDayGoldAdsViewed   Int @default(0) @db.UnsignedInt
   oneDayShieldAdsViewed Int @default(0) @db.UnsignedInt

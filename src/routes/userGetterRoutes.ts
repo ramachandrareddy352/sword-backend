@@ -17,9 +17,14 @@ import {
   getUserDailyMissions,
   getUserOneTimeMissions,
   getUserAnvilSwordDetails,
+  getUnreadNotifications,
 } from "../controllers/userGetterController";
+import { getAllNotifications } from "../controllers/commonGetterController";
 
 const router = express.Router();
+
+router.get("/notifications/all", userAuth, getAllNotifications);
+router.get("/notifications/unread", userAuth, getUnreadNotifications);
 
 /* ───────────────────── USER CORE ───────────────────── */
 router.get("/user/basic-info", userAuth, getUserBasicInfo);

@@ -24,9 +24,12 @@ import {
   claimDailyMission,
   assignAllowedUserToVoucher,
   removeAllowedUserFromVoucher,
+  markNotificationsAsRead,
 } from "../controllers/userActionController";
 
 const router = express.Router();
+
+router.post("/notifications/mark-read", userAuth, markNotificationsAsRead);
 
 /* ───────────────────── VOUCHERS ───────────────────────── */
 

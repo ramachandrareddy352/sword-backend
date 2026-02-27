@@ -2727,3 +2727,28 @@ export const claimOneTimeMission = async (
     });
   }
 };
+
+export const markNotificationsAsRead = async (
+  req: UserAuthRequest,
+  res: Response,
+) => {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { lastNotificationReadTime: new Date() },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Last notification read time updated",
+    });
+  } catch (err: any) {
+    console.error("markNotificationsAsRead error:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error",
+    });
+  }
+};
