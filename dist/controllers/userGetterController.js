@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getUserOneTimeMissions = exports.getUserDailyMissions = exports.getUserSynthesisHistory = exports.getUserUpgradeHistory = exports.getUserPurchasedShields = exports.getUserPurchasedMaterials = exports.getUserPurchasedSwords = exports.getUserCustomerSupports = exports.getUserVouchers = exports.getUserGifts = exports.getUserMaterials = exports.getUserBasicInfo = exports.getUserSwords = exports.getUserRank = void 0;
+exports.getUnreadNotifications = exports.getUserAnvilSwordDetails = exports.getUserOneTimeMissions = exports.getUserDailyMissions = exports.getUserSynthesisHistory = exports.getUserUpgradeHistory = exports.getUserPurchasedShields = exports.getUserPurchasedMaterials = exports.getUserPurchasedSwords = exports.getUserCustomerSupports = exports.getUserVouchers = exports.getUserGifts = exports.getUserMaterials = exports.getUserBasicInfo = exports.getUserSwords = exports.getUserRank = void 0;
 const client_1 = __importDefault(require("../database/client"));
 const serializeBigInt_1 = require("../services/serializeBigInt");
 const queryHelpers_1 = require("../services/queryHelpers");
@@ -135,7 +135,12 @@ const getUserSwords = async (req, res) => {
             });
         }
         // Build where clause (always scoped to current user)
-        const where = { userId };
+        const where = {
+            userId,
+            unsoldQuantity: {
+                gt: 0,
+            },
+        };
         // Build orderBy
         const orderBy = [];
         if (sortCreatedAt === "asc" || sortCreatedAt === "desc") {
@@ -295,6 +300,9 @@ const getUserMaterials = async (req, res) => {
         /* ---------------- WHERE ---------------- */
         const where = {
             userId,
+            unsoldQuantity: {
+                gt: 0,
+            },
         };
         if (filterRarity) {
             where.material = { rarity: filterRarity };
@@ -321,6 +329,9 @@ const getUserMaterials = async (req, res) => {
         if (orderBy.length === 0) {
             orderBy.push({ createdAt: "desc" });
         }
+        const totalCount = await client_1.default.userMaterial.count({
+            where,
+        });
         /* ---------------- FETCH ---------------- */
         const materials = await client_1.default.userMaterial.findMany({
             where,
@@ -347,7 +358,7 @@ const getUserMaterials = async (req, res) => {
             success: true,
             message: "Your materials fetched successfully",
             data: (0, serializeBigInt_1.serializeBigInt)(materials),
-            total: materials.length,
+            total: totalCount,
             page: pagination.page,
             limit: pagination.limit,
         });
@@ -1196,4 +1207,137 @@ const getUserOneTimeMissions = async (req, res) => {
     }
 };
 exports.getUserOneTimeMissions = getUserOneTimeMissions;
+// user anvil sword details
+const getUserAnvilSwordDetails = async (req, res) => {
+    try {
+        const userId = BigInt(req.user.userId);
+        const { level } = req.query;
+        if (!level || isNaN(Number(level))) {
+            return res.status(400).json({
+                success: false,
+                error: "Valid 'level' query parameter is required",
+            });
+        }
+        const swordLevel = Number(level);
+        // ─── Fetch sword definition ────────────────────────────────────────
+        const swordDef = await client_1.default.swordLevelDefinition.findUnique({
+            where: { level: swordLevel },
+            select: {
+                id: true,
+                level: true,
+                name: true,
+                image: true,
+                upgradeCost: true,
+                sellingCost: true,
+                successRate: true,
+                isSellingAllow: true,
+                isBuyingAllow: true,
+                isSynthesizeAllow: true,
+                description: true,
+                upgradeDrops: {
+                    select: {
+                        material: {
+                            select: {
+                                id: true,
+                                name: true,
+                                image: true,
+                                rarity: true,
+                            },
+                        },
+                        dropPercentage: true,
+                        minQuantity: true,
+                        maxQuantity: true,
+                    },
+                },
+            },
+        });
+        if (!swordDef) {
+            return res.status(404).json({
+                success: false,
+                error: `Sword level ${swordLevel} not found`,
+            });
+        }
+        // ─── Fetch user's ownership stats for this exact sword level ────────
+        const userSword = await client_1.default.userSword.findUnique({
+            where: {
+                userId_swordId: {
+                    userId,
+                    swordId: swordDef.id,
+                },
+            },
+            select: {
+                unsoldQuantity: true,
+                soldedQuantity: true,
+                brokenQuantity: true,
+                isOnAnvil: true,
+            },
+        });
+        // ─── Combine & respond ──────────────────────────────────────────────
+        return res.status(200).json({
+            success: true,
+            message: userSword
+                ? "Anvil sword details fetched successfully"
+                : "Sword definition found, but you do not own any of this level",
+            data: (0, serializeBigInt_1.serializeBigInt)({
+                swordDefinition: swordDef,
+                userOwnership: userSword || null, // null if user doesn't have it
+            }),
+        });
+    }
+    catch (err) {
+        console.error("getUserAnvilSwordDetails error:", err);
+        return res.status(500).json({
+            success: false,
+            error: "Internal server error",
+        });
+    }
+};
+exports.getUserAnvilSwordDetails = getUserAnvilSwordDetails;
+const getUnreadNotifications = async (req, res) => {
+    try {
+        const userId = BigInt(req.user.userId);
+        // Fetch user with join date (createdAt) and last read time
+        const user = await client_1.default.user.findUnique({
+            where: { id: userId },
+            select: {
+                createdAt: true, // join time
+                lastNotificationReadTime: true,
+            },
+        });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: "User not found",
+            });
+        }
+        const where = {
+            createdAt: {
+                gte: user.createdAt, // Only notifications after user joined
+            },
+        };
+        // If user has ever marked notifications as read, show only newer unread ones
+        if (user.lastNotificationReadTime) {
+            where.createdAt.gt = user.lastNotificationReadTime;
+        }
+        const notifications = await client_1.default.notification.findMany({
+            where,
+            orderBy: { createdAt: "desc" }, // Newest first
+        });
+        return res.status(200).json({
+            success: true,
+            message: notifications.length > 0
+                ? "Unread notifications fetched"
+                : "No unread notifications",
+            data: (0, serializeBigInt_1.serializeBigInt)(notifications),
+        });
+    }
+    catch (err) {
+        console.error("getUnreadNotifications error:", err);
+        return res.status(500).json({
+            success: false,
+            error: "Internal server error",
+        });
+    }
+};
+exports.getUnreadNotifications = getUnreadNotifications;
 //# sourceMappingURL=userGetterController.js.map

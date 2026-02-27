@@ -8,6 +8,8 @@ const adminAuth_1 = __importDefault(require("../middleware/adminAuth"));
 const upload_1 = require("../middleware/upload");
 const adminActionController_1 = require("../controllers/adminActionController");
 const router = express_1.default.Router();
+router.post("/notifications/create", adminAuth_1.default, adminActionController_1.createNotification);
+router.post("/notifications/delete", adminAuth_1.default, adminActionController_1.deleteNotification);
 /* ───────────────────── ADMIN CONFIG ───────────────────── */
 router.put("/config/update", adminAuth_1.default, adminActionController_1.updateAdminConfig);
 /* ───────────────────────── SWORDS ─────────────────────── */

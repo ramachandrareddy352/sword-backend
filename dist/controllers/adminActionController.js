@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.deleteNotification = exports.createNotification = void 0;
 exports.updateAdminConfig = updateAdminConfig;
 exports.createMaterial = createMaterial;
 exports.updateMaterial = updateMaterial;
@@ -143,6 +144,9 @@ async function updateAdminConfig(req, res) {
         // ================= Shopping permission =================
         if (data.isShoppingAllowed !== undefined) {
             updateData.isShoppingAllowed = Boolean(data.isShoppingAllowed);
+        }
+        if (data.isGameStopped !== undefined) {
+            updateData.isGameStopped = Boolean(data.isGameStopped);
         }
         // ================= NEW: App Version & Update Control =================
         if (data.minRequiredVersion !== undefined) {
@@ -695,7 +699,7 @@ async function createSwordLevel(req, res) {
                     error: `Material ID ${m.materialId}: requiredQuantity must be positive integer`,
                 });
             }
-            if (Number(m.minQuantity) <= 0 || isNaN(Number(m.minQuantity))) {
+            if (isNaN(Number(m.minQuantity)) || Number(m.minQuantity) < 0) {
                 return res.status(400).json({
                     success: false,
                     error: `Material ID ${m.materialId}: minQuantity must be positive integer`,
@@ -707,10 +711,10 @@ async function createSwordLevel(req, res) {
                     error: `Material ID ${m.materialId}: maxQuantity must be positive integer`,
                 });
             }
-            if (Number(m.maxQuantity) < Number(m.minQuantity)) {
+            if (Number(m.maxQuantity) <= Number(m.minQuantity)) {
                 return res.status(400).json({
                     success: false,
-                    error: `Material ID ${m.materialId}: maxQuantity must be ≥ minQuantity`,
+                    error: `Material ID ${m.materialId}: maxQuantity must be > minQuantity`,
                 });
             }
         }
@@ -731,11 +735,20 @@ async function createSwordLevel(req, res) {
         const maxLevel = await client_1.default.swordLevelDefinition.aggregate({
             _max: { level: true },
         });
-        const nextLevel = (maxLevel._max.level ?? 0) + 1;
+        const currentMax = maxLevel._max.level ?? 0;
+        const nextLevel = currentMax + 1;
         if (nextLevel > 100) {
             return res.status(400).json({
                 success: false,
                 error: "Maximum sword level (100) reached",
+            });
+        }
+        // Safety check: ensure no gap (someone deleted a record manually)
+        const count = await client_1.default.swordLevelDefinition.count();
+        if (count !== currentMax) {
+            return res.status(400).json({
+                success: false,
+                error: `Level sequence is broken (expected ${currentMax} records, found ${count}). Contact developer.`,
             });
         }
         // Image upload
@@ -766,6 +779,7 @@ async function createSwordLevel(req, res) {
         const sword = await client_1.default.$transaction(async (tx) => {
             const created = await tx.swordLevelDefinition.create({
                 data: {
+                    id: BigInt(nextLevel),
                     level: nextLevel,
                     name: name.trim(),
                     synthesizeName: synthesizeName.trim(),
@@ -1151,7 +1165,7 @@ async function updateUpgradeDrops(req, res) {
             }
             if (typeof m.minQuantity !== "number" ||
                 !Number.isInteger(m.minQuantity) ||
-                m.minQuantity <= 0) {
+                m.minQuantity < 0) {
                 return res.status(400).json({
                     success: false,
                     error: `minQuantity must be positive integer for material ${m.materialId}`,
@@ -1165,10 +1179,10 @@ async function updateUpgradeDrops(req, res) {
                     error: `maxQuantity must be positive integer for material ${m.materialId}`,
                 });
             }
-            if (m.maxQuantity < m.minQuantity) {
+            if (m.maxQuantity <= m.minQuantity) {
                 return res.status(400).json({
                     success: false,
-                    error: `maxQuantity >= minQuantity required for material ${m.materialId}`,
+                    error: `maxQuantity > minQuantity required for material ${m.materialId}`,
                 });
             }
             totalDrop += m.dropPercentage;
@@ -1321,7 +1335,7 @@ async function updateSwordMaterials(req, res) {
             }
             if (typeof m.minQuantity !== "number" ||
                 !Number.isInteger(m.minQuantity) ||
-                m.minQuantity <= 0) {
+                m.minQuantity < 0) {
                 return res.status(400).json({
                     success: false,
                     error: `minQuantity must be positive integer for material ${mid}`,
@@ -1335,10 +1349,10 @@ async function updateSwordMaterials(req, res) {
                     error: `maxQuantity must be positive integer for material ${mid}`,
                 });
             }
-            if (m.maxQuantity < m.minQuantity) {
+            if (m.maxQuantity <= m.minQuantity) {
                 return res.status(400).json({
                     success: false,
-                    error: `maxQuantity >= minQuantity required for material ${mid}`,
+                    error: `maxQuantity > minQuantity required for material ${mid}`,
                 });
             }
             totalDrop += m.dropPercentage;
@@ -1915,4 +1929,73 @@ async function deleteOneTimeMission(req, res) {
         });
     }
 }
+const createNotification = async (req, res) => {
+    try {
+        const { title, description, webLink } = req.body;
+        if (!title || !description) {
+            return res.status(400).json({
+                success: false,
+                error: "Title and description are required",
+            });
+        }
+        const notification = await client_1.default.notification.create({
+            data: {
+                title,
+                description,
+                webLink,
+            },
+        });
+        return res.status(201).json({
+            success: true,
+            message: "Notification created successfully",
+            data: (0, serializeBigInt_1.serializeBigInt)(notification),
+        });
+    }
+    catch (err) {
+        console.error("createNotification error:", err);
+        return res.status(500).json({
+            success: false,
+            error: "Internal server error",
+        });
+    }
+};
+exports.createNotification = createNotification;
+const deleteNotification = async (req, res) => {
+    try {
+        const { id } = req.body;
+        if (!id || isNaN(Number(id))) {
+            return res.status(400).json({
+                success: false,
+                error: "Valid notification ID is required",
+            });
+        }
+        const notificationId = BigInt(id);
+        // Check if notification exists
+        const existing = await client_1.default.notification.findUnique({
+            where: { id: notificationId },
+        });
+        if (!existing) {
+            return res.status(404).json({
+                success: false,
+                error: "Notification not found",
+            });
+        }
+        // Delete the notification
+        await client_1.default.notification.delete({
+            where: { id: notificationId },
+        });
+        return res.status(200).json({
+            success: true,
+            message: "Notification deleted successfully",
+        });
+    }
+    catch (err) {
+        console.error("deleteNotification error:", err);
+        return res.status(500).json({
+            success: false,
+            error: "Internal server error",
+        });
+    }
+};
+exports.deleteNotification = deleteNotification;
 //# sourceMappingURL=adminActionController.js.map

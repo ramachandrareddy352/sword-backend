@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const userAuth_1 = __importDefault(require("../middleware/userAuth"));
 const userActionController_1 = require("../controllers/userActionController");
 const router = express_1.default.Router();
+router.post("/notifications/mark-read", userAuth_1.default, userActionController_1.markNotificationsAsRead);
 /* ───────────────────── VOUCHERS ───────────────────────── */
 router.post("/vouchers/create", userAuth_1.default, userActionController_1.createVoucher);
 router.post("/vouchers/assign-user", userAuth_1.default, userActionController_1.assignAllowedUserToVoucher);

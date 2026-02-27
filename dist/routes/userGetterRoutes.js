@@ -6,10 +6,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const userAuth_1 = __importDefault(require("../middleware/userAuth"));
 const userGetterController_1 = require("../controllers/userGetterController");
+const commonGetterController_1 = require("../controllers/commonGetterController");
 const router = express_1.default.Router();
+router.get("/notifications/all", userAuth_1.default, commonGetterController_1.getAllNotifications);
+router.get("/notifications/unread", userAuth_1.default, userGetterController_1.getUnreadNotifications);
 /* ───────────────────── USER CORE ───────────────────── */
 router.get("/user/basic-info", userAuth_1.default, userGetterController_1.getUserBasicInfo);
 router.get("/user/rank", userAuth_1.default, userGetterController_1.getUserRank);
+router.get("/user/anvil-sword-details", userAuth_1.default, userGetterController_1.getUserAnvilSwordDetails);
 /* ───────────────────── INVENTORY ───────────────────── */
 router.get("/user/swords", userAuth_1.default, userGetterController_1.getUserSwords);
 router.get("/user/materials", userAuth_1.default, userGetterController_1.getUserMaterials);

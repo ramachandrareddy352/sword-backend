@@ -6,7 +6,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const adminAuth_1 = __importDefault(require("../middleware/adminAuth"));
 const adminGetterController_1 = require("../controllers/adminGetterController");
+const commonGetterController_1 = require("../controllers/commonGetterController");
 const router = express_1.default.Router();
+router.get("/notifications/all", adminAuth_1.default, commonGetterController_1.getAllNotifications);
 /* ───────────────────── USER ───────────────────── */
 router.get("/users/check-email", adminAuth_1.default, adminGetterController_1.checkUserByEmail);
 router.get("/users/all", adminAuth_1.default, adminGetterController_1.getAllUsers);

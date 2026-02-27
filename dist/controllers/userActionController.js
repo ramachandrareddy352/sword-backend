@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.claimOneTimeMission = exports.claimDailyMission = exports.verifyAdSession = exports.createAdSession = exports.toggleShieldProtection = exports.claimGift = exports.synthesizeSword = exports.upgradeSword = exports.removeSwordFromAnvil = exports.setSwordOnAnvil = exports.sellMaterial = exports.sellSword = exports.deleteComplaint = exports.updateComplaint = exports.createComplaint = exports.cancelVoucher = exports.removeAllowedUserFromVoucher = exports.assignAllowedUserToVoucher = exports.createVoucher = void 0;
+exports.markNotificationsAsRead = exports.claimOneTimeMission = exports.claimDailyMission = exports.verifyAdSession = exports.createAdSession = exports.toggleShieldProtection = exports.claimGift = exports.synthesizeSword = exports.upgradeSword = exports.removeSwordFromAnvil = exports.setSwordOnAnvil = exports.sellMaterial = exports.sellSword = exports.deleteComplaint = exports.updateComplaint = exports.createComplaint = exports.cancelVoucher = exports.removeAllowedUserFromVoucher = exports.assignAllowedUserToVoucher = exports.createVoucher = void 0;
 exports.buySword = buySword;
 exports.buyMaterial = buyMaterial;
 exports.buyShields = buyShields;
@@ -1380,29 +1380,40 @@ const upgradeSword = async (req, res) => {
                     }
                     const qty = Math.floor(Math.random() *
                         (selectedDrop.maxQuantity - selectedDrop.minQuantity + 1)) + selectedDrop.minQuantity;
-                    await tx.userMaterial.upsert({
-                        where: {
-                            userId_materialId: {
+                    let byproduct = null;
+                    if (qty > 0) {
+                        // Give material to user
+                        await tx.userMaterial.upsert({
+                            where: {
+                                userId_materialId: {
+                                    userId,
+                                    materialId: selectedDrop.materialId,
+                                },
+                            },
+                            update: { unsoldQuantity: { increment: qty } },
+                            create: {
                                 userId,
                                 materialId: selectedDrop.materialId,
+                                unsoldQuantity: qty,
+                                soldedQuantity: 0,
                             },
-                        },
-                        update: { unsoldQuantity: { increment: qty } },
-                        create: {
-                            userId,
+                        });
+                        byproduct = {
                             materialId: selectedDrop.materialId,
-                            unsoldQuantity: qty,
-                            soldedQuantity: 0,
-                        },
-                    });
+                            quantity: qty,
+                        };
+                    }
                     historyData.droppedMaterialId = selectedDrop.materialId;
                     historyData.droppedQuantity = qty;
                     result = {
                         type: "broken_failure",
-                        message: "Upgrade failed! Sword broke, but received random material as byproduct.",
+                        message: "Upgrade failed! Sword broke" +
+                            (qty > 0
+                                ? ", but received random material as byproduct."
+                                : ". No material dropped this time."),
                         swordBroken: true,
                         shieldConsumed: false,
-                        byproduct: { materialId: selectedDrop.materialId, quantity: qty },
+                        byproduct,
                     };
                 }
             }
@@ -2374,4 +2385,25 @@ const claimOneTimeMission = async (req, res) => {
     }
 };
 exports.claimOneTimeMission = claimOneTimeMission;
+const markNotificationsAsRead = async (req, res) => {
+    try {
+        const userId = BigInt(req.user.userId);
+        await client_1.default.user.update({
+            where: { id: userId },
+            data: { lastNotificationReadTime: new Date() },
+        });
+        return res.status(200).json({
+            success: true,
+            message: "Last notification read time updated",
+        });
+    }
+    catch (err) {
+        console.error("markNotificationsAsRead error:", err);
+        return res.status(500).json({
+            success: false,
+            error: "Internal server error",
+        });
+    }
+};
+exports.markNotificationsAsRead = markNotificationsAsRead;
 //# sourceMappingURL=userActionController.js.map
