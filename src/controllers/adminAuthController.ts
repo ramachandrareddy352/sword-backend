@@ -22,7 +22,7 @@ export async function sendAdminOtp(req: Request, res: Response) {
 
     if (!adminConfig || adminConfig.adminEmailId !== email) {
       return res
-        .status(403)
+        .status(400)
         .json({ success: false, error: "Not authorized as admin" });
     }
 

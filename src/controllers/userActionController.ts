@@ -156,7 +156,7 @@ export const assignAllowedUserToVoucher = async (
 
     // 🔥 Ownership check
     if (voucher.createdById !== creatorId) {
-      return res.status(403).json({
+      return res.status(400).json({
         success: false,
         error: "You can only assign your own vouchers",
       });
@@ -265,7 +265,7 @@ export const removeAllowedUserFromVoucher = async (
     }
 
     if (voucher.createdById !== creatorId) {
-      return res.status(403).json({
+      return res.status(400).json({
         success: false,
         error: "You can only modify your own vouchers",
       });
@@ -336,7 +336,7 @@ export const cancelVoucher = async (req: UserAuthRequest, res: Response) => {
     }
 
     if (voucher.createdById !== userId) {
-      return res.status(403).json({
+      return res.status(400).json({
         success: false,
         error: "You can only cancel your own vouchers",
       });
@@ -1303,7 +1303,7 @@ export const removeSwordFromAnvil = async (
     }
 
     if (userSword.userId !== userId) {
-      return res.status(403).json({
+      return res.status(400).json({
         success: false,
         error: "You do not own this sword",
       });
