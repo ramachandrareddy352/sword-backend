@@ -677,7 +677,7 @@ export async function buySword(req: UserAuthRequest, res: Response) {
         where: {
           userId_swordId: { userId, swordId: swordDefId },
         },
-        update: { unsoldQuantity: { increment: qty } },
+        update: { unsoldQuantity: { increment: qty }, isOnAnvil: false },
         create: {
           userId,
           swordId: swordDefId,
