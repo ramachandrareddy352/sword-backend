@@ -59,6 +59,14 @@ async function forceSetLowestSwordOnAnvilIfNeeded(userId: bigint) {
     });
 
     if (!user) return;
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        lastLoginAt: new Date(), // sets to now()
+      },
+    });
+
     if (user.anvilSwordLevel !== null) return; // Already set → skip
 
     // Find the lowest level sword the user owns with unsold > 0
