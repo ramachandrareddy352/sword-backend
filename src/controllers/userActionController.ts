@@ -677,7 +677,7 @@ export async function buySword(req: UserAuthRequest, res: Response) {
         where: {
           userId_swordId: { userId, swordId: swordDefId },
         },
-        update: { unsoldQuantity: { increment: qty }, isOnAnvil: false },
+        update: { unsoldQuantity: { increment: qty } },
         create: {
           userId,
           swordId: swordDefId,
@@ -1547,6 +1547,12 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
             await tx.user.update({
               where: { id: userId },
               data: { anvilSwordLevel: null },
+            });
+            await tx.userSword.update({
+              where: { userId_swordId: { userId, swordId: currentLevelId } },
+              data: {
+                isOnAnvil: false,
+              },
             });
           }
 
