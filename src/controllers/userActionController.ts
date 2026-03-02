@@ -1433,6 +1433,16 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
       goldSpent: upgradeCost,
     };
 
+    const nextLevel = currentSword.swordLevelDefinition.level + 1;
+    const nextDef = await prisma.swordLevelDefinition.findUnique({
+      where: { level: nextLevel },
+      select: { id: true },
+    });
+
+    if (!nextDef) {
+      throw new Error("Next level definition is not defined.");
+    }
+
     await prisma.$transaction(async (tx: any) => {
       // Always deduct cost
       await tx.user.update({
@@ -1442,16 +1452,6 @@ export const upgradeSword = async (req: UserAuthRequest, res: Response) => {
 
       // Success case
       if (randomChance <= successRate) {
-        const nextLevel = currentSword.swordLevelDefinition.level + 1;
-        const nextDef = await tx.swordLevelDefinition.findUnique({
-          where: { level: nextLevel },
-          select: { id: true },
-        });
-
-        if (!nextDef) {
-          throw new Error("Next level definition not found");
-        }
-
         if (user.isShieldOn) {
           if (user.totalShields < 1) {
             throw new Error("Shield protection is on but no shields available");
