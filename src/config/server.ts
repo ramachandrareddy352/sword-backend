@@ -15,6 +15,7 @@ import AdminAuthRouters from "../routes/adminAuthRoutes";
 import AdminGetterRouters from "../routes/adminGetterRoutes";
 
 import PublicGetterRouters from "../routes/publicGetterRoutes";
+import ExternalActionRouters from "../routes/externalActionRoutes";
 
 import UserActionRouters from "../routes/userActionRoutes";
 import UserAuthRouters from "../routes/userAuthRoutes";
@@ -149,6 +150,7 @@ app.use("/api/adminAuth", AdminAuthRouters);
 app.use("/api/adminGetters", AdminGetterRouters);
 
 app.use("/api/publicGetters", PublicGetterRouters);
+app.use("/api/externalActions", ExternalActionRouters);
 
 app.use("/api/userActions", UserActionRouters);
 app.use("/api/userAuth", UserAuthRouters);

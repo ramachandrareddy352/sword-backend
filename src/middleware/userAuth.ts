@@ -103,10 +103,6 @@ async function forceSetLowestSwordOnAnvilIfNeeded(userId: bigint) {
       },
       data: { isOnAnvil: true },
     });
-
-    console.log(
-      `Forced set anvilSwordLevel to ${lowestLevel} for user ${userId}`,
-    );
   } catch (err) {
     console.error("forceSetLowestSwordOnAnvilIfNeeded error:", err);
     // Silent fail — don't block auth

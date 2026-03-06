@@ -1524,3 +1524,39 @@ export const getUserMissionsByUserId = async (
     return res.status(500).json({ success: false, error: "Server error" });
   }
 };
+
+export const getTotalUsersGold = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const result = await prisma.user.aggregate({
+      _sum: {
+        gold: true,
+      },
+      _count: {
+        id: true,
+      },
+    });
+
+    // Convert to BigInt to avoid overflow
+    const totalGold = BigInt(result._sum.gold ?? 0);
+
+    const response = {
+      success: true,
+      data: {
+        totalUsers: result._count.id,
+        totalGold: totalGold,
+      },
+    };
+
+    return res.json(serializeBigInt(response));
+  } catch (err) {
+    console.error("getTotalUsersGold error:", err);
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to fetch total gold",
+    });
+  }
+};

@@ -34,6 +34,9 @@ model AdminConfig {
   isShoppingAllowed Boolean  @default(true) // if true, usres can use gold cooins in other shopping app
   isGameStopped     Boolean? @default(false) // if true, game is not allowed to play by users
 
+  exchangeRate          Int?      @default(1000) @db.UnsignedInt // 1:1000(1 trust point = 1000 gold coins)
+  exchangeRateUpdatedAt DateTime? // last time exchange rate updated
+
   minRequiredVersion        String? // e.g. "1.2.0"
   latestVersion             String? // e.g. "1.5.0"
   mandatoryUpdateMessage    String? // Message for mandatory update

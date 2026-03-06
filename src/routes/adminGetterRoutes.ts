@@ -18,12 +18,14 @@ import {
   getAllUsersDailyMissionProgress,
   getAllUsersOneTimeMissionProgress,
   getUserMissionsByUserId,
+  getTotalUsersGold,
 } from "../controllers/adminGetterController";
 import { getAllNotifications } from "../controllers/commonGetterController";
 
 const router = express.Router();
 
 router.get("/notifications/all", adminAuth, getAllNotifications);
+router.get("/users/total-gold", adminAuth, getTotalUsersGold);
 
 /* ───────────────────── USER ───────────────────── */
 router.get("/users/check-email", adminAuth, checkUserByEmail);
