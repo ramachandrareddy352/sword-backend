@@ -29,6 +29,15 @@ export const createVoucher = async (req: UserAuthRequest, res: Response) => {
 
     const amount = Math.floor(goldAmount);
 
+    // Ensure voucher amount is in multiples of 1000
+    if (amount % 1000 !== 0) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Voucher amount must be in multiples of 1000 (e.g., 1000, 2000, 5000)",
+      });
+    }
+
     const config = await prisma.adminConfig.findUnique({
       where: { id: BigInt(1) },
       select: { minVoucherGold: true, maxVoucherGold: true },
