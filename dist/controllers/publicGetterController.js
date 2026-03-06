@@ -654,6 +654,7 @@ const getAdminConfig = async (_req, res) => {
                 expiryAllow: true,
                 // ── Shopping permission ──────────────────────────────────────────
                 isShoppingAllowed: true,
+                isGameStopped: true,
                 // ── NEW: App Version & Update Control Fields ─────────────────────
                 minRequiredVersion: true, // e.g. "1.2.0"
                 latestVersion: true, // e.g. "1.5.3"

@@ -209,7 +209,7 @@ async function updateAdminConfig(req, res) {
         }
         // ================= Protected fields =================
         if (data.adminEmailId !== undefined) {
-            return res.status(403).json({
+            return res.status(400).json({
                 success: false,
                 error: "adminEmailId cannot be updated via this endpoint",
             });
@@ -1498,7 +1498,7 @@ async function createGift(req, res) {
         }
         if (receiver.isBanned) {
             return res
-                .status(403)
+                .status(400)
                 .json({ success: false, error: "Cannot send gifts to banned users" });
         }
         receiverId = receiver.id;

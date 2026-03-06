@@ -49,6 +49,12 @@ async function forceSetLowestSwordOnAnvilIfNeeded(userId) {
         });
         if (!user)
             return;
+        await client_1.default.user.update({
+            where: { id: userId },
+            data: {
+                lastLoginAt: new Date(), // sets to now()
+            },
+        });
         if (user.anvilSwordLevel !== null)
             return; // Already set → skip
         // Find the lowest level sword the user owns with unsold > 0

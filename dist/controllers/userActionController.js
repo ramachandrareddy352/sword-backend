@@ -133,7 +133,7 @@ const assignAllowedUserToVoucher = async (req, res) => {
         }
         // 🔥 Ownership check
         if (voucher.createdById !== creatorId) {
-            return res.status(403).json({
+            return res.status(400).json({
                 success: false,
                 error: "You can only assign your own vouchers",
             });
@@ -227,7 +227,7 @@ const removeAllowedUserFromVoucher = async (req, res) => {
             });
         }
         if (voucher.createdById !== creatorId) {
-            return res.status(403).json({
+            return res.status(400).json({
                 success: false,
                 error: "You can only modify your own vouchers",
             });
@@ -291,7 +291,7 @@ const cancelVoucher = async (req, res) => {
                 .json({ success: false, error: "Voucher not found" });
         }
         if (voucher.createdById !== userId) {
-            return res.status(403).json({
+            return res.status(400).json({
                 success: false,
                 error: "You can only cancel your own vouchers",
             });
@@ -1135,7 +1135,7 @@ const removeSwordFromAnvil = async (req, res) => {
             });
         }
         if (userSword.userId !== userId) {
-            return res.status(403).json({
+            return res.status(400).json({
                 success: false,
                 error: "You do not own this sword",
             });
@@ -1249,6 +1249,14 @@ const upgradeSword = async (req, res) => {
             success: false,
             goldSpent: upgradeCost,
         };
+        const nextLevel = currentSword.swordLevelDefinition.level + 1;
+        const nextDef = await client_1.default.swordLevelDefinition.findUnique({
+            where: { level: nextLevel },
+            select: { id: true },
+        });
+        if (!nextDef) {
+            throw new Error("Next level definition is not defined.");
+        }
         await client_1.default.$transaction(async (tx) => {
             // Always deduct cost
             await tx.user.update({
@@ -1257,14 +1265,6 @@ const upgradeSword = async (req, res) => {
             });
             // Success case
             if (randomChance <= successRate) {
-                const nextLevel = currentSword.swordLevelDefinition.level + 1;
-                const nextDef = await tx.swordLevelDefinition.findUnique({
-                    where: { level: nextLevel },
-                    select: { id: true },
-                });
-                if (!nextDef) {
-                    throw new Error("Next level definition not found");
-                }
                 if (user.isShieldOn) {
                     if (user.totalShields < 1) {
                         throw new Error("Shield protection is on but no shields available");
@@ -1351,6 +1351,12 @@ const upgradeSword = async (req, res) => {
                         await tx.user.update({
                             where: { id: userId },
                             data: { anvilSwordLevel: null },
+                        });
+                        await tx.userSword.update({
+                            where: { userId_swordId: { userId, swordId: currentLevelId } },
+                            data: {
+                                isOnAnvil: false,
+                            },
                         });
                     }
                     // Give random byproduct (same as before)

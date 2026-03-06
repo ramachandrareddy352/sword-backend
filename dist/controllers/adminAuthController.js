@@ -24,7 +24,7 @@ async function sendAdminOtp(req, res) {
         });
         if (!adminConfig || adminConfig.adminEmailId !== email) {
             return res
-                .status(403)
+                .status(400)
                 .json({ success: false, error: "Not authorized as admin" });
         }
         const otp = (0, crypto_1.randomInt)(100000, 999999).toString();

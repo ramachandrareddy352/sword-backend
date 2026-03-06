@@ -17,6 +17,7 @@ router.post("/forgot/send-code", userAuthController_1.forgotPassword);
 router.post("/forgot/verify", userAuthController_1.resetPassword);
 router.post("/logout", userAuth_1.default, userAuthController_1.logout);
 router.post("/google-login", userAuthController_1.googleLogin);
+router.post("/google-web-login", userAuthController_1.googleWebLogin);
 router.post("/cancel-membership/request", userAuth_1.default, userAuthController_1.requestCancelMembership);
 router.post("/cancel-membership/confirm", userAuth_1.default, userAuthController_1.confirmCancelMembership);
 exports.default = router;
