@@ -88,7 +88,6 @@ async function forceSetLowestSwordOnAnvilIfNeeded(userId) {
             },
             data: { isOnAnvil: true },
         });
-        console.log(`Forced set anvilSwordLevel to ${lowestLevel} for user ${userId}`);
     }
     catch (err) {
         console.error("forceSetLowestSwordOnAnvilIfNeeded error:", err);

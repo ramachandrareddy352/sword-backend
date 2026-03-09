@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getUserMissionsByUserId = exports.getAllUsersOneTimeMissionProgress = exports.getAllUsersDailyMissionProgress = exports.getAllOneTimeMissions = exports.getAllDailyMissions = exports.getAllUsersSynthesisHistory = exports.getAllUsersUpgradeHistory = exports.getUserFullDetails = exports.checkUserByEmail = exports.getAllUsersVouchers = exports.getAllCustomerSupports = exports.getAllUsersGifts = exports.getAdminConfig = exports.getAllUsersMaterials = exports.getAllUsersSwords = exports.getAllUsers = void 0;
+exports.getTotalUsersGold = exports.getUserMissionsByUserId = exports.getAllUsersOneTimeMissionProgress = exports.getAllUsersDailyMissionProgress = exports.getAllOneTimeMissions = exports.getAllDailyMissions = exports.getAllUsersSynthesisHistory = exports.getAllUsersUpgradeHistory = exports.getUserFullDetails = exports.checkUserByEmail = exports.getAllUsersVouchers = exports.getAllCustomerSupports = exports.getAllUsersGifts = exports.getAdminConfig = exports.getAllUsersMaterials = exports.getAllUsersSwords = exports.getAllUsers = void 0;
 const client_1 = __importDefault(require("../database/client"));
 const client_2 = require("@prisma/client");
 const queryHelpers_1 = require("../services/queryHelpers");
@@ -1329,4 +1329,34 @@ const getUserMissionsByUserId = async (req, res) => {
     }
 };
 exports.getUserMissionsByUserId = getUserMissionsByUserId;
+const getTotalUsersGold = async (req, res) => {
+    try {
+        const result = await client_1.default.user.aggregate({
+            _sum: {
+                gold: true,
+            },
+            _count: {
+                id: true,
+            },
+        });
+        // Convert to BigInt to avoid overflow
+        const totalGold = BigInt(result._sum.gold ?? 0);
+        const response = {
+            success: true,
+            data: {
+                totalUsers: result._count.id,
+                totalGold: totalGold,
+            },
+        };
+        return res.json((0, serializeBigInt_1.serializeBigInt)(response));
+    }
+    catch (err) {
+        console.error("getTotalUsersGold error:", err);
+        return res.status(500).json({
+            success: false,
+            error: "Failed to fetch total gold",
+        });
+    }
+};
+exports.getTotalUsersGold = getTotalUsersGold;
 //# sourceMappingURL=adminGetterController.js.map

@@ -16,6 +16,7 @@ const adminActionRoutes_1 = __importDefault(require("../routes/adminActionRoutes
 const adminAuthRoutes_1 = __importDefault(require("../routes/adminAuthRoutes"));
 const adminGetterRoutes_1 = __importDefault(require("../routes/adminGetterRoutes"));
 const publicGetterRoutes_1 = __importDefault(require("../routes/publicGetterRoutes"));
+const externalActionRoutes_1 = __importDefault(require("../routes/externalActionRoutes"));
 const userActionRoutes_1 = __importDefault(require("../routes/userActionRoutes"));
 const userAuthRoutes_1 = __importDefault(require("../routes/userAuthRoutes"));
 const userGetterRoutes_1 = __importDefault(require("../routes/userGetterRoutes"));
@@ -121,6 +122,7 @@ exports.app.use("/api/adminActions", adminActionRoutes_1.default);
 exports.app.use("/api/adminAuth", adminAuthRoutes_1.default);
 exports.app.use("/api/adminGetters", adminGetterRoutes_1.default);
 exports.app.use("/api/publicGetters", publicGetterRoutes_1.default);
+exports.app.use("/api/externalActions", externalActionRoutes_1.default);
 exports.app.use("/api/userActions", userActionRoutes_1.default);
 exports.app.use("/api/userAuth", userAuthRoutes_1.default);
 exports.app.use("/api/userGetters", userGetterRoutes_1.default);

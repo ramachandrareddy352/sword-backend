@@ -148,6 +148,11 @@ async function updateAdminConfig(req, res) {
         if (data.isGameStopped !== undefined) {
             updateData.isGameStopped = Boolean(data.isGameStopped);
         }
+        if (data.exchangeRate !== undefined) {
+            validateUnsignedInt(data.exchangeRate, "Exchange rate");
+            updateData.exchangeRate = data.exchangeRate;
+            updateData.exchangeRateUpdatedAt = new Date();
+        }
         // ================= NEW: App Version & Update Control =================
         if (data.minRequiredVersion !== undefined) {
             validateVersion(data.minRequiredVersion, "minRequiredVersion");

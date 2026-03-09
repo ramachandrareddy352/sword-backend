@@ -25,6 +25,13 @@ const createVoucher = async (req, res) => {
             });
         }
         const amount = Math.floor(goldAmount);
+        // Ensure voucher amount is in multiples of 1000
+        if (amount % 1000 !== 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Voucher amount must be in multiples of 1000 (e.g., 1000, 2000, 5000)",
+            });
+        }
         const config = await client_1.default.adminConfig.findUnique({
             where: { id: BigInt(1) },
             select: { minVoucherGold: true, maxVoucherGold: true },
@@ -1755,6 +1762,18 @@ const createAdSession = async (req, res) => {
                 .status(400)
                 .json({ success: false, error: "Config or user not found" });
         }
+        // ─── Global 1-hour cooldown check ───────────────────────────────
+        if (user.lastAdViewedAt) {
+            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+            if (user.lastAdViewedAt > oneHourAgo) {
+                const timeLeftMs = user.lastAdViewedAt.getTime() + 60 * 60 * 1000 - Date.now();
+                const minutesLeft = Math.ceil(timeLeftMs / 1000 / 60);
+                return res.status(429).json({
+                    success: false,
+                    error: `You can watch only 1 ad per hour. Please wait ${minutesLeft} minute${minutesLeft > 1 ? "s" : ""}.`,
+                });
+            }
+        }
         if (rewardType === client_2.AdRewardType.SHIELD) {
             if (user.oneDayShieldAdsViewed >= config.maxDailyShieldAds) {
                 return res
@@ -1846,6 +1865,7 @@ const verifyAdSession = async (req, res) => {
                         gold: { increment: config.goldReward },
                         oneDayGoldAdsViewed: { increment: 1 },
                         totalAdsViewed: { increment: 1 },
+                        lastAdViewedAt: new Date(),
                     },
                 });
                 break;
@@ -1883,6 +1903,7 @@ const verifyAdSession = async (req, res) => {
                     data: {
                         oneDaySwordAdsViewed: { increment: 1 },
                         totalAdsViewed: { increment: 1 },
+                        lastAdViewedAt: new Date(),
                     },
                 });
                 break;
@@ -1893,6 +1914,7 @@ const verifyAdSession = async (req, res) => {
                         totalShields: { increment: 1 },
                         oneDayShieldAdsViewed: { increment: 1 },
                         totalAdsViewed: { increment: 1 },
+                        lastAdViewedAt: new Date(),
                     },
                 });
                 break;
