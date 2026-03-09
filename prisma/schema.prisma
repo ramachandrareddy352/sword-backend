@@ -75,6 +75,7 @@ model User {
   lastReviewed             DateTime // the last time the account is reviewed (e.g., for verification status)
   lastLoginAt              DateTime?
   lastNotificationReadTime DateTime?
+  lastAdViewedAt           DateTime? // last time ANY ad was successfully rewarded
 
   oneDayGoldAdsViewed   Int @default(0) @db.UnsignedInt
   oneDayShieldAdsViewed Int @default(0) @db.UnsignedInt

@@ -261,26 +261,6 @@ export const getUserBasicInfo = async (req: UserAuthRequest, res: Response) => {
     // Fetch user with only safe scalar fields
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        profileLogo: true,
-        gold: true,
-        trustPoints: true,
-        totalShields: true,
-        createdAt: true,
-        lastLoginAt: true,
-        lastReviewed: true,
-        oneDayGoldAdsViewed: true,
-        oneDaySwordAdsViewed: true,
-        totalAdsViewed: true,
-        oneDayShieldAdsViewed: true,
-        totalMissionsDone: true,
-        isShieldOn: true,
-        isBanned: true,
-        anvilSwordLevel: true,
-      },
     });
 
     if (!user) {

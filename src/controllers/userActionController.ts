@@ -2009,6 +2009,21 @@ export const createAdSession = async (req: UserAuthRequest, res: Response) => {
         .json({ success: false, error: "Config or user not found" });
     }
 
+    // ─── Global 1-hour cooldown check ───────────────────────────────
+    if (user.lastAdViewedAt) {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      if (user.lastAdViewedAt > oneHourAgo) {
+        const timeLeftMs =
+          user.lastAdViewedAt.getTime() + 60 * 60 * 1000 - Date.now();
+        const minutesLeft = Math.ceil(timeLeftMs / 1000 / 60);
+
+        return res.status(429).json({
+          success: false,
+          error: `You can watch only 1 ad per hour. Please wait ${minutesLeft} minute${minutesLeft > 1 ? "s" : ""}.`,
+        });
+      }
+    }
+
     if (rewardType === AdRewardType.SHIELD) {
       if (user.oneDayShieldAdsViewed >= config.maxDailyShieldAds) {
         return res
@@ -2105,6 +2120,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
             gold: { increment: config.goldReward },
             oneDayGoldAdsViewed: { increment: 1 },
             totalAdsViewed: { increment: 1 },
+            lastAdViewedAt: new Date(),
           },
         });
         break;
@@ -2145,6 +2161,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
           data: {
             oneDaySwordAdsViewed: { increment: 1 },
             totalAdsViewed: { increment: 1 },
+            lastAdViewedAt: new Date(),
           },
         });
         break;
@@ -2156,6 +2173,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
             totalShields: { increment: 1 },
             oneDayShieldAdsViewed: { increment: 1 },
             totalAdsViewed: { increment: 1 },
+            lastAdViewedAt: new Date(),
           },
         });
         break;
