@@ -532,29 +532,29 @@ export const getUserVouchers = async (req: UserAuthRequest, res: Response) => {
 
     /* ---------------- VALIDATION ---------------- */
 
-    const validStatuses = ["PENDING", "REDEEMED", "CANCELLED", "EXPIRED"];
+    const validStatuses = ["PENDING", "REDEEMED"];
 
     let filterStatus: string | undefined;
+
     if (status) {
       const upper = String(status).toUpperCase();
+
       if (!validStatuses.includes(upper)) {
         return res.status(400).json({
           success: false,
           error: `Invalid voucher status. Allowed: ${validStatuses.join(", ")}`,
         });
       }
+
       filterStatus = upper;
     }
 
     /* ---------------- WHERE ---------------- */
 
     const where: any = {
-      createdById: userId, // ✅ fixed
+      createdById: userId,
+      status: filterStatus ? filterStatus : { in: validStatuses }, // 👈 only pending + redeemed
     };
-
-    if (filterStatus) {
-      where.status = filterStatus;
-    }
 
     /* ---------------- ORDER BY ---------------- */
 
@@ -595,6 +595,7 @@ export const getUserVouchers = async (req: UserAuthRequest, res: Response) => {
         skip: pagination.skip,
         take: pagination.take,
       }),
+
       prisma.userVoucher.count({ where }),
     ]);
 
@@ -608,6 +609,7 @@ export const getUserVouchers = async (req: UserAuthRequest, res: Response) => {
     });
   } catch (err: any) {
     console.error("getUserVouchers error:", err);
+
     return res.status(500).json({
       success: false,
       error: "Internal server error",
