@@ -518,13 +518,13 @@ export async function updateMaterial(req: AdminAuthRequest, res: Response) {
 // 4) Ban user from making actions in the game
 export async function toggleUserBan(req: AdminAuthRequest, res: Response) {
   try {
-    const { id, email, ban } = req.body;
+    const { id, email, telegramUserName, ban } = req.body;
 
     // ---------- Validation ----------
-    if (!id && !email) {
+    if (!id && !email && !telegramUserName) {
       return res.status(400).json({
         success: false,
-        error: "Either user id or email is required",
+        error: "Either user id or email or telegramUserName is required",
       });
     }
 
@@ -541,6 +541,8 @@ export async function toggleUserBan(req: AdminAuthRequest, res: Response) {
       }
     } else if (email) {
       whereClause.email = email;
+    } else if (telegramUserName) {
+      whereClause.telegramUser = telegramUserName.trim();
     }
 
     // ---------- Fetch User ----------
@@ -1731,11 +1733,10 @@ export async function updateSwordMaterials(
 // 11) Create Gift (Admin)
 // Body example:
 // {
-//   "email": "user@example.com",           // or "userId": "123"
+//   "email": "user@example.com",           // or "userId": "123" or telegramUserName
 //   "note": "Happy birthday!",
 //   "items": [
 //     { "type": "GOLD", "amount": 5000 },
-//     { "type": "TRUST_POINTS", "amount": 200 },
 //     { "type": "MATERIAL", "materialId": 17, "materialQuantity": 50 },
 //     { "type": "SWORD", "swordLevel": 5 },
 //     { "type": "SHIELD", "amount": 10 }
@@ -1746,6 +1747,7 @@ export async function createGift(req: AdminAuthRequest, res: Response) {
     const {
       email,
       userId,
+      telegramUserName,
       type,
       amount,
       materialId,
@@ -1787,6 +1789,20 @@ export async function createGift(req: AdminAuthRequest, res: Response) {
           .status(404)
           .json({ success: false, error: "User not found (by email)" });
       }
+    } else if (telegramUserName) {
+      receiver = await prisma.user.findFirst({
+        where: {
+          telegramUser: telegramUserName.trim(),
+        },
+        select: { id: true, isBanned: true },
+      });
+
+      if (!receiver) {
+        return res.status(404).json({
+          success: false,
+          error: "User not found (by telegram username)",
+        });
+      }
     } else {
       return res
         .status(400)
@@ -1811,7 +1827,6 @@ export async function createGift(req: AdminAuthRequest, res: Response) {
 
     switch (type) {
       case GiftItemType.GOLD:
-      case GiftItemType.TRUST_POINTS:
       case GiftItemType.SHIELD:
         if (
           typeof amount !== "number" ||
@@ -1902,7 +1917,15 @@ export async function createGift(req: AdminAuthRequest, res: Response) {
     const createdGift = await prisma.userGift.create({
       data: giftData,
       include: {
-        receiver: { select: { id: true, name: true, email: true } },
+        receiver: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            isTelegramLogin: true,
+            telegramUser: true,
+          },
+        },
         material:
           type === GiftItemType.MATERIAL
             ? { select: { id: true, name: true, rarity: true } }
@@ -2309,6 +2332,7 @@ export async function deleteOneTimeMission(
   }
 }
 
+// 20)
 export const createNotification = async (
   req: AdminAuthRequest,
   res: Response,
@@ -2345,6 +2369,7 @@ export const createNotification = async (
   }
 };
 
+// 21)
 export const deleteNotification = async (
   req: AdminAuthRequest,
   res: Response,

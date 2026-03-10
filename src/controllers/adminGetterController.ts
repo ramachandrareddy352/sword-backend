@@ -101,6 +101,8 @@ export const getAllUsers = async (req: AdminAuthRequest, res: Response) => {
       take: pagination.take,
       select: {
         id: true,
+        isTelegramLogin: true,
+        telegramUser: true,
         email: true,
         name: true,
         profileLogo: true,
@@ -215,6 +217,8 @@ export const getAllUsersSwords = async (
           user: {
             select: {
               id: true,
+              isTelegramLogin: true,
+              telegramUser: true,
               email: true,
               name: true,
               profileLogo: true,
@@ -348,6 +352,8 @@ export const getAllUsersMaterials = async (
         user: {
           select: {
             id: true,
+            isTelegramLogin: true,
+            telegramUser: true,
             email: true,
             name: true,
             isBanned: true,
@@ -496,6 +502,8 @@ export const getAllUsersGifts = async (
           receiver: {
             select: {
               id: true,
+              isTelegramLogin: true,
+              telegramUser: true,
               email: true,
               name: true,
               profileLogo: true,
@@ -586,6 +594,8 @@ export const getAllCustomerSupports = async (
         user: {
           select: {
             id: true,
+            isTelegramLogin: true,
+            telegramUser: true,
             email: true,
             name: true,
             isBanned: true,
@@ -675,6 +685,8 @@ export const getAllUsersVouchers = async (
           createdBy: {
             select: {
               id: true,
+              isTelegramLogin: true,
+              telegramUser: true,
               email: true,
               name: true,
               profileLogo: true,
@@ -684,6 +696,8 @@ export const getAllUsersVouchers = async (
           allowedUser: {
             select: {
               id: true,
+              isTelegramLogin: true,
+              telegramUser: true,
               email: true,
               name: true,
               profileLogo: true,
@@ -693,6 +707,8 @@ export const getAllUsersVouchers = async (
           redeemedBy: {
             select: {
               id: true,
+              isTelegramLogin: true,
+              telegramUser: true,
               email: true,
               name: true,
               profileLogo: true,
@@ -719,7 +735,7 @@ export const getAllUsersVouchers = async (
   }
 };
 
-// 8) verify weaher user is a registered one or not
+// 8.1) verify weaher user is a registered one or not
 export const checkUserByEmail = async (
   req: AdminAuthRequest,
   res: Response,
@@ -735,7 +751,7 @@ export const checkUserByEmail = async (
       });
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = email.trim();
 
     // 2. Find user (only select safe/public fields)
     const user = await prisma.user.findUnique({
@@ -776,18 +792,82 @@ export const checkUserByEmail = async (
   }
 };
 
+// 8.2) verify weaher user is a registered one or not
+export const checkUserByTelegramUserName = async (
+  req: AdminAuthRequest,
+  res: Response,
+) => {
+  try {
+    const { telegramUserName } = req.query;
+
+    // 1. Input validation
+    if (
+      !telegramUserName ||
+      typeof telegramUserName !== "string" ||
+      !telegramUserName.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Valid telegram username is required",
+      });
+    }
+
+    // normalize username
+    const normalizedUsername = telegramUserName.replace("@", "").trim();
+
+    // 2. Find user
+    const user = await prisma.user.findFirst({
+      where: {
+        telegramUser: normalizedUsername,
+        isTelegramLogin: true,
+      },
+      select: {
+        id: true,
+        telegramUser: true,
+        name: true,
+        isBanned: true,
+        createdAt: true,
+      },
+    });
+
+    // 3. Response
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        exists: false,
+        error: "No user registered with this Telegram username",
+        data: null,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      exists: true,
+      message: "User found",
+      data: serializeBigInt(user),
+    });
+  } catch (err: any) {
+    console.error("[checkUserByTelegramUserName] Error:", err);
+
+    return res.status(500).json({
+      success: false,
+      error: "Internal server error while checking Telegram user",
+    });
+  }
+};
+
 // 9) Get complete user details (admin only) by email or id
 export const getUserFullDetails = async (
   req: AdminAuthRequest,
   res: Response,
 ) => {
   try {
-    const { email, userId } = req.query;
+    const { email, userId, telegramUserName } = req.query;
 
-    if (!email && !userId) {
+    if (!email && !telegramUserName && !userId) {
       return res.status(400).json({
         success: false,
-        error: "Provide either 'email' or 'userId' query parameter",
+        error: "Provide either 'email', 'userId', or 'telegramUserName'",
       });
     }
 
@@ -799,6 +879,12 @@ export const getUserFullDetails = async (
     } else if (email) {
       user = await prisma.user.findUnique({
         where: { email: email as string },
+      });
+    } else if (telegramUserName) {
+      const normalizedTg = (telegramUserName as string).replace("@", "").trim();
+
+      user = await prisma.user.findFirst({
+        where: { telegramUser: normalizedTg },
       });
     }
 
@@ -812,6 +898,8 @@ export const getUserFullDetails = async (
     // ─── Core user data ───────────────────────────────────────────────
     const safeUser = {
       id: user.id.toString(),
+      isTelegramLogin: user.isTelegramLogin,
+      telegramUser: user.telegramUser,
       email: user.email,
       name: user.name,
       profileLogo: user.profileLogo,
@@ -1157,6 +1245,8 @@ export const getAllUsersUpgradeHistory = async (
         user: {
           select: {
             id: true,
+            isTelegramLogin: true,
+            telegramUser: true,
             email: true,
             name: true,
           },
@@ -1220,6 +1310,8 @@ export const getAllUsersSynthesisHistory = async (
         user: {
           select: {
             id: true,
+            isTelegramLogin: true,
+            telegramUser: true,
             email: true,
             name: true,
           },
@@ -1413,7 +1505,13 @@ export const getAllUsersDailyMissionProgress = async (
       take: pagination.take,
       include: {
         user: {
-          select: { id: true, email: true, name: true },
+          select: {
+            id: true,
+            isTelegramLogin: true,
+            telegramUser: true,
+            email: true,
+            name: true,
+          },
         },
         mission: {
           select: { id: true, title: true, reward: true },
@@ -1457,7 +1555,13 @@ export const getAllUsersOneTimeMissionProgress = async (
       take: pagination.take,
       include: {
         user: {
-          select: { id: true, email: true, name: true },
+          select: {
+            id: true,
+            isTelegramLogin: true,
+            telegramUser: true,
+            email: true,
+            name: true,
+          },
         },
         mission: {
           select: { id: true, title: true, reward: true },

@@ -555,6 +555,16 @@ export async function googleLogin(req: Request, res: Response) {
         return newUser;
       });
     }
+    // EXISTING USER → update profile only
+    else {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          name: name || user.name,
+          profileLogo: profile,
+        },
+      });
+    }
 
     // 4️⃣ Create JWT session
     const jti = uuidv4();
@@ -573,7 +583,7 @@ export async function googleLogin(req: Request, res: Response) {
       data: {
         id: user.id.toString(),
         email: user.email,
-        name: user.name,
+        name: name,
       },
       message:
         user.createdAt.getTime() === user.lastLoginAt?.getTime()
@@ -621,7 +631,7 @@ export async function googleWebLogin(req: Request, res: Response) {
       });
     }
 
-    const { email } = payload;
+    const { email, name, profile } = payload;
 
     // 2️⃣ Check if user exists
     let user = await prisma.user.findUnique({
@@ -635,6 +645,15 @@ export async function googleWebLogin(req: Request, res: Response) {
         error: "User account not found",
       });
     }
+
+    // EXISTING USER → update profile only
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        name: name || user.name,
+        profileLogo: profile,
+      },
+    });
 
     // 4️⃣ Create JWT session
     const jti = uuidv4();
@@ -653,7 +672,7 @@ export async function googleWebLogin(req: Request, res: Response) {
       data: {
         id: user.id.toString(),
         email: user.email,
-        name: user.name,
+        name: name,
       },
       message: "Login successful!",
     });
@@ -768,6 +787,16 @@ export async function telegramLogin(req: Request, res: Response) {
 
         return newUser;
       });
+    } // else update the telegram details on every login
+    else {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          telegramUser: username,
+          name: fullName || "telegram_user",
+          profileLogo: photoUrl,
+        },
+      });
     }
 
     // 4️⃣ CREATE SESSION
@@ -789,7 +818,7 @@ export async function telegramLogin(req: Request, res: Response) {
       data: {
         id: user.id.toString(),
         email: user.email,
-        name: user.name,
+        name: username,
       },
       message: "Telegram login successful!",
     });

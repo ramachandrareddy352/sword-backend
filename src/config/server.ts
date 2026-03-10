@@ -20,6 +20,7 @@ import ExternalActionRouters from "../routes/externalActionRoutes";
 import UserActionRouters from "../routes/userActionRoutes";
 import UserAuthRouters from "../routes/userAuthRoutes";
 import UserGetterRouters from "../routes/userGetterRoutes";
+import rateLimit from "express-rate-limit";
 
 export const app = express();
 
@@ -48,6 +49,21 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+
+// const limiter = rateLimit({
+//   windowMs: 60 * 1000, // 1 minute
+//   max: 60, // limit each IP to 60 requests per window
+//   standardHeaders: true, // return rate limit info in headers
+//   legacyHeaders: false,
+
+//   message: {
+//     success: false,
+//     error: "Too many requests, please try again after 1 minute.",
+//   },
+// });
+
+// app.set("trust proxy", 1); // Very Important (If Using Nginx / Cloudflare), Otherwise all users may appear as the same IP.
+// app.use(limiter); // order is important, Add after CORS but before routes
 
 app.get("/", (req: Request, res: Response) => {
   res.send("Sword Backend");

@@ -23,7 +23,7 @@ export function verifyTelegramData(initData: string, botToken: string) {
 }
 
 export async function sendTelegramMessage(telegramId: string, message: string) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const token = process.env.TELEGRAM_GAME_BOT_TOKEN;
 
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
 

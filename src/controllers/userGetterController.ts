@@ -15,7 +15,6 @@ export const getUserRank = async (req: UserAuthRequest, res: Response) => {
       select: {
         id: true,
         gold: true,
-        trustPoints: true,
         totalShields: true,
         totalAdsViewed: true,
         totalMissionsDone: true,
@@ -37,7 +36,6 @@ export const getUserRank = async (req: UserAuthRequest, res: Response) => {
     const userStats = {
       userId: userId.toString(),
       gold: Number(currentUser.gold),
-      trustPoints: currentUser.trustPoints,
       totalShields: currentUser.totalShields,
       totalAdsViewed: currentUser.totalAdsViewed,
       totalMissionsDone: currentUser.totalMissionsDone,
@@ -58,7 +56,6 @@ export const getUserRank = async (req: UserAuthRequest, res: Response) => {
       select: {
         id: true,
         gold: true,
-        trustPoints: true,
         totalShields: true,
         totalAdsViewed: true,
         totalMissionsDone: true,
@@ -74,7 +71,6 @@ export const getUserRank = async (req: UserAuthRequest, res: Response) => {
     const leaderboardData = allUsers.map((u) => ({
       userId: u.id.toString(),
       gold: Number(u.gold),
-      trustPoints: u.trustPoints,
       totalShields: u.totalShields,
       totalAdsViewed: u.totalAdsViewed,
       totalMissionsDone: u.totalMissionsDone,
@@ -89,7 +85,6 @@ export const getUserRank = async (req: UserAuthRequest, res: Response) => {
       "totalMaterials",
       "totalShields",
       "gold",
-      "trustPoints",
       "totalAdsViewed",
       "totalMissionsDone",
       "createdAt",
@@ -582,12 +577,16 @@ export const getUserVouchers = async (req: UserAuthRequest, res: Response) => {
           allowedUser: {
             select: {
               id: true,
+              isTelegramLogin: true,
+              telegramUser: true,
               email: true,
             },
           },
           redeemedBy: {
             select: {
               id: true,
+              isTelegramLogin: true,
+              telegramUser: true,
               email: true,
             },
           },

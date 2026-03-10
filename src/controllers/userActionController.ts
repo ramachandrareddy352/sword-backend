@@ -130,7 +130,8 @@ export const assignAllowedUserToVoucher = async (
 ) => {
   try {
     const creatorId = BigInt(req.user.userId);
-    const { voucherId, allowedEmail } = req.body;
+
+    const { voucherId, allowedEmail, allowedTgUserName } = req.body;
 
     if (!voucherId || isNaN(Number(voucherId))) {
       return res.status(400).json({
@@ -139,19 +140,16 @@ export const assignAllowedUserToVoucher = async (
       });
     }
 
-    if (!allowedEmail) {
+    // must provide at least one
+    if (!allowedEmail && !allowedTgUserName) {
       return res.status(400).json({
         success: false,
-        error: "Valid allowedEmail required",
+        error: "Provide either allowedEmail or allowedTgUserName",
       });
     }
 
-    const normalizedEmail = allowedEmail.trim().toLowerCase();
-
-    // 🔥 Validate creator
     await userGuard(creatorId);
 
-    // 🔥 Find voucher
     const voucher = await prisma.userVoucher.findUnique({
       where: { id: BigInt(voucherId) },
     });
@@ -163,7 +161,6 @@ export const assignAllowedUserToVoucher = async (
       });
     }
 
-    // 🔥 Ownership check
     if (voucher.createdById !== creatorId) {
       return res.status(400).json({
         success: false,
@@ -171,7 +168,6 @@ export const assignAllowedUserToVoucher = async (
       });
     }
 
-    // 🔥 Must be pending
     if (voucher.status !== VoucherStatus.PENDING) {
       return res.status(400).json({
         success: false,
@@ -179,18 +175,31 @@ export const assignAllowedUserToVoucher = async (
       });
     }
 
-    // 🔥 Expiry check (if enabled)
-    // if (voucher.expiresAt && voucher.expiresAt < new Date()) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     error: "Voucher has expired",
-    //   });
-    // }
+    let allowedUser = null;
 
-    // 🔥 Find allowed user by email
-    const allowedUser = await prisma.user.findUnique({
-      where: { email: normalizedEmail },
-    });
+    // EMAIL CASE
+    if (allowedEmail) {
+      const normalizedEmail = allowedEmail.trim().toLowerCase();
+
+      allowedUser = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      });
+    }
+
+    // TELEGRAM USERNAME CASE
+    else if (allowedTgUserName) {
+      const normalizedTg = allowedTgUserName
+        .replace("@", "")
+        .trim()
+        .toLowerCase();
+
+      allowedUser = await prisma.user.findFirst({
+        where: {
+          telegramUser: normalizedTg,
+          isTelegramLogin: true,
+        },
+      });
+    }
 
     if (!allowedUser) {
       return res.status(404).json({
@@ -199,7 +208,6 @@ export const assignAllowedUserToVoucher = async (
       });
     }
 
-    // 🔥 Check allowed user banned
     if (allowedUser.isBanned) {
       return res.status(400).json({
         success: false,
@@ -207,7 +215,6 @@ export const assignAllowedUserToVoucher = async (
       });
     }
 
-    // 🔥 Prevent self-assign
     if (allowedUser.id === creatorId) {
       return res.status(400).json({
         success: false,
@@ -215,11 +222,10 @@ export const assignAllowedUserToVoucher = async (
       });
     }
 
-    // 🔥 Atomic update
     await prisma.userVoucher.update({
       where: {
         id: BigInt(voucherId),
-        status: VoucherStatus.PENDING, // prevents race condition
+        status: VoucherStatus.PENDING,
       },
       data: {
         allowedUserId: allowedUser.id,
@@ -232,6 +238,7 @@ export const assignAllowedUserToVoucher = async (
     });
   } catch (err: any) {
     console.error("Assign voucher error:", err);
+
     return res.status(400).json({
       success: false,
       error: err.message || "Internal server error",
@@ -1861,15 +1868,6 @@ export const claimGift = async (req: UserAuthRequest, res: Response) => {
           }
           break;
 
-        case GiftItemType.TRUST_POINTS:
-          if (gift.amount && gift.amount > 0) {
-            await tx.user.update({
-              where: { id: userId },
-              data: { trustPoints: { increment: gift.amount } },
-            });
-          }
-          break;
-
         case GiftItemType.SHIELD:
           if (gift.amount && gift.amount > 0) {
             await tx.user.update({
@@ -2082,7 +2080,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     await prisma.adRewardSession.deleteMany({
       where: {
         createdAt: {
-          lt: new Date(Date.now() - 15 * 60 * 1000),
+          lt: new Date(Date.now() - 60 * 60 * 1000),
         },
       },
     });
@@ -2094,7 +2092,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     if (
       !session ||
       session.userId !== userId ||
-      session.rewarded !== true || // SSV Admob verification
+      session.rewarded !== true || // SSV Admob or AdsGram verification
       session.rewardedAt !== null
     ) {
       return res
