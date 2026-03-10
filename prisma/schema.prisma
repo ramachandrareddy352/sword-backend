@@ -60,11 +60,18 @@ model Notification {
 
 // ======================= USERS =======================
 model User {
-  id          BigInt  @id @default(autoincrement()) @db.UnsignedBigInt
-  email       String  @unique
-  name        String
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+
+  isTelegramLogin Boolean? @default(false) // is user login with telegram or not
+
+  email    String? @unique
+  password String?
+
+  telegramId   BigInt? @unique
+  telegramUser String?
+
+  name        String // name and telegram (first + last name) is same
   profileLogo String?
-  password    String // Hashed password (bcrypt in application logic)
 
   gold            Int     @default(0) @db.UnsignedInt
   trustPoints     Int     @default(100) @db.UnsignedInt
