@@ -594,7 +594,7 @@ export async function requestCancelMembership(
       select: { email: true, name: true },
     });
 
-    if (!user) {
+    if (!user || !user.email) {
       return res.status(404).json({
         success: false,
         error: "User not found",
