@@ -9,6 +9,10 @@ import { sendEmail } from "../services/generateOTP";
 // import { generateSecureCode } from "../services/generateCode";
 // import { serializeBigInt } from "../services/serializeBigInt";
 import { UserAuthRequest } from "../middleware/userAuth";
+import {
+  sendTelegramMessage,
+  verifyTelegramData,
+} from "../services/tgServices";
 
 // export async function sendVerification(req: Request, res: Response) {
 //   try {
@@ -472,7 +476,7 @@ export async function googleLogin(req: Request, res: Response) {
       });
     }
 
-    const { email, name } = payload;
+    const { email, name, profile } = payload;
 
     // 2️⃣ Check if user exists
     let user = await prisma.user.findUnique({
@@ -507,9 +511,13 @@ export async function googleLogin(req: Request, res: Response) {
       user = await prisma.$transaction(async (tx) => {
         const newUser = await tx.user.create({
           data: {
+            isTelegramLogin: false,
+            telegramId: null,
+            telegramUser: null,
             email,
             name: name?.toLowerCase().replace(/\s/g, "") || "googleuser",
-            password: "", // No password for Google
+            password: "", // No password for Google login
+            profileLogo: profile,
             gold: config.defaultGold ?? 0,
             trustPoints: config.defaultTrustPoints ?? 0,
             lastReviewed: new Date(),
@@ -577,181 +585,6 @@ export async function googleLogin(req: Request, res: Response) {
     return res.status(400).json({
       success: false,
       error: "Google authentication failed",
-    });
-  }
-}
-
-//  Request Cancel Membership → Send OTP to user's email
-export async function requestCancelMembership(
-  req: UserAuthRequest,
-  res: Response,
-) {
-  try {
-    const userId = BigInt(req.user.userId); // from JWT via userAuth middleware
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true, name: true },
-    });
-
-    if (!user || !user.email) {
-      return res.status(404).json({
-        success: false,
-        error: "User not found",
-      });
-    }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // Send email
-    await sendEmail(
-      user.email,
-      "Account Deletion Request - OTP",
-      `Hello ${user.name},\n\nYou requested to delete your account.\n\nYour confirmation OTP is: **${otp}**\n\nThis code expires in 15 minutes.\n\nIf you did not request this, please ignore this email.\n\nFor security, this action cannot be undone.`,
-    );
-
-    const otpKey = `cancel:otp:${user.email}`;
-    const attemptsKey = `cancel:otp:attempts:${user.email}`;
-
-    // Save OTP (15 min expiry)
-    await redis.set(otpKey, otp, { EX: 900 });
-
-    // Reset attempts
-    await redis.set(attemptsKey, "0", { EX: 900 });
-
-    return res.json({
-      success: true,
-      message:
-        "OTP sent to your registered email for account deletion confirmation",
-    });
-  } catch (err) {
-    console.error("requestCancelMembership error:", err);
-    return res.status(500).json({
-      success: false,
-      error: "Failed to send OTP. Please try again later.",
-    });
-  }
-}
-
-//  Confirm Cancel Membership → Verify OTP & Delete Account
-export async function confirmCancelMembership(
-  req: UserAuthRequest,
-  res: Response,
-) {
-  try {
-    const userId = BigInt(req.user.userId);
-    const { otp } = req.body;
-
-    if (!otp) {
-      return res.status(400).json({
-        success: false,
-        error: "OTP code is required",
-      });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: "User not found",
-      });
-    }
-
-    const otpKey = `cancel:otp:${user.email}`;
-    const attemptsKey = `cancel:otp:attempts:${user.email}`;
-
-    const storedOtp = await redis.get(otpKey);
-
-    if (!storedOtp) {
-      return res.status(400).json({
-        success: false,
-        error: "OTP expired or invalid. Please request a new one.",
-      });
-    }
-
-    let attempts = Number(await redis.get(attemptsKey)) || 0;
-
-    // Too many failed attempts
-    if (attempts >= 5) {
-      await redis.del(otpKey);
-      await redis.del(attemptsKey);
-      return res.status(429).json({
-        success: false,
-        error:
-          "Too many invalid attempts. OTP expired. Please request a new code.",
-      });
-    }
-
-    // Wrong OTP
-    if (storedOtp !== otp) {
-      const newAttempts = attempts + 1;
-      await redis.set(attemptsKey, newAttempts.toString(), { EX: 900 });
-      return res.status(400).json({
-        success: false,
-        error: `Invalid OTP. Attempts left: ${5 - newAttempts}`,
-      });
-    }
-
-    // Correct OTP → Proceed with full account deletion
-    await prisma.$transaction(async (tx) => {
-      // Because we set onDelete: Cascade on almost all relations,
-      // deleting the user will automatically delete:
-      // - AdRewardSession
-      // - SwordSynthesisHistory
-      // - SwordUpgradeHistory
-      // - UserSword (including anvil)
-      // - UserVoucher
-      // - UserMaterial
-      // - UserGift (+ UserGiftItem via cascade)
-      // - SwordMarketplacePurchase
-      // - MaterialMarketplacePurchase
-      // - ShieldMarketplacePurchase
-      // - CustomerSupport
-      await tx.user.delete({
-        where: { id: userId },
-      });
-    });
-
-    // Invalidate current session
-    const authHeader = req.headers.authorization;
-    if (authHeader) {
-      const token = authHeader.split(" ")[1];
-      try {
-        const payload: any = jwt.decode(token);
-        if (payload?.jti) {
-          await redis.del(`session:${payload.jti}`);
-        }
-      } catch (e) {
-        // silent fail
-      }
-    }
-
-    // Cleanup OTP data
-    await redis.del(otpKey);
-    await redis.del(attemptsKey);
-
-    return res.json({
-      success: true,
-      message:
-        "Your account and all associated data have been permanently deleted. You have been logged out.",
-    });
-  } catch (err: any) {
-    console.error("confirmCancelMembership error:", err);
-
-    if (err.code === "P2025") {
-      return res.status(404).json({
-        success: false,
-        error: "Account not found or already deleted",
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      error: "Failed to delete account. Please try again or contact support.",
     });
   }
 }
@@ -829,6 +662,355 @@ export async function googleWebLogin(req: Request, res: Response) {
     return res.status(400).json({
       success: false,
       error: "Google authentication failed",
+    });
+  }
+}
+
+export async function telegramLogin(req: Request, res: Response) {
+  try {
+    const { initData } = req.body;
+
+    if (!initData) {
+      return res.status(400).json({
+        success: false,
+        error: "Telegram initData is required",
+      });
+    }
+
+    const botToken = process.env.TELEGRAM_BOT_TOKEN!;
+
+    const isValid = verifyTelegramData(initData, botToken);
+
+    if (!isValid) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid Telegram authentication",
+      });
+    }
+
+    const params = new URLSearchParams(initData);
+    const userData = JSON.parse(params.get("user")!);
+
+    const telegramId = BigInt(userData.id);
+    const username = userData.username || null;
+    const photoUrl = userData.photo_url || null;
+
+    const firstName = userData.first_name || "";
+    const lastName = userData.last_name || "";
+
+    const fullName = `${firstName} ${lastName}`.trim();
+
+    // 2️⃣ Check if user exists
+    let user = await prisma.user.findUnique({
+      where: { telegramId },
+    });
+
+    // 3️⃣ FIRST LOGIN → CREATE USER
+    if (!user) {
+      const config = await prisma.adminConfig.findUnique({
+        where: { id: BigInt(1) },
+      });
+
+      if (!config) {
+        return res.status(500).json({
+          success: false,
+          error: "Admin config not found",
+        });
+      }
+
+      const levelOneSwordDef = await prisma.swordLevelDefinition.findFirst({
+        where: { level: 1 },
+        select: { id: true },
+      });
+
+      if (!levelOneSwordDef) {
+        return res.status(500).json({
+          success: false,
+          error: "Starter sword definition missing",
+        });
+      }
+
+      user = await prisma.$transaction(async (tx) => {
+        const newUser = await tx.user.create({
+          data: {
+            email: null,
+            password: null,
+            isTelegramLogin: true,
+            telegramId: telegramId,
+            telegramUser: username,
+            name: fullName || "telegram_user",
+            profileLogo: photoUrl || null,
+            gold: config.defaultGold ?? 0,
+            trustPoints: config.defaultTrustPoints ?? 0,
+            lastReviewed: new Date(),
+            lastLoginAt: new Date(),
+          },
+        });
+
+        // give starter sword
+        await tx.userSword.create({
+          data: {
+            userId: newUser.id,
+            swordId: BigInt(levelOneSwordDef.id),
+            isOnAnvil: true,
+            unsoldQuantity: 1,
+            soldedQuantity: 0,
+            brokenQuantity: 0,
+          },
+        });
+
+        await tx.user.update({
+          where: { id: newUser.id },
+          data: {
+            anvilSwordLevel: BigInt(levelOneSwordDef.id),
+          },
+        });
+
+        return newUser;
+      });
+    }
+
+    // 4️⃣ CREATE SESSION
+    const jti = uuidv4();
+
+    const token = jwt.sign(
+      { userId: user.id.toString(), jti },
+      process.env.JWT_SECRET!,
+      { expiresIn: "2h" },
+    );
+
+    await redis.set(`session:${jti}`, user.id.toString(), {
+      EX: 60 * 60 * 2,
+    });
+
+    return res.json({
+      success: true,
+      token,
+      data: {
+        id: user.id.toString(),
+        email: user.email,
+        name: user.name,
+      },
+      message: "Telegram login successful!",
+    });
+  } catch (err) {
+    console.error("Telegram login error:", err);
+
+    return res.status(500).json({
+      success: false,
+      error: "Telegram authentication failed",
+    });
+  }
+}
+
+export async function requestCancelMembership(
+  req: UserAuthRequest,
+  res: Response,
+) {
+  try {
+    const userId = BigInt(req.user.userId);
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        name: true,
+        telegramId: true,
+        isTelegramLogin: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // EMAIL USER
+    if (!user.isTelegramLogin && user.email) {
+      await sendEmail(
+        user.email,
+        "Account Deletion Request - OTP",
+        `Hello ${user.name},
+
+You requested to delete your account.
+
+Your confirmation OTP is: ${otp}
+
+This code expires in 15 minutes.`,
+      );
+
+      const otpKey = `cancel:otp:${user.email}`;
+      const attemptsKey = `cancel:otp:attempts:${user.email}`;
+
+      await redis.set(otpKey, otp, { EX: 900 });
+      await redis.set(attemptsKey, "0", { EX: 900 });
+
+      return res.json({
+        success: true,
+        message: "OTP sent to your email",
+      });
+    }
+
+    // TELEGRAM USER
+    if (user.isTelegramLogin && user.telegramId) {
+      const telegramId = user.telegramId.toString();
+
+      await sendTelegramMessage(
+        telegramId,
+        `⚠️ *Account Deletion Request*
+
+Hello ${user.name}
+
+Your OTP for confirming account deletion is:
+
+*${otp}*
+
+This OTP will expire in 15 minutes.
+
+If you did not request this, ignore this message.`,
+      );
+
+      const otpKey = `cancel:otp:tg:${telegramId}`;
+      const attemptsKey = `cancel:otp:tg:attempts:${telegramId}`;
+
+      await redis.set(otpKey, otp, { EX: 900 });
+      await redis.set(attemptsKey, "0", { EX: 900 });
+
+      return res.json({
+        success: true,
+        message: "OTP sent to your Telegram account",
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: "Unable to send OTP",
+    });
+  } catch (err) {
+    console.error("requestCancelMembership error:", err);
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to send OTP",
+    });
+  }
+}
+
+export async function confirmCancelMembership(
+  req: UserAuthRequest,
+  res: Response,
+) {
+  try {
+    const userId = BigInt(req.user.userId);
+    const { otp } = req.body;
+
+    if (!otp) {
+      return res.status(400).json({
+        success: false,
+        error: "OTP code is required",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        telegramId: true,
+        isTelegramLogin: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    let otpKey: string;
+    let attemptsKey: string;
+
+    if (user.isTelegramLogin && user.telegramId) {
+      const tgId = user.telegramId.toString();
+      otpKey = `cancel:otp:tg:${tgId}`;
+      attemptsKey = `cancel:otp:tg:attempts:${tgId}`;
+    } else if (user.email) {
+      otpKey = `cancel:otp:${user.email}`;
+      attemptsKey = `cancel:otp:attempts:${user.email}`;
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: "User contact info missing",
+      });
+    }
+
+    const storedOtp = await redis.get(otpKey);
+
+    if (!storedOtp) {
+      return res.status(400).json({
+        success: false,
+        error: "OTP expired or invalid. Please request for new OTP",
+      });
+    }
+
+    let attempts = Number(await redis.get(attemptsKey)) || 0;
+
+    if (attempts >= 5) {
+      await redis.del(otpKey);
+      await redis.del(attemptsKey);
+
+      return res.status(429).json({
+        success: false,
+        error: "Too many invalid attempts. OTP expired.",
+      });
+    }
+
+    if (storedOtp !== otp) {
+      const newAttempts = attempts + 1;
+      await redis.set(attemptsKey, newAttempts.toString(), { EX: 900 });
+
+      return res.status(400).json({
+        success: false,
+        error: `Invalid OTP. Attempts left: ${5 - newAttempts}`,
+      });
+    }
+
+    // DELETE ACCOUNT
+    await prisma.$transaction(async (tx) => {
+      await tx.user.delete({
+        where: { id: userId },
+      });
+    });
+
+    // invalidate session
+    const authHeader = req.headers.authorization;
+
+    if (authHeader) {
+      const token = authHeader.split(" ")[1];
+      const payload: any = jwt.decode(token);
+
+      if (payload?.jti) {
+        await redis.del(`session:${payload.jti}`);
+      }
+    }
+
+    await redis.del(otpKey);
+    await redis.del(attemptsKey);
+
+    return res.json({
+      success: true,
+      message: "Account deleted successfully",
+    });
+  } catch (err: any) {
+    console.error("confirmCancelMembership error:", err);
+
+    return res.status(500).json({
+      success: false,
+      error: "Failed to delete account",
     });
   }
 }

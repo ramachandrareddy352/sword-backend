@@ -11,6 +11,7 @@ import {
   requestCancelMembership,
   confirmCancelMembership,
   googleWebLogin,
+  telegramLogin,
 } from "../controllers/userAuthController";
 
 const router = express.Router();
@@ -27,6 +28,7 @@ router.get("/me", userAuth, (_req, res) => {
 router.post("/logout", userAuth, logout);
 router.post("/google-login", googleLogin);
 router.post("/google-web-login", googleWebLogin);
+router.post("/telegram-login", telegramLogin);
 router.post("/cancel-membership/request", userAuth, requestCancelMembership);
 router.post("/cancel-membership/confirm", userAuth, confirmCancelMembership);
 
