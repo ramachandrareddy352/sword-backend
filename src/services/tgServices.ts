@@ -1,38 +1,52 @@
-import crypto from "crypto";
 import axios from "axios";
-
+import crypto from "crypto";
 export function verifyTelegramData(
   initData: string,
   botToken: string,
 ): boolean {
   try {
+    if (!botToken) {
+      console.error("Bot token is empty or undefined");
+      return false;
+    }
+
     const urlParams = new URLSearchParams(initData);
 
     const receivedHash = urlParams.get("hash");
     if (!receivedHash) {
-      console.log("Missing hash parameter");
+      console.log("Missing 'hash' in initData");
       return false;
     }
 
-    // Remove hash (and signature if it exists — though normally not present)
-    urlParams.delete("hash");
-    urlParams.delete("signature"); // just in case
+    // Optional: check freshness (recommended!)
+    const authDateStr = urlParams.get("auth_date");
+    if (authDateStr) {
+      const authDate = parseInt(authDateStr, 10);
+      const now = Math.floor(Date.now() / 1000);
+      if (now - authDate > 86400) {
+        // e.g. reject if older than 24 hours
+        console.log(`initData too old: ${now - authDate} seconds`);
+        return false;
+      }
+    }
 
-    // Sort keys alphabetically and build data-check-string
+    urlParams.delete("hash");
+    urlParams.delete("signature"); // if present
+
+    // Build data-check-string exactly as you already do (looks correct)
     const dataCheckString = [...urlParams.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => `${key}=${value}`)
       .join("\n");
 
-    console.log("Data check string:\n" + dataCheckString); // ← very useful for debugging
+    console.log("Data check string:\n" + dataCheckString);
 
-    // 1. Secret key = HMAC-SHA256("WebAppData", botToken)
+    // CORRECT secret key creation
     const secretKey = crypto
       .createHmac("sha256", "WebAppData")
       .update(botToken)
       .digest();
 
-    // 2. Final hash = HMAC-SHA256(dataCheckString, secretKey)
     const calculatedHash = crypto
       .createHmac("sha256", secretKey)
       .update(dataCheckString)
@@ -40,10 +54,11 @@ export function verifyTelegramData(
 
     console.log("Calculated hash:", calculatedHash);
     console.log("Received    hash:", receivedHash);
+    console.log("Bot token length:", botToken.length); // should be ~35-46
 
     return calculatedHash === receivedHash;
   } catch (err) {
-    console.error("Verification error:", err);
+    console.error("Verification failed:", err);
     return false;
   }
 }
