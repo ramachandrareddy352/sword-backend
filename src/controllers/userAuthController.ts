@@ -815,11 +815,6 @@ export async function telegramLogin(req: Request, res: Response) {
     return res.json({
       success: true,
       token,
-      data: {
-        id: user.id.toString(),
-        email: user.email,
-        name: username,
-      },
       message: "Telegram login successful!",
     });
   } catch (err) {

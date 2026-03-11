@@ -2,24 +2,28 @@ import crypto from "crypto";
 import axios from "axios";
 
 export function verifyTelegramData(initData: string, botToken: string) {
-  const urlParams = new URLSearchParams(initData);
+  try {
+    const urlParams = new URLSearchParams(initData);
 
-  const hash = urlParams.get("hash");
-  urlParams.delete("hash");
+    const hash = urlParams.get("hash");
+    urlParams.delete("hash");
 
-  const dataCheckString = [...urlParams.entries()]
-    .sort()
-    .map(([key, value]) => `${key}=${value}`)
-    .join("\n");
+    const dataCheckString = [...urlParams.entries()]
+      .sort()
+      .map(([key, value]) => `${key}=${value}`)
+      .join("\n");
 
-  const secretKey = crypto.createHash("sha256").update(botToken).digest();
+    const secretKey = crypto.createHash("sha256").update(botToken).digest();
 
-  const hmac = crypto
-    .createHmac("sha256", secretKey)
-    .update(dataCheckString)
-    .digest("hex");
+    const hmac = crypto
+      .createHmac("sha256", secretKey)
+      .update(dataCheckString)
+      .digest("hex");
 
-  return hmac === hash;
+    return hmac === hash;
+  } catch (err) {
+    console.log("Verification error: ", err);
+  }
 }
 
 export async function sendTelegramMessage(telegramId: string, message: string) {
