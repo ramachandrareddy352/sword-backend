@@ -696,7 +696,7 @@ export async function telegramLogin(req: Request, res: Response) {
       });
     }
 
-    const botToken = process.env.TELEGRAM_BOT_TOKEN!;
+    const botToken = process.env.TELEGRAM_GAME_BOT_TOKEN!;
 
     const isValid = verifyTelegramData(initData, botToken);
 
