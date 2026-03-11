@@ -1,5 +1,6 @@
 import axios from "axios";
 import crypto from "crypto";
+
 export function verifyTelegramData(
   initData: string,
   botToken: string,
@@ -10,53 +11,45 @@ export function verifyTelegramData(
       return false;
     }
 
-    const urlParams = new URLSearchParams(initData);
+    // Parse initData as URLSearchParams
+    const params = new URLSearchParams(initData);
 
-    const receivedHash = urlParams.get("hash");
+    // Extract received hash
+    const receivedHash = params.get("hash");
     if (!receivedHash) {
-      console.log("Missing 'hash' in initData");
+      console.error("No hash found in initData");
       return false;
     }
 
-    // Optional: check freshness (recommended!)
-    const authDateStr = urlParams.get("auth_date");
-    if (authDateStr) {
-      const authDate = parseInt(authDateStr, 10);
-      const now = Math.floor(Date.now() / 1000);
-      if (now - authDate > 86400) {
-        // e.g. reject if older than 24 hours
-        console.log(`initData too old: ${now - authDate} seconds`);
-        return false;
-      }
+    // Remove hash from params and sort the remaining key-value pairs
+    params.delete("hash");
+    const dataArray: string[] = [];
+    for (const [key, value] of params) {
+      dataArray.push(`${key}=${decodeURIComponent(value)}`);
     }
+    dataArray.sort(); // Sorts lexicographically by key=value string
+    const dataCheckString = dataArray.join("\n");
 
-    urlParams.delete("hash");
-    urlParams.delete("signature"); // if present
-
-    // Build data-check-string exactly as you already do (looks correct)
-    const dataCheckString = [...urlParams.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, value]) => `${key}=${value}`)
-      .join("\n");
-
-    console.log("Data check string:\n" + dataCheckString);
-
-    // CORRECT secret key creation
+    // Generate secret key: HMAC-SHA256("WebAppData", botToken)
     const secretKey = crypto
       .createHmac("sha256", "WebAppData")
       .update(botToken)
       .digest();
 
+    // Calculate hash: HMAC-SHA256(secretKey, dataCheckString)
     const calculatedHash = crypto
       .createHmac("sha256", secretKey)
-      .update(dataCheckString)
+      .update(dataCheckString, "utf8")
       .digest("hex");
 
-    console.log("Calculated hash:", calculatedHash);
-    console.log("Received    hash:", receivedHash);
-    console.log("Bot token length:", botToken.length); // should be ~35-46
+    // Verify
+    const isValid = calculatedHash === receivedHash;
 
-    return calculatedHash === receivedHash;
+    if (!isValid) {
+      console.error("Hash mismatch");
+    }
+
+    return isValid;
   } catch (err) {
     console.error("Verification failed:", err);
     return false;
