@@ -1,32 +1,49 @@
 import crypto from "crypto";
 import axios from "axios";
 
-export function verifyTelegramData(initData: string, botToken: string) {
+export function verifyTelegramData(
+  initData: string,
+  botToken: string,
+): boolean {
   try {
     const urlParams = new URLSearchParams(initData);
 
-    const hash = urlParams.get("hash");
-    if (!hash) return false;
+    const receivedHash = urlParams.get("hash");
+    if (!receivedHash) {
+      console.log("Missing hash parameter");
+      return false;
+    }
 
-    // Remove fields not used in verification
+    // Remove hash (and signature if it exists — though normally not present)
     urlParams.delete("hash");
-    urlParams.delete("signature");
+    urlParams.delete("signature"); // just in case
 
+    // Sort keys alphabetically and build data-check-string
     const dataCheckString = [...urlParams.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => `${key}=${value}`)
       .join("\n");
 
-    const secretKey = crypto.createHash("sha256").update(botToken).digest();
+    console.log("Data check string:\n" + dataCheckString); // ← very useful for debugging
 
+    // 1. Secret key = HMAC-SHA256("WebAppData", botToken)
+    const secretKey = crypto
+      .createHmac("sha256", "WebAppData")
+      .update(botToken)
+      .digest();
+
+    // 2. Final hash = HMAC-SHA256(dataCheckString, secretKey)
     const calculatedHash = crypto
       .createHmac("sha256", secretKey)
       .update(dataCheckString)
       .digest("hex");
 
-    return calculatedHash === hash;
+    console.log("Calculated hash:", calculatedHash);
+    console.log("Received    hash:", receivedHash);
+
+    return calculatedHash === receivedHash;
   } catch (err) {
-    console.log("Verification error:", err);
+    console.error("Verification error:", err);
     return false;
   }
 }
