@@ -698,7 +698,6 @@ export async function telegramLogin(req: Request, res: Response) {
     }
 
     const botToken = process.env.TELEGRAM_GAME_BOT_TOKEN!;
-    console.log(botToken);
 
     const isValid = verifyTelegramData(initData, botToken);
     console.log("is Valid, ", isValid);

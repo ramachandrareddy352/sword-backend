@@ -6,23 +6,28 @@ export function verifyTelegramData(initData: string, botToken: string) {
     const urlParams = new URLSearchParams(initData);
 
     const hash = urlParams.get("hash");
+    if (!hash) return false;
+
+    // Remove fields not used in verification
     urlParams.delete("hash");
+    urlParams.delete("signature");
 
     const dataCheckString = [...urlParams.entries()]
-      .sort()
+      .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => `${key}=${value}`)
       .join("\n");
 
     const secretKey = crypto.createHash("sha256").update(botToken).digest();
 
-    const hmac = crypto
+    const calculatedHash = crypto
       .createHmac("sha256", secretKey)
       .update(dataCheckString)
       .digest("hex");
 
-    return hmac === hash;
+    return calculatedHash === hash;
   } catch (err) {
-    console.log("Verification error: ", err);
+    console.log("Verification error:", err);
+    return false;
   }
 }
 
