@@ -688,7 +688,6 @@ export async function googleWebLogin(req: Request, res: Response) {
 export async function telegramLogin(req: Request, res: Response) {
   try {
     const { initData } = req.body;
-    console.log(initData);
 
     if (!initData) {
       return res.status(400).json({
@@ -700,7 +699,6 @@ export async function telegramLogin(req: Request, res: Response) {
     const botToken = process.env.TELEGRAM_GAME_BOT_TOKEN!;
 
     const isValid = verifyTelegramData(initData, botToken);
-    console.log("is Valid, ", isValid);
 
     if (!isValid) {
       return res.status(401).json({
@@ -711,7 +709,6 @@ export async function telegramLogin(req: Request, res: Response) {
 
     const params = new URLSearchParams(initData);
     const userData = JSON.parse(params.get("user")!);
-    console.log(userData);
 
     const telegramId = BigInt(userData.id);
     const username = userData.username || null;
@@ -721,7 +718,6 @@ export async function telegramLogin(req: Request, res: Response) {
     const lastName = userData.last_name || "";
 
     const fullName = `${firstName} ${lastName}`.trim();
-    console.log(fullName);
 
     // 2️⃣ Check if user exists
     let user = await prisma.user.findUnique({
