@@ -19,6 +19,7 @@ import {
   getAllUsersOneTimeMissionProgress,
   getUserMissionsByUserId,
   getTotalUsersGold,
+  checkUserByTelegramUserName,
 } from "../controllers/adminGetterController";
 import { getAllNotifications } from "../controllers/commonGetterController";
 
@@ -29,6 +30,7 @@ router.get("/users/total-gold", adminAuth, getTotalUsersGold);
 
 /* ───────────────────── USER ───────────────────── */
 router.get("/users/check-email", adminAuth, checkUserByEmail);
+router.get("/users/check-telegram", adminAuth, checkUserByTelegramUserName);
 router.get("/users/all", adminAuth, getAllUsers);
 router.get("/user/full-details", adminAuth, getUserFullDetails);
 
