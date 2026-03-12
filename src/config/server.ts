@@ -163,9 +163,7 @@ app.get("/api/admob/ssv-callback", async (req: Request, res: Response) => {
 
 app.get("/api/adsgram/reward", async (req: Request, res: Response) => {
   try {
-    console.log(req.query);
     const telegramIdStr = req.query.userId as string;
-    console.log(telegramIdStr);
 
     if (!telegramIdStr) {
       return res.status(200).send("OK");

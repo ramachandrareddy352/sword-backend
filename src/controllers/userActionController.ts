@@ -2074,7 +2074,6 @@ export const createAdSession = async (req: UserAuthRequest, res: Response) => {
 export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
   try {
     const { nonce } = req.body;
-    console.log("Verfication hot at backend", nonce);
     const userId = BigInt(req.user.userId);
 
     // CLEANUP Alredy Rewarded once or expired sessions (60 minutes old)
@@ -2090,7 +2089,6 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
       where: { nonce },
     });
 
-    console.log("Verfication hot at backend", session);
     if (
       !session ||
       session.userId !== userId ||
