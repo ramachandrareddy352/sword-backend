@@ -2080,16 +2080,9 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     // CLEANUP Alredy Rewarded once or expired sessions (60 minutes old)
     await prisma.adRewardSession.deleteMany({
       where: {
-        OR: [
-          {
-            rewarded: true,
-          },
-          {
-            createdAt: {
-              lt: new Date(Date.now() - 60 * 60 * 1000),
-            },
-          },
-        ],
+        createdAt: {
+          lt: new Date(Date.now() - 60 * 60 * 1000),
+        },
       },
     });
 
@@ -2097,6 +2090,7 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
       where: { nonce },
     });
 
+    console.log("Verfication hot at backend", session);
     if (
       !session ||
       session.userId !== userId ||
