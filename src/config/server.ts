@@ -161,6 +161,46 @@ app.get("/api/admob/ssv-callback", async (req: Request, res: Response) => {
   }
 });
 
+app.get("/api/adsgram/reward", async (req: Request, res: Response) => {
+  try {
+    const telegramIdStr = req.query.userid as string;
+    console.log(telegramIdStr);
+
+    if (!telegramIdStr) {
+      return res.status(200).send("OK");
+    }
+
+    const telegramId = BigInt(telegramIdStr);
+
+    // Find user by telegram id
+    const user = await prisma.user.findUnique({
+      where: { telegramId },
+      select: { id: true },
+    });
+
+    if (!user) {
+      return res.status(200).send("OK");
+    }
+
+    // Mark ALL pending sessions for this user as rewarded
+    await prisma.adRewardSession.updateMany({
+      where: {
+        userId: user.id,
+        rewarded: false,
+      },
+      data: {
+        rewarded: true,
+        rewardedAt: new Date(),
+      },
+    });
+
+    return res.status(200).send("OK");
+  } catch (err) {
+    console.error("AdsGram SSV error:", err);
+    return res.status(200).send("OK");
+  }
+});
+
 app.use("/api/adminActions", AdminActionRouters);
 app.use("/api/adminAuth", AdminAuthRouters);
 app.use("/api/adminGetters", AdminGetterRouters);

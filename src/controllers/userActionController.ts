@@ -2076,12 +2076,19 @@ export const verifyAdSession = async (req: UserAuthRequest, res: Response) => {
     const { nonce } = req.body;
     const userId = BigInt(req.user.userId);
 
-    // CLEANUP expired sessions (15 minutes old)
+    // CLEANUP Alredy Rewarded once or expired sessions (60 minutes old)
     await prisma.adRewardSession.deleteMany({
       where: {
-        createdAt: {
-          lt: new Date(Date.now() - 60 * 60 * 1000),
-        },
+        OR: [
+          {
+            rewarded: true,
+          },
+          {
+            createdAt: {
+              lt: new Date(Date.now() - 60 * 60 * 1000),
+            },
+          },
+        ],
       },
     });
 
