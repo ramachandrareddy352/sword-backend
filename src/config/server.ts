@@ -191,7 +191,6 @@ app.get("/api/adsgram/reward", async (req: Request, res: Response) => {
       },
       data: {
         rewarded: true,
-        rewardedAt: new Date(),
       },
     });
 
