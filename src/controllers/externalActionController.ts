@@ -4,6 +4,31 @@ import prisma from "../database/client";
 import { serializeBigInt } from "../services/serializeBigInt";
 import { VoucherStatus } from "@prisma/client";
 
+function resolveUserWhere(userId: string) {
+  if (userId.startsWith("@")) {
+    const telegramUser = userId.slice(1);
+
+    if (!telegramUser) {
+      throw new Error("Invalid telegram username");
+    }
+
+    return {
+      telegramUser,
+    };
+  }
+
+  // simple email validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (!emailRegex.test(userId)) {
+    throw new Error("Invalid userId format");
+  }
+
+  return {
+    email: userId,
+  };
+}
+
 export async function redeemVoucherFromShopping(req: Request, res: Response) {
   try {
     const { data } = req.body;
@@ -15,10 +40,13 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
     // decode request
     const decoded = decodePayload(data);
 
-    const { email, voucherCode, expiry, nonce } = decoded;
+    const { userId, voucherCode, expiry, nonce } = decoded;
 
-    if (!email || !voucherCode || !expiry || !nonce) {
-      return res.status(400).json({ success: false, error: "Invalid payload" });
+    if (!userId || !voucherCode || !expiry || !nonce) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid payload",
+      });
     }
 
     // expiry check
@@ -32,8 +60,16 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
     const voucher = await prisma.userVoucher.findUnique({
       where: { code: voucherCode },
       include: {
-        createdBy: true,
-        allowedUser: true,
+        createdBy: {
+          select: {
+            id: true,
+          },
+        },
+        allowedUser: {
+          select: {
+            id: true,
+          },
+        },
       },
     });
 
@@ -52,9 +88,23 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
     }
 
     // get user redeeming
-    const redeemUser = await prisma.user.findUnique({
-      where: { email },
-    });
+    let redeemUser;
+
+    try {
+      const where = resolveUserWhere(userId);
+
+      redeemUser = await prisma.user.findFirst({
+        where,
+        select: {
+          id: true,
+        },
+      });
+    } catch (err: any) {
+      return res.status(400).json({
+        success: false,
+        error: err.message,
+      });
+    }
 
     if (!redeemUser) {
       return res.status(404).json({
@@ -64,9 +114,9 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
     }
 
     // permission check
-    const isCreator = voucher.createdBy.email === email;
+    const isCreator = voucher.createdById === redeemUser.id;
     const isAllowed =
-      voucher.allowedUser && voucher.allowedUser.email === email;
+      voucher.allowedUserId && voucher.allowedUserId === redeemUser.id;
 
     if (!isCreator && !isAllowed) {
       return res.status(403).json({
@@ -117,7 +167,7 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
       success: true,
       message: "Voucher redeemed successfully",
       data: serializeBigInt({
-        email,
+        userId,
         voucherCode,
         points,
       }),

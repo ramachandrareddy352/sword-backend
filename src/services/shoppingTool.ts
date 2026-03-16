@@ -47,3 +47,37 @@ export async function sendShoppingAck(payload: any) {
 
   return resp.data;
 }
+
+export type IdentifierType = "email" | "telegram" | "invalid";
+
+export interface ResolvedUser {
+  type: IdentifierType;
+  value: string; // cleaned value (without @ for telegram)
+  userId?: bigint; // internal DB ID if found
+}
+
+export function classifyUserIdentifier(
+  rawId: string | undefined | null,
+): ResolvedUser {
+  if (!rawId || typeof rawId !== "string" || rawId.trim() === "") {
+    return { type: "invalid", value: "" };
+  }
+
+  const cleaned = rawId.trim().toLowerCase();
+
+  // Very basic email-like check (you can make it stricter with regex if needed)
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (emailRegex.test(cleaned)) {
+    return { type: "email", value: cleaned };
+  }
+
+  // Telegram username check
+  if (cleaned.startsWith("@")) {
+    const withoutAt = cleaned.slice(1).trim();
+    if (withoutAt.length > 0) {
+      return { type: "telegram", value: withoutAt };
+    }
+  }
+
+  return { type: "invalid", value: "" };
+}
