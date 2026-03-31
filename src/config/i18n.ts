@@ -2,6 +2,9 @@ import i18next from "i18next";
 import Backend from "i18next-fs-backend";
 import * as middleware from "i18next-http-middleware";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const initI18n = async () => {
   await i18next
