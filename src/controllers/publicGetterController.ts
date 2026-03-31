@@ -6,16 +6,13 @@ import { serializeBigInt } from "../services/serializeBigInt";
 // 1) All sword definitions (paginated, basic info + optional relations)
 export const getAllSwords = async (req: Request, res: Response) => {
   try {
-    const {
-      sortLevel, // 'asc' | 'desc'
-      includeRelations, // 'true' to include relations
-    } = req.query;
+    const { sortLevel, includeRelations } = req.query;
 
     const pagination = getPagination(req.query);
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "Invalid pagination parameters",
+        error: req.t("publicGetter.error.invalidPaginationParameters"),
       });
     }
 
@@ -33,13 +30,12 @@ export const getAllSwords = async (req: Request, res: Response) => {
       orderBy,
       skip: pagination.skip,
       take: pagination.take,
-      // Use include (recommended when you want relations)
       include:
         includeRelations === "true"
           ? {
               synthesisRequirements: {
                 select: {
-                  material: true, // Return full material data in synthesis
+                  material: true,
                   requiredQuantity: true,
                 },
               },
@@ -57,7 +53,7 @@ export const getAllSwords = async (req: Request, res: Response) => {
 
     return res.status(200).json({
       success: true,
-      message: "Swords fetched successfully",
+      message: req.t("publicGetter.success.swordsFetched"),
       data: serializeBigInt(swords),
       total,
       page: pagination.page,
@@ -67,24 +63,20 @@ export const getAllSwords = async (req: Request, res: Response) => {
     console.error("getAllSwords error:", error);
     return res.status(500).json({
       success: false,
-      error: "Internal server error",
+      error: req.t("publicGetter.error.internalServerError"),
     });
   }
 };
 
-// 2) Single sword by level or name (full details with relations)
+// 2) Single sword by level or name
 export const getSword = async (req: Request, res: Response) => {
   try {
-    const {
-      level,
-      name,
-      includeRelations, // 'true' to include relations
-    } = req.query;
+    const { level, name, includeRelations } = req.query;
 
     if (!level && !name) {
       return res.status(400).json({
         success: false,
-        error: "Provide either 'level' or 'name' query parameter",
+        error: req.t("publicGetter.error.provideLevelOrName"),
       });
     }
 
@@ -135,43 +127,40 @@ export const getSword = async (req: Request, res: Response) => {
     }
 
     if (!sword) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Sword not found in the game" });
+      return res.status(404).json({
+        success: false,
+        error: req.t("publicGetter.error.swordNotFound"),
+      });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Sword details fetched successfully",
+      message: req.t("publicGetter.success.swordDetailsFetched"),
       data: serializeBigInt(sword),
     });
   } catch (error) {
     console.error("getSword error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      error: req.t("publicGetter.error.internalServerError"),
+    });
   }
 };
 
-// 3) All materials (paginated, basic info)
+// 3) All materials (paginated)
 export const getAllMaterials = async (req: Request, res: Response) => {
   try {
-    const {
-      rarity, // optional filter: COMMON | RARE | EPIC | LEGENDARY | MYTHIC
-      sortBuyingCost, // 'asc' | 'desc'
-      sortSellingCost, // 'asc' | 'desc'
-      sortCreatedAt, // 'asc' | 'desc'
-    } = req.query;
+    const { rarity, sortBuyingCost, sortSellingCost, sortCreatedAt } =
+      req.query;
 
     const pagination = getPagination(req.query);
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "Invalid pagination parameters",
+        error: req.t("publicGetter.error.invalidPaginationParameters"),
       });
     }
 
-    // Build where clause for rarity filter
     const where: any = {};
 
     if (rarity) {
@@ -181,14 +170,15 @@ export const getAllMaterials = async (req: Request, res: Response) => {
       if (!validRarities.includes(upperRarity)) {
         return res.status(400).json({
           success: false,
-          error: `Invalid rarity value. Allowed: ${validRarities.join(", ")}`,
+          error: req.t("publicGetter.error.invalidRarity", {
+            allowed: validRarities.join(", "),
+          }),
         });
       }
 
       where.rarity = upperRarity;
     }
 
-    // Build orderBy array
     const orderBy: any[] = [];
 
     if (sortBuyingCost && ["asc", "desc"].includes(sortBuyingCost as string)) {
@@ -204,12 +194,10 @@ export const getAllMaterials = async (req: Request, res: Response) => {
       orderBy.push({ createdAt: sortCreatedAt });
     }
 
-    // Default sort if nothing provided
     if (orderBy.length === 0) {
       orderBy.push({ createdAt: "desc" });
     }
 
-    // Count total (with filter applied)
     const total = await prisma.material.count({ where });
     const materials = await prisma.material.findMany({
       where,
@@ -222,8 +210,8 @@ export const getAllMaterials = async (req: Request, res: Response) => {
       return res.status(200).json({
         success: true,
         message: rarity
-          ? `No ${rarity} materials found in the game`
-          : "No materials found in the game",
+          ? req.t("publicGetter.success.noRarityMaterialsFound", { rarity })
+          : req.t("publicGetter.success.noMaterialsFound"),
         data: [],
         total,
         page: pagination.page,
@@ -233,7 +221,7 @@ export const getAllMaterials = async (req: Request, res: Response) => {
 
     return res.status(200).json({
       success: true,
-      message: "Materials fetched successfully",
+      message: req.t("publicGetter.success.materialsFetched"),
       data: serializeBigInt(materials),
       total,
       page: pagination.page,
@@ -241,9 +229,10 @@ export const getAllMaterials = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error("getAllMaterials error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      error: req.t("publicGetter.error.internalServerError"),
+    });
   }
 };
 
@@ -255,7 +244,7 @@ export const getMaterial = async (req: Request, res: Response) => {
     if (!id && !name) {
       return res.status(400).json({
         success: false,
-        error: "Provide 'id', 'code' or 'name' query parameter",
+        error: req.t("publicGetter.error.provideIdOrName"),
       });
     }
 
@@ -297,29 +286,30 @@ export const getMaterial = async (req: Request, res: Response) => {
     }
 
     if (!material) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Material not found in the game" });
+      return res.status(404).json({
+        success: false,
+        error: req.t("publicGetter.error.materialNotFound"),
+      });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Material fetched successfully",
+      message: req.t("publicGetter.success.materialFetched"),
       data: serializeBigInt(material),
     });
   } catch (error) {
     console.error("getMaterial error:", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      error: req.t("publicGetter.error.internalServerError"),
+    });
   }
 };
 
-// 5) Updated leaderboard with new fields
+// 5) Leaderboard
 export const getLeaderboard = async (req: Request, res: Response) => {
   try {
-    // ── Safe extraction of sortBy ───────────────────────────────────────
-    let sortBy: string = "totalSwords"; // default to missions or gold, etc.
+    let sortBy: string = "totalSwords";
     const sortByRaw = req.query.sortBy;
 
     if (typeof sortByRaw === "string" && sortByRaw.trim()) {
@@ -328,7 +318,6 @@ export const getLeaderboard = async (req: Request, res: Response) => {
       sortBy = String(sortByRaw[0]).trim();
     }
 
-    // ── Validate sort field ──────────────────────────────────────────────
     const validSortFields = [
       "totalSwords",
       "totalMaterials",
@@ -343,29 +332,29 @@ export const getLeaderboard = async (req: Request, res: Response) => {
     if (!validSortFields.includes(sortBy as any)) {
       return res.status(400).json({
         success: false,
-        error: `Invalid sortBy field. Allowed: ${validSortFields.join(", ")}`,
+        error: req.t("publicGetter.error.invalidSortByField", {
+          allowed: validSortFields.join(", "),
+        }),
       });
     }
 
-    // ── Order (asc / desc) ───────────────────────────────────────────────
     let order: "asc" | "desc" = "desc";
     const orderRaw = req.query.order;
     if (
       typeof orderRaw === "string" &&
       (orderRaw === "asc" || orderRaw === "desc")
     ) {
-      order = orderRaw;
+      order = orderRaw as "asc" | "desc";
     }
 
     const pagination = getPagination(req.query);
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "Invalid pagination parameters",
+        error: req.t("publicGetter.error.invalidPagination"),
       });
     }
 
-    // ── Fetch users (non-banned) ─────────────────────────────────────────
     const users = await prisma.user.findMany({
       where: { isBanned: false },
       select: {
@@ -377,16 +366,11 @@ export const getLeaderboard = async (req: Request, res: Response) => {
         totalShields: true,
         totalAdsViewed: true,
         totalMissionsDone: true,
-        swords: {
-          select: { unsoldQuantity: true },
-        },
-        materials: {
-          select: { unsoldQuantity: true },
-        },
+        swords: { select: { unsoldQuantity: true } },
+        materials: { select: { unsoldQuantity: true } },
       },
     });
 
-    // ── Compute leaderboard data ─────────────────────────────────────────
     const leaderboardData = users.map((u) => ({
       userId: u.id.toString(),
       name: u.name,
@@ -400,7 +384,6 @@ export const getLeaderboard = async (req: Request, res: Response) => {
       totalMaterials: u.materials.reduce((sum, m) => sum + m.unsoldQuantity, 0),
     }));
 
-    // ── Sort ─────────────────────────────────────────────────────────────
     leaderboardData.sort((a, b) => {
       let valA: number | Date;
       let valB: number | Date;
@@ -413,109 +396,86 @@ export const getLeaderboard = async (req: Request, res: Response) => {
           : valA.getTime() - valB.getTime();
       }
 
-      // All other fields are numbers
-      valA = a[sortBy as keyof typeof a] as number;
-      valB = b[sortBy as keyof typeof a] as number;
+      valA = (a as any)[sortBy] as number;
+      valB = (b as any)[sortBy] as number;
 
       return order === "desc" ? valB - valA : valA - valB;
     });
 
-    // ── Paginate ─────────────────────────────────────────────────────────
     const start = pagination.skip;
     const paginated = leaderboardData.slice(start, start + pagination.take);
 
     return res.json({
       success: true,
+      message: req.t("publicGetter.success.leaderboardFetched"),
       data: paginated,
       total: leaderboardData.length,
       page: pagination.page,
       limit: pagination.limit,
-      message: "Leaderboard fetched successfully",
     });
   } catch (err) {
     console.error("getLeaderboard error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      error: req.t("publicGetter.error.internalServerError"),
+    });
   }
 };
 
-// 6) admin config data
-export const getAdminConfig = async (_req: Request, res: Response) => {
+// 6) Admin Config
+export const getAdminConfig = async (req: Request, res: Response) => {
   try {
-    // Fetch the single AdminConfig row (id is fixed to 1 as per your schema)
     const config = await prisma.adminConfig.findUnique({
-      where: { id: 1n }, // BigInt literal (1n)
+      where: { id: BigInt(1) },
       select: {
-        // ── Existing Shield Config ───────────────────────────────────────
         shieldGoldPrice: true,
         maxDailyShieldAds: true,
         maxShieldHold: true,
         shieldActiveOnMarketplace: true,
-
-        // ── Default values for new users ─────────────────────────────────
         defaultTrustPoints: true,
         defaultGold: true,
-
-        // ── Sword & Gold Ads ─────────────────────────────────────────────
         maxDailySwordAds: true,
         swordLevelReward: true,
         maxDailyGoldAds: true,
         goldReward: true,
-
-        // ── Voucher settings ─────────────────────────────────────────────
         minVoucherGold: true,
         maxVoucherGold: true,
         voucherExpiryDays: true,
         expiryAllow: true,
-
-        // ── Shopping permission ──────────────────────────────────────────
         isShoppingAllowed: true,
         isGameStopped: true,
-
         exchangeRate: true,
-
-        // ── NEW: App Version & Update Control Fields ─────────────────────
-        minRequiredVersion: true, // e.g. "1.2.0"
-        latestVersion: true, // e.g. "1.5.3"
-        mandatoryUpdateMessage: true, // Message for forced update
-        notificationUpdateMessage: true, // Message for optional update
-        playStoreLink: true, // Google Play Store URL
-        appStoreLink: true, // Apple App Store URL
+        minRequiredVersion: true,
+        latestVersion: true,
+        mandatoryUpdateMessage: true,
+        notificationUpdateMessage: true,
+        playStoreLink: true,
+        appStoreLink: true,
       },
     });
 
     if (!config) {
       return res.status(404).json({
         success: false,
-        error: "Admin configuration not found",
+        error: req.t("publicGetter.error.adminConfigNotFound"),
       });
     }
 
-    // Return the config data (convert BigInt to string for safe JSON)
     return res.status(200).json({
       success: true,
-      message: "Admin configuration retrieved successfully",
+      message: req.t("publicGetter.success.adminConfigRetrieved"),
       data: serializeBigInt(config),
     });
   } catch (error) {
     console.error("getAdminConfig error:", error);
     return res.status(500).json({
       success: false,
-      error: "Failed to fetch admin configuration",
+      error: req.t("publicGetter.error.internalServerError"),
     });
   }
 };
 
-function parseVersion(version: string): [number, number, number] {
-  const parts = version.split(".").map(Number);
-  if (parts.length !== 3 || parts.some(isNaN)) {
-    throw new Error("Invalid version format. Expected: major.minor.patch");
-  }
-  return [parts[0], parts[1], parts[2]];
-}
-
-// 7) GET /public/version-check?version=1.2.3&platform=android
+// 7) App Version Check
 export const getAppVersionCheck = async (req: Request, res: Response) => {
   try {
     const { version, platform } = req.query;
@@ -523,18 +483,17 @@ export const getAppVersionCheck = async (req: Request, res: Response) => {
     if (!version || typeof version !== "string") {
       return res.status(400).json({
         success: false,
-        error: "version query parameter is required (e.g., '1.2.3')",
+        error: req.t("publicGetter.error.versionParameterRequired"),
       });
     }
 
     if (!platform || !["android", "ios"].includes(platform as string)) {
       return res.status(400).json({
         success: false,
-        error: "platform must be 'android' or 'ios'",
+        error: req.t("publicGetter.error.platformMustBeAndroidOrIos"),
       });
     }
 
-    // Fetch config (cache if needed in production)
     const config = await prisma.adminConfig.findUnique({
       where: { id: BigInt(1) },
       select: {
@@ -550,7 +509,7 @@ export const getAppVersionCheck = async (req: Request, res: Response) => {
     if (!config || !config.minRequiredVersion || !config.latestVersion) {
       return res.status(500).json({
         success: false,
-        error: "Version configuration not set up",
+        error: req.t("publicGetter.error.versionConfigNotSet"),
       });
     }
 
@@ -560,7 +519,7 @@ export const getAppVersionCheck = async (req: Request, res: Response) => {
     } catch {
       return res.status(400).json({
         success: false,
-        error: "Invalid version format. Use major.minor.patch (e.g., '1.2.3')",
+        error: req.t("publicGetter.error.invalidVersionFormat"),
       });
     }
 
@@ -598,7 +557,15 @@ export const getAppVersionCheck = async (req: Request, res: Response) => {
     console.error("getAppVersionCheck error:", err);
     return res.status(500).json({
       success: false,
-      error: "Internal server error",
+      error: req.t("publicGetter.error.internalServerError"),
     });
   }
 };
+
+function parseVersion(version: string): [number, number, number] {
+  const parts = version.split(".").map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) {
+    throw new Error("Invalid version format. Expected: major.minor.patch");
+  }
+  return [parts[0], parts[1], parts[2]];
+}

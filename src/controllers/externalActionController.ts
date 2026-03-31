@@ -7,26 +7,18 @@ import { VoucherStatus } from "@prisma/client";
 function resolveUserWhere(userId: string) {
   if (userId.startsWith("@")) {
     const telegramUser = userId.slice(1);
-
     if (!telegramUser) {
-      throw new Error("Invalid telegram username");
+      throw new Error("invalidTelegramUsername");
     }
-
-    return {
-      telegramUser,
-    };
+    return { telegramUser };
   }
 
-  // simple email validation
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
   if (!emailRegex.test(userId)) {
-    throw new Error("Invalid userId format");
+    throw new Error("invalidUserIdFormat");
   }
 
-  return {
-    email: userId,
-  };
+  return { email: userId };
 }
 
 export async function redeemVoucherFromShopping(req: Request, res: Response) {
@@ -34,86 +26,81 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
     const { data } = req.body;
 
     if (!data) {
-      return res.status(400).json({ success: false, error: "Missing payload" });
+      return res.status(400).json({
+        success: false,
+        error: req.t("externalAction.error.missingPayload"),
+      });
     }
 
-    // decode request
+    // Decode request
     const decoded = decodePayload(data);
-
     const { userId, voucherCode, expiry, nonce } = decoded;
 
     if (!userId || !voucherCode || !expiry || !nonce) {
       return res.status(400).json({
         success: false,
-        error: "Invalid payload",
+        error: req.t("externalAction.error.invalidPayload"),
       });
     }
 
-    // expiry check
+    // Expiry check
     if (Date.now() > new Date(expiry).getTime()) {
       return res.status(400).json({
         success: false,
-        error: "Request expired",
+        error: req.t("externalAction.error.requestExpired"),
       });
     }
 
     const voucher = await prisma.userVoucher.findUnique({
       where: { code: voucherCode },
       include: {
-        createdBy: {
-          select: {
-            id: true,
-          },
-        },
-        allowedUser: {
-          select: {
-            id: true,
-          },
-        },
+        createdBy: { select: { id: true } },
+        allowedUser: { select: { id: true } },
       },
     });
 
     if (!voucher) {
       return res.status(404).json({
         success: false,
-        error: "Voucher not found",
+        error: req.t("externalAction.error.voucherNotFound"),
       });
     }
 
     if (voucher.status !== VoucherStatus.PENDING) {
       return res.status(400).json({
         success: false,
-        error: "Voucher already used",
+        error: req.t("externalAction.error.voucherAlreadyUsed"),
       });
     }
 
-    // get user redeeming
+    // Resolve and find redeeming user
     let redeemUser;
-
     try {
       const where = resolveUserWhere(userId);
-
       redeemUser = await prisma.user.findFirst({
         where,
-        select: {
-          id: true,
-        },
+        select: { id: true },
       });
     } catch (err: any) {
+      const errorKey =
+        err.message === "invalidTelegramUsername"
+          ? "invalidTelegramUsername"
+          : "invalidUserIdFormat";
+
       return res.status(400).json({
         success: false,
-        error: err.message,
+        error: req.t(`externalAction.error.${errorKey}`),
       });
     }
 
     if (!redeemUser) {
       return res.status(404).json({
         success: false,
-        error: "User not found",
+        error: req.t("externalAction.error.userNotFound"),
       });
     }
 
-    // permission check
+    // Permission check
     const isCreator = voucher.createdById === redeemUser.id;
     const isAllowed =
       voucher.allowedUserId && voucher.allowedUserId === redeemUser.id;
@@ -121,7 +108,7 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
     if (!isCreator && !isAllowed) {
       return res.status(403).json({
         success: false,
-        error: "User not allowed to redeem this voucher",
+        error: req.t("externalAction.error.userNotAllowedToRedeem"),
       });
     }
 
@@ -129,10 +116,10 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
       where: { id: BigInt(1) },
     });
 
-    if (!config?.exchangeRate || config?.exchangeRate <= 0) {
+    if (!config?.exchangeRate || config.exchangeRate <= 0) {
       return res.status(500).json({
         success: false,
-        error: "Exchange rate not configured",
+        error: req.t("externalAction.error.exchangeRateNotConfigured"),
       });
     }
 
@@ -140,12 +127,12 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
     if (points <= 0) {
       return res.status(500).json({
         success: false,
-        error: "Point shoule be greater than 0",
+        error: req.t("externalAction.error.pointsShouldBeGreaterThanZero"),
       });
     }
 
     await prisma.$transaction(async (tx) => {
-      // mark redeemed
+      // Mark voucher as redeemed
       await tx.userVoucher.update({
         where: { id: voucher.id },
         data: {
@@ -155,7 +142,7 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
         },
       });
 
-      // send acknowledge to shopping backend
+      // Send acknowledgment to shopping backend
       await sendShoppingAck({
         success: true,
         points,
@@ -165,7 +152,7 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
 
     return res.json({
       success: true,
-      message: "Voucher redeemed successfully",
+      message: req.t("externalAction.success.voucherRedeemed"),
       data: serializeBigInt({
         userId,
         voucherCode,
@@ -177,7 +164,8 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
 
     return res.status(500).json({
       success: false,
-      error: err.message || "Voucher redemption failed",
+      error:
+        err.message || req.t("externalAction.error.voucherRedemptionFailed"),
     });
   }
 }

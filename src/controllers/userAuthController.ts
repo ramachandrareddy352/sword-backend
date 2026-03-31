@@ -4,429 +4,21 @@ import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import prisma from "../database/client";
 import redis from "../config/redis";
-// import bcrypt from "bcrypt";
 import { sendEmail } from "../services/generateOTP";
-// import { generateSecureCode } from "../services/generateCode";
-// import { serializeBigInt } from "../services/serializeBigInt";
 import { UserAuthRequest } from "../middleware/userAuth";
 import {
   sendTelegramMessage,
   verifyTelegramData,
 } from "../services/tgServices";
 
-// export async function sendVerification(req: Request, res: Response) {
-//   try {
-//     const { email, password, name } = req.body;
-
-//     /* ---------- VALIDATION ---------- */
-//     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-//     const usernameRegex = /^(?=.*[a-z])[a-z0-9._@#$%&*!-]{3,15}$/;
-
-//     if (!email || !password || !name) {
-//       return res.status(400).json({
-//         success: false,
-//         error: "Email, password and username are required",
-//       });
-//     }
-
-//     if (!emailRegex.test(email)) {
-//       return res.status(400).json({
-//         success: false,
-//         error: "Invalid email format",
-//       });
-//     }
-
-//     if (password.length < 8) {
-//       return res.status(400).json({
-//         success: false,
-//         error: "Password must be at least 8 characters",
-//       });
-//     }
-
-//     if (!usernameRegex.test(name)) {
-//       return res.status(400).json({
-//         success: false,
-//         error:
-//           "Username must be lowercase, 3–15 chars, no spaces. Special chars allowed.",
-//       });
-//     }
-
-//     /* ---------- CHECK EXISTING USER ---------- */
-//     const existing = await prisma.user.findUnique({
-//       where: { email },
-//     });
-//     if (existing) {
-//       return res.status(400).json({
-//         success: false,
-//         error: "Email already registered",
-//       });
-//     }
-
-//     /* ---------- HASH PASSWORD ---------- */
-//     const hashedPassword = await bcrypt.hash(password, 10);
-
-//     /* ---------- STORE TEMP DATA IN REDIS ---------- */
-//     await redis.set(
-//       `verify:data:${email}`,
-//       JSON.stringify({ email, name, password: hashedPassword }),
-//       { EX: 900 }, // 15 mins
-//     );
-
-//     /* ---------- GENERATE OTP ---------- */
-//     const code = Math.floor(100000 + Math.random() * 900000).toString();
-//     await redis.set(`verify:otp:${email}`, code, { EX: 900 });
-
-//     await sendEmail(
-//       email,
-//       "Account Verification Code",
-//       `Your verification code is ${code}. It expires in 15 minutes.`,
-//     );
-
-//     return res.json({
-//       success: true,
-//       message: "Verification code sent to email",
-//     });
-//   } catch (err) {
-//     console.error("sendVerification error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       error: "Internal server error",
-//     });
-//   }
-// }
-
-// export async function verifyRegistration(req: Request, res: Response) {
-//   try {
-//     const { email, code } = req.body;
-
-//     if (!email || !code) {
-//       return res.status(400).json({
-//         success: false,
-//         error: "Email and verification code are required",
-//       });
-//     }
-
-//     const otpKey = `verify:otp:${email}`;
-//     const attemptsKey = `verify:otp:attempts:${email}`;
-
-//     const storedOtp = await redis.get(otpKey);
-
-//     if (!storedOtp) {
-//       return res.status(400).json({
-//         success: false,
-//         error: "Verification code expired. Please request a new one.",
-//       });
-//     }
-
-//     let attempts = Number(await redis.get(attemptsKey)) || 0;
-
-//     // Max attempts reached → invalidate OTP
-//     if (attempts >= 5) {
-//       await redis.del(otpKey);
-//       await redis.del(attemptsKey);
-//       await redis.del(`verify:data:${email}`);
-//       return res.status(429).json({
-//         success: false,
-//         error:
-//           "Too many invalid attempts. Verification code expired. Please request a new code.",
-//       });
-//     }
-
-//     // Wrong OTP → increment attempts
-//     if (storedOtp !== code) {
-//       const newAttempts = attempts + 1;
-//       await redis.set(attemptsKey, newAttempts.toString(), { EX: 900 });
-//       return res.status(400).json({
-//         success: false,
-//         error: `Invalid verification code. Attempts left: ${5 - newAttempts}`,
-//       });
-//     }
-
-//     // Correct OTP → proceed with registration
-//     const tempData = await redis.get(`verify:data:${email}`);
-//     if (!tempData) {
-//       await redis.del(otpKey);
-//       await redis.del(attemptsKey);
-//       return res.status(400).json({
-//         success: false,
-//         error: "Registration session expired. Please try again.",
-//       });
-//     }
-
-//     const { name, password } = JSON.parse(tempData);
-
-//     const config = await prisma.adminConfig.findUnique({
-//       where: { id: BigInt(1) },
-//       select: {
-//         defaultGold: true,
-//         defaultTrustPoints: true,
-//       },
-//     });
-
-//     if (!config) {
-//       return res.status(500).json({
-//         success: false,
-//         error: "Admin config not found",
-//       });
-//     }
-
-//     // Find level 1 sword definition
-//     const levelOneSwordDef = await prisma.swordLevelDefinition.findFirst({
-//       where: { level: 1 },
-//       select: { id: true, level: true },
-//     });
-
-//     if (!levelOneSwordDef) {
-//       return res.status(500).json({
-//         success: false,
-//         error: "Starter sword definition (level 1) not found",
-//       });
-//     }
-
-//     const newUser = await prisma.$transaction(async (tx) => {
-//       // Create the user
-//       const createdUser = await tx.user.create({
-//         data: {
-//           email,
-//           name,
-//           password,
-//           gold: config.defaultGold,
-//           trustPoints: config.defaultTrustPoints,
-//           lastReviewed: new Date(),
-//           lastLoginAt: new Date(),
-//         },
-//       });
-
-//       // Directly give starter sword (level 1) with quantity 1
-//       await tx.userSword.upsert({
-//         where: {
-//           userId_swordId: {
-//             userId: createdUser.id,
-//             swordId: BigInt(levelOneSwordDef.id),
-//           },
-//         },
-//         update: {
-//           unsoldQuantity: { increment: 1 },
-//         },
-//         create: {
-//           userId: createdUser.id,
-//           swordId: BigInt(levelOneSwordDef.id),
-//           isOnAnvil: true,
-//           unsoldQuantity: 1,
-//           soldedQuantity: 0,
-//           brokenQuantity: 0,
-//         },
-//       });
-
-//       // Set as anvil sword
-//       await tx.user.update({
-//         where: { id: createdUser.id },
-//         data: { anvilSwordLevel: BigInt(levelOneSwordDef.id) },
-//       });
-
-//       return createdUser;
-//     });
-
-//     // Cleanup Redis
-//     await redis.del(`verify:otp:${email}`);
-//     await redis.del(`verify:otp:attempts:${email}`);
-//     await redis.del(`verify:data:${email}`);
-
-//     // Create JWT session
-//     const jti = uuidv4();
-//     const token = jwt.sign(
-//       { userId: newUser.id.toString(), jti },
-//       process.env.JWT_SECRET!,
-//       { expiresIn: "2h" },
-//     );
-
-//     await redis.set(`session:${jti}`, newUser.id.toString(), {
-//       EX: 60 * 60 * 2,
-//     });
-
-//     return res.json({
-//       success: true,
-//       message:
-//         "Registration successful! Welcome to the game. You received a starter sword (Level 1) and it has been placed on your anvil.",
-//       token,
-//       data: serializeBigInt(newUser),
-//     });
-//   } catch (err: any) {
-//     console.error("verifyRegistration error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       error: "Registration failed. Please try again later.",
-//     });
-//   }
-// }
-
-// export async function login(req: Request, res: Response) {
-//   try {
-//     const { email, password } = req.body;
-//     if (!email || !password) {
-//       return res
-//         .status(400)
-//         .json({ success: false, error: "Email and password are required" });
-//     }
-
-//     const user = await prisma.user.findUnique({ where: { email } });
-//     if (!user) {
-//       return res.status(400).json({
-//         success: false,
-//         error: "Invalid credentials or email not verified",
-//       });
-//     }
-
-//     const isMatch = await bcrypt.compare(password, user.password);
-//     if (!isMatch) {
-//       return res
-//         .status(400)
-//         .json({ success: false, error: "Invalid credentials" });
-//     }
-
-//     const jti = uuidv4();
-//     const token = jwt.sign(
-//       { userId: user.id.toString(), jti },
-//       process.env.JWT_SECRET!,
-//       { expiresIn: "2h" },
-//     );
-//     await redis.set(`session:${jti}`, user.id.toString(), { EX: 60 * 60 * 2 }); // 120 minutes
-
-//     await prisma.user.update({
-//       where: { id: user.id },
-//       data: { lastLoginAt: new Date() },
-//     });
-
-//     return res.json({
-//       success: true,
-//       message: "User login is successfull",
-//       token,
-//       data: {
-//         id: user.id.toString(),
-//         email: user.email,
-//         name: user.name,
-//       },
-//     });
-//   } catch (err) {
-//     console.error("Error in login:", err);
-//     return res
-//       .status(500)
-//       .json({ success: false, error: "Internal server error" });
-//   }
-// }
-
-// export async function forgotPassword(req: Request, res: Response) {
-//   try {
-//     const { email } = req.body;
-//     if (!email) {
-//       return res
-//         .status(400)
-//         .json({ success: false, error: "Email is required" });
-//     }
-
-//     const user = await prisma.user.findUnique({ where: { email } });
-//     if (!user) {
-//       return res.status(404).json({ success: false, error: "User not found" });
-//     }
-
-//     const code = Math.floor(100000 + Math.random() * 900000).toString();
-//     await redis.set(`reset:${email}`, code, { EX: 900 }); // 15 minutes expiry
-
-//     await sendEmail(
-//       email,
-//       "Password Reset Code",
-//       `Your password reset code is: ${code}. It expires in 15 minutes.`,
-//     );
-
-//     return res.json({
-//       success: true,
-//       message: "Password reset code sent to your email",
-//     });
-//   } catch (err) {
-//     console.error("Error in forgotPassword:", err);
-//     return res
-//       .status(500)
-//       .json({ success: false, error: "Internal server error" });
-//   }
-// }
-
-// export async function resetPassword(req: Request, res: Response) {
-//   try {
-//     const { email, code, newPassword } = req.body;
-
-//     if (!email || !code || !newPassword) {
-//       return res.status(400).json({
-//         success: false,
-//         error: "Email, code, and new password are required",
-//       });
-//     }
-
-//     const otpKey = `reset:${email}`;
-//     const attemptsKey = `reset:attempts:${email}`;
-
-//     const storedCode = await redis.get(otpKey);
-
-//     if (!storedCode) {
-//       return res.status(400).json({
-//         success: false,
-//         error: "Reset code expired. Please request a new one.",
-//       });
-//     }
-
-//     let attempts = Number(await redis.get(attemptsKey)) || 0;
-
-//     // Max attempts → invalidate
-//     if (attempts >= 5) {
-//       await redis.del(otpKey);
-//       await redis.del(attemptsKey);
-//       return res.status(429).json({
-//         success: false,
-//         error:
-//           "Too many invalid attempts. Reset code expired. Please request a new code.",
-//       });
-//     }
-
-//     // Wrong code → increment
-//     if (storedCode !== code) {
-//       const newAttempts = attempts + 1;
-//       await redis.set(attemptsKey, newAttempts.toString(), { EX: 900 });
-//       return res.status(400).json({
-//         success: false,
-//         error: `Invalid reset code. Attempts left: ${5 - newAttempts}`,
-//       });
-//     }
-
-//     // Correct code → reset password
-//     const salt = await bcrypt.genSalt(10);
-//     const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-//     await prisma.user.update({
-//       where: { email },
-//       data: { password: hashedPassword },
-//     });
-
-//     // Cleanup
-//     await redis.del(otpKey);
-//     await redis.del(attemptsKey);
-
-//     return res.json({
-//       success: true,
-//       message: "Password has been reset successfully. Please login.",
-//     });
-//   } catch (err) {
-//     console.error("resetPassword error:", err);
-//     return res.status(500).json({
-//       success: false,
-//       error: "Failed to reset password. Please try again.",
-//     });
-//   }
-// }
-
 export async function logout(req: Request, res: Response) {
   try {
     const auth = req.headers.authorization;
     if (!auth) {
-      return res.json({ success: true, message: "Logged out" });
+      return res.json({
+        success: true,
+        message: req.t("userAuth.success.logout"),
+      });
     }
 
     const token = auth.split(" ")[1];
@@ -435,12 +27,16 @@ export async function logout(req: Request, res: Response) {
       await redis.del(`session:${payload.jti}`);
     }
 
-    return res.json({ success: true, message: "Logged out successfully" });
+    return res.json({
+      success: true,
+      message: req.t("userAuth.success.logout"),
+    });
   } catch (err) {
     console.error("Error in logout:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Internal server error" });
+    return res.status(500).json({
+      success: false,
+      error: req.t("userAuth.error.internalServerError"),
+    });
   }
 }
 
@@ -457,7 +53,7 @@ export async function googleLogin(req: Request, res: Response) {
     if (!idToken) {
       return res.status(400).json({
         success: false,
-        error: "Google ID token is required",
+        error: req.t("userAuth.error.googleIdTokenRequired"),
       });
     }
 
@@ -472,7 +68,7 @@ export async function googleLogin(req: Request, res: Response) {
     if (!payload || !payload.email) {
       return res.status(400).json({
         success: false,
-        error: "Invalid Google token",
+        error: req.t("userAuth.error.invalidGoogleToken"),
       });
     }
 
@@ -492,7 +88,7 @@ export async function googleLogin(req: Request, res: Response) {
       if (!config) {
         return res.status(500).json({
           success: false,
-          error: "Admin config not found",
+          error: req.t("userAuth.error.adminConfigNotFound"),
         });
       }
 
@@ -504,7 +100,7 @@ export async function googleLogin(req: Request, res: Response) {
       if (!levelOneSwordDef) {
         return res.status(500).json({
           success: false,
-          error: "Starter sword definition (level 1) not found",
+          error: req.t("userAuth.error.starterSwordNotFound"),
         });
       }
 
@@ -587,14 +183,14 @@ export async function googleLogin(req: Request, res: Response) {
       },
       message:
         user.createdAt.getTime() === user.lastLoginAt?.getTime()
-          ? "Welcome! You received a starter sword (Level 1) placed on your anvil."
-          : "Login successful!",
+          ? req.t("userAuth.success.welcomeStarterSword")
+          : req.t("userAuth.success.googleLogin"),
     });
   } catch (err) {
     console.error("Google login error:", err);
     return res.status(400).json({
       success: false,
-      error: "Google authentication failed",
+      error: req.t("userAuth.error.googleAuthFailed"),
     });
   }
 }
@@ -612,7 +208,7 @@ export async function googleWebLogin(req: Request, res: Response) {
     if (!idToken) {
       return res.status(400).json({
         success: false,
-        error: "Google ID token is required",
+        error: req.t("userAuth.error.googleIdTokenRequired"),
       });
     }
 
@@ -627,7 +223,7 @@ export async function googleWebLogin(req: Request, res: Response) {
     if (!payload || !payload.email) {
       return res.status(400).json({
         success: false,
-        error: "Invalid Google token",
+        error: req.t("userAuth.error.invalidGoogleToken"),
       });
     }
 
@@ -642,7 +238,7 @@ export async function googleWebLogin(req: Request, res: Response) {
     if (!user) {
       return res.status(400).json({
         success: false,
-        error: "User account not found",
+        error: req.t("userAuth.error.userAccountNotFound"),
       });
     }
 
@@ -674,13 +270,13 @@ export async function googleWebLogin(req: Request, res: Response) {
         email: user.email,
         name: name,
       },
-      message: "Login successful!",
+      message: req.t("userAuth.success.googleWebLogin"),
     });
   } catch (err) {
     console.error("Google web login error:", err);
     return res.status(400).json({
       success: false,
-      error: "Google authentication failed",
+      error: req.t("userAuth.error.googleAuthFailed"),
     });
   }
 }
@@ -692,7 +288,7 @@ export async function telegramLogin(req: Request, res: Response) {
     if (!initData) {
       return res.status(400).json({
         success: false,
-        error: "Telegram initData is required",
+        error: req.t("userAuth.error.telegramInitDataRequired"),
       });
     }
 
@@ -703,7 +299,7 @@ export async function telegramLogin(req: Request, res: Response) {
     if (!isValid) {
       return res.status(401).json({
         success: false,
-        error: "Invalid Telegram authentication",
+        error: req.t("userAuth.error.invalidTelegramAuth"),
       });
     }
 
@@ -733,7 +329,7 @@ export async function telegramLogin(req: Request, res: Response) {
       if (!config) {
         return res.status(500).json({
           success: false,
-          error: "Admin config not found",
+          error: req.t("userAuth.error.adminConfigNotFound"),
         });
       }
 
@@ -745,7 +341,7 @@ export async function telegramLogin(req: Request, res: Response) {
       if (!levelOneSwordDef) {
         return res.status(500).json({
           success: false,
-          error: "Starter sword definition missing",
+          error: req.t("userAuth.error.starterSwordNotFound"),
         });
       }
 
@@ -815,14 +411,14 @@ export async function telegramLogin(req: Request, res: Response) {
     return res.json({
       success: true,
       token,
-      message: "Telegram login successful!",
+      message: req.t("userAuth.success.telegramLogin"),
     });
   } catch (err) {
     console.error("Telegram login error:", err);
 
     return res.status(500).json({
       success: false,
-      error: "Telegram authentication failed",
+      error: req.t("userAuth.error.telegramAuthFailed"),
     });
   }
 }
@@ -847,7 +443,7 @@ export async function requestCancelMembership(
     if (!user) {
       return res.status(404).json({
         success: false,
-        error: "User not found",
+        error: req.t("userAuth.error.userNotFound"),
       });
     }
 
@@ -857,14 +453,14 @@ export async function requestCancelMembership(
     if (!user.isTelegramLogin && user.email) {
       await sendEmail(
         user.email,
-        "Account Deletion Request - OTP",
+        "⚠️ Account Deletion Request - OTP",
         `Hello ${user.name},
 
 You requested to delete your account.
 
 Your confirmation OTP is: ${otp}
 
-This code expires in 15 minutes.`,
+This code expires in 15 minutes. If you did not request this, please ignore this message.`,
       );
 
       const otpKey = `cancel:otp:${user.email}`;
@@ -875,7 +471,7 @@ This code expires in 15 minutes.`,
 
       return res.json({
         success: true,
-        message: "OTP sent to your email",
+        message: req.t("userAuth.success.otpSentEmail"),
       });
     }
 
@@ -885,17 +481,17 @@ This code expires in 15 minutes.`,
 
       await sendTelegramMessage(
         telegramId,
-        `⚠️ *Account Deletion Request*
+        `⚠️ Account Deletion Request
 
 Hello ${user.name}
 
 Your OTP for confirming account deletion is:
 
-*${otp}*
+${otp}
 
 This OTP will expire in 15 minutes.
 
-If you did not request this, ignore this message.`,
+If you did not request this, please ignore this message.`,
       );
 
       const otpKey = `cancel:otp:tg:${telegramId}`;
@@ -906,20 +502,20 @@ If you did not request this, ignore this message.`,
 
       return res.json({
         success: true,
-        message: "OTP sent to your Telegram account",
+        message: req.t("userAuth.success.otpSentTelegram"),
       });
     }
 
     return res.status(400).json({
       success: false,
-      error: "Unable to send OTP",
+      error: req.t("userAuth.error.unableToSendOtp"),
     });
   } catch (err) {
     console.error("requestCancelMembership error:", err);
 
     return res.status(500).json({
       success: false,
-      error: "Failed to send OTP",
+      error: req.t("userAuth.error.failedToSendOtp"),
     });
   }
 }
@@ -935,7 +531,7 @@ export async function confirmCancelMembership(
     if (!otp) {
       return res.status(400).json({
         success: false,
-        error: "OTP code is required",
+        error: req.t("userAuth.error.otpRequired"),
       });
     }
 
@@ -951,7 +547,7 @@ export async function confirmCancelMembership(
     if (!user) {
       return res.status(404).json({
         success: false,
-        error: "User not found",
+        error: req.t("userAuth.error.userNotFound"),
       });
     }
 
@@ -968,7 +564,7 @@ export async function confirmCancelMembership(
     } else {
       return res.status(400).json({
         success: false,
-        error: "User contact info missing",
+        error: req.t("userAuth.error.userContactInfoMissing"),
       });
     }
 
@@ -977,7 +573,7 @@ export async function confirmCancelMembership(
     if (!storedOtp) {
       return res.status(400).json({
         success: false,
-        error: "OTP expired or invalid. Please request for new OTP",
+        error: req.t("userAuth.error.otpExpiredOrInvalid"),
       });
     }
 
@@ -989,7 +585,7 @@ export async function confirmCancelMembership(
 
       return res.status(429).json({
         success: false,
-        error: "Too many invalid attempts. OTP expired.",
+        error: req.t("userAuth.error.tooManyAttempts"),
       });
     }
 
@@ -999,7 +595,9 @@ export async function confirmCancelMembership(
 
       return res.status(400).json({
         success: false,
-        error: `Invalid OTP. Attempts left: ${5 - newAttempts}`,
+        error: req.t("userAuth.error.invalidOtpAttemptsLeft", {
+          remaining: 5 - newAttempts,
+        }),
       });
     }
 
@@ -1027,14 +625,14 @@ export async function confirmCancelMembership(
 
     return res.json({
       success: true,
-      message: "Account deleted successfully",
+      message: req.t("userAuth.success.accountDeleted"),
     });
   } catch (err: any) {
     console.error("confirmCancelMembership error:", err);
 
     return res.status(500).json({
       success: false,
-      error: "Failed to delete account",
+      error: req.t("userAuth.error.failedToDeleteAccount"),
     });
   }
 }

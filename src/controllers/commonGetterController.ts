@@ -17,7 +17,7 @@ export const getAllNotifications = async (req: AuthRequest, res: Response) => {
     if (!pagination) {
       return res.status(400).json({
         success: false,
-        error: "Invalid pagination parameters",
+        error: req.t("commonGetter.error.invalidPaginationParameters"),
       });
     }
 
@@ -52,8 +52,8 @@ export const getAllNotifications = async (req: AuthRequest, res: Response) => {
     return res.status(200).json({
       success: true,
       message: notifications.length
-        ? "Notifications fetched successfully"
-        : "No notifications found",
+        ? req.t("commonGetter.success.notificationsFetched")
+        : req.t("commonGetter.success.noNotificationsFound"),
       data: serializeBigInt(notifications),
       total,
       page: pagination.page,
@@ -64,7 +64,7 @@ export const getAllNotifications = async (req: AuthRequest, res: Response) => {
     console.error("getAllNotifications error:", err);
     return res.status(500).json({
       success: false,
-      error: "Internal server error",
+      error: req.t("commonGetter.error.internalServerError"),
     });
   }
 };
