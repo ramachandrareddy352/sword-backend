@@ -246,5 +246,13 @@
       "invalidPaginationParameters": "Invalid pagination parameters",
       "internalServerError": "Internal server error"
     }
+  },
+  "others": {
+    "error": {
+      "unauthorized": "Unauthorized user",
+      "sessionExpired": "Session expired",
+      "invalidToken": "Invalid token",
+      "gameUnderMaintenance": "Game is currently under maintenance. Please try again later."
+    }
   }
 }

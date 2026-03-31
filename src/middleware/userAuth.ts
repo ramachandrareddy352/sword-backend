@@ -14,7 +14,11 @@ export default async function auth(
   next: NextFunction,
 ) {
   const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Unauthorized" });
+  if (!token)
+    return res.status(401).json({
+      success: false,
+      error: req.t("others.error.unauthorized"),
+    });
 
   try {
     const payload: any = jwt.verify(token, process.env.JWT_SECRET!);
@@ -22,7 +26,9 @@ export default async function auth(
     const sessionKey = `session:${payload.jti}`;
     const exists = await redis.exists(sessionKey);
     if (!exists) {
-      return res.status(401).json({ error: "Session expired" });
+      return res
+        .status(401)
+        .json({ error: req.t("others.error.sessionExpired") });
     }
 
     req.user = payload;
@@ -36,7 +42,7 @@ export default async function auth(
     if (config?.isGameStopped === true) {
       return res.status(403).json({
         success: false,
-        error: "Game is currently under maintenance. Please try again later.",
+        error: req.t("others.error.gameUnderMaintenance"),
       });
     }
 
@@ -46,7 +52,10 @@ export default async function auth(
     next();
     await forceSetLowestSwordOnAnvilIfNeeded(BigInt(payload.userId));
   } catch {
-    return res.status(401).json({ error: "Invalid token" });
+    return res.status(401).json({
+      success: false,
+      error: req.t("others.error.invalidToken"),
+    });
   }
 }
 

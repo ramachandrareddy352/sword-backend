@@ -246,5 +246,13 @@
       "invalidPaginationParameters": "유효하지 않은 페이지네이션 매개변수입니다.",
       "internalServerError": "내부 서버 오류"
     }
+  },
+  "others": {
+    "error": {
+      "unauthorized": "인증되지 않은 사용자",
+      "sessionExpired": "세션이 만료되었습니다",
+      "invalidToken": "유효하지 않은 토큰입니다",
+      "gameUnderMaintenance": "현재 게임이 점검 중입니다. 나중에 다시 시도해주세요."
+    }
   }
 }

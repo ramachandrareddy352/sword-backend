@@ -246,5 +246,13 @@
       "invalidPaginationParameters": "无效的分页参数",
       "internalServerError": "内部服务器错误"
     }
+  },
+  "others": {
+    "error": {
+      "unauthorized": "未授权的用户",
+      "sessionExpired": "会话已过期",
+      "invalidToken": "无效的令牌",
+      "gameUnderMaintenance": "游戏当前正在维护中，请稍后再试。"
+    }
   }
 }
