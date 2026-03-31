@@ -24,7 +24,7 @@ import {
   deleteOneTimeMission,
   createNotification,
   deleteNotification,
-} from "../controllers/adminActionController";
+} from "../controllers/adminActionController.js";
 
 const router = express.Router();
 

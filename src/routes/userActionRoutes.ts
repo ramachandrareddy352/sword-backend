@@ -25,7 +25,7 @@ import {
   assignAllowedUserToVoucher,
   removeAllowedUserFromVoucher,
   markNotificationsAsRead,
-} from "../controllers/userActionController";
+} from "../controllers/userActionController.js";
 
 const router = express.Router();
 

@@ -18,8 +18,8 @@ import {
   getUserOneTimeMissions,
   getUserAnvilSwordDetails,
   getUnreadNotifications,
-} from "../controllers/userGetterController";
-import { getAllNotifications } from "../controllers/commonGetterController";
+} from "../controllers/userGetterController.js";
+import { getAllNotifications } from "../controllers/commonGetterController.js";
 
 const router = express.Router();
 
