@@ -283,7 +283,7 @@ export async function googleWebLogin(req: Request, res: Response) {
 
 export async function telegramLogin(req: Request, res: Response) {
   try {
-    const { initData } = req.body;
+    const { initData, istest } = req.body;
 
     if (!initData) {
       return res.status(400).json({
@@ -292,7 +292,10 @@ export async function telegramLogin(req: Request, res: Response) {
       });
     }
 
-    const botToken = process.env.TELEGRAM_GAME_BOT_TOKEN!;
+    const botToken =
+      istest === "yes"
+        ? process.env.TELEGRAM_TEST_BOT_TOKEN!
+        : process.env.TELEGRAM_GAME_BOT_TOKEN!;
 
     const isValid = verifyTelegramData(initData, botToken);
 
