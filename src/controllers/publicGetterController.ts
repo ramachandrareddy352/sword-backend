@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
-import prisma from "../database/client";
-import { getPagination } from "../services/queryHelpers";
-import { serializeBigInt } from "../services/serializeBigInt";
+import prisma from "../database/client.js";
+import { getPagination } from "../services/queryHelpers.js";
+import { serializeBigInt } from "../services/serializeBigInt.js";
 
 // 1) All sword definitions (paginated, basic info + optional relations)
 export const getAllSwords = async (req: Request, res: Response) => {

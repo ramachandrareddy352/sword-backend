@@ -1,10 +1,10 @@
 import type { Response } from "express";
-import prisma from "../database/client";
+import prisma from "../database/client.js";
 import { MaterialRarity, GiftItemType, GiftStatus } from "@prisma/client";
-import type { AdminAuthRequest } from "../middleware/adminAuth";
-import { serializeBigInt } from "../services/serializeBigInt";
-import { uploadToCloudinary } from "../services/uploadToCloudinary";
-import cloudinary from "../config/cloudinary";
+import type { AdminAuthRequest } from "../middleware/adminAuth.js";
+import { serializeBigInt } from "../services/serializeBigInt.js";
+import { uploadToCloudinary } from "../services/uploadToCloudinary.js";
+import cloudinary from "../config/cloudinary.js";
 
 // get the image id using teh complete URL
 function getPublicIdFromUrl(url: string): string | null {

@@ -1,11 +1,11 @@
 // controllers/notificationController.ts
 
-import prisma from "../database/client";
-import { UserAuthRequest } from "../middleware/userAuth";
-import { AdminAuthRequest } from "../middleware/adminAuth";
+import prisma from "../database/client.js";
+import { UserAuthRequest } from "../middleware/userAuth.js";
+import { AdminAuthRequest } from "../middleware/adminAuth.js";
 import { Response } from "express";
-import { getPagination } from "../services/queryHelpers";
-import { serializeBigInt } from "../services/serializeBigInt";
+import { getPagination } from "../services/queryHelpers.js";
+import { serializeBigInt } from "../services/serializeBigInt.js";
 
 // Union type to accept both user and admin requests
 type AuthRequest = UserAuthRequest | AdminAuthRequest;

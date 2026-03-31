@@ -1,4 +1,4 @@
-import prisma from "../database/client";
+import prisma from "../database/client.js";
 import type { Response } from "express";
 
 export async function resolveUser(identifier: { id?: string; email?: string }) {

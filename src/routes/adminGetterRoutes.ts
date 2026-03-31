@@ -1,5 +1,5 @@
 import express from "express";
-import adminAuth from "../middleware/adminAuth";
+import adminAuth from "../middleware/adminAuth.js";
 
 import {
   getAllUsers,
@@ -20,8 +20,8 @@ import {
   getUserMissionsByUserId,
   getTotalUsersGold,
   checkUserByTelegramUserName,
-} from "../controllers/adminGetterController";
-import { getAllNotifications } from "../controllers/commonGetterController";
+} from "../controllers/adminGetterController.js";
+import { getAllNotifications } from "../controllers/commonGetterController.js";
 
 const router = express.Router();
 

@@ -1,9 +1,9 @@
 import type { Response } from "express";
 import crypto from "crypto";
-import prisma from "../database/client";
-import { generateSecureCode } from "../services/generateCode";
-import { userGuard } from "../services/queryHelpers";
-import type { UserAuthRequest } from "../middleware/userAuth";
+import prisma from "../database/client.js";
+import { generateSecureCode } from "../services/generateCode.js";
+import { userGuard } from "../services/queryHelpers.js";
+import type { UserAuthRequest } from "../middleware/userAuth.js";
 import {
   VoucherStatus,
   SupportCategory,
@@ -12,7 +12,7 @@ import {
   GiftItemType,
   GiftStatus,
 } from "@prisma/client";
-import { serializeBigInt } from "../services/serializeBigInt";
+import { serializeBigInt } from "../services/serializeBigInt.js";
 
 // 1) Create Voucher (User creates a voucher by locking gold)
 export const createVoucher = async (req: UserAuthRequest, res: Response) => {

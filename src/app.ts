@@ -1,8 +1,8 @@
 import { config } from "dotenv";
 import type { Request, Response } from "express";
 
-import server from "./config/server";
-import { connectRedis } from "./config/redis";
+import server from "./config/server.js";
+import { connectRedis } from "./config/redis.js";
 
 config();
 

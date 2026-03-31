@@ -8,7 +8,7 @@ import {
   getLeaderboard,
   getAdminConfig,
   getAppVersionCheck,
-} from "../controllers/publicGetterController";
+} from "../controllers/publicGetterController.js";
 
 const router = express.Router();
 

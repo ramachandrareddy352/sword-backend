@@ -1,5 +1,5 @@
 import express from "express";
-import userAuth from "../middleware/userAuth";
+import userAuth from "../middleware/userAuth.js";
 import {
   // sendVerification,
   // verifyRegistration,
@@ -12,7 +12,7 @@ import {
   confirmCancelMembership,
   googleWebLogin,
   telegramLogin,
-} from "../controllers/userAuthController";
+} from "../controllers/userAuthController.js";
 
 const router = express.Router();
 

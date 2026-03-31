@@ -2,14 +2,14 @@ import type { Request, Response } from "express";
 import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
-import prisma from "../database/client";
-import redis from "../config/redis";
-import { sendEmail } from "../services/generateOTP";
-import { UserAuthRequest } from "../middleware/userAuth";
+import prisma from "../database/client.js";
+import redis from "../config/redis.js";
+import { sendEmail } from "../services/generateOTP.js";
+import { UserAuthRequest } from "../middleware/userAuth.js";
 import {
   sendTelegramMessage,
   verifyTelegramData,
-} from "../services/tgServices";
+} from "../services/tgServices.js";
 
 export async function logout(req: Request, res: Response) {
   try {

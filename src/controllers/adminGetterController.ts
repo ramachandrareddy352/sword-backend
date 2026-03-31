@@ -1,9 +1,9 @@
 import type { Response } from "express";
-import prisma from "../database/client";
+import prisma from "../database/client.js";
 import { GiftItemType, MaterialRarity, VoucherStatus } from "@prisma/client";
-import type { AdminAuthRequest } from "../middleware/adminAuth";
-import { getPagination } from "../services/queryHelpers";
-import { serializeBigInt } from "../services/serializeBigInt";
+import type { AdminAuthRequest } from "../middleware/adminAuth.js";
+import { getPagination } from "../services/queryHelpers.js";
+import { serializeBigInt } from "../services/serializeBigInt.js";
 
 // 1) Get the basic information of all users using pagination
 export const getAllUsers = async (req: AdminAuthRequest, res: Response) => {

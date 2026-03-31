@@ -7,23 +7,23 @@ import cors from "cors";
 import crypto from "crypto";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
-import prisma from "../database/client";
+import prisma from "../database/client.js";
 import { AdRewardType } from "@prisma/client";
 
-import AdminActionRouters from "../routes/adminActionRoutes";
-import AdminAuthRouters from "../routes/adminAuthRoutes";
-import AdminGetterRouters from "../routes/adminGetterRoutes";
+import AdminActionRouters from "../routes/adminActionRoutes.js";
+import AdminAuthRouters from "../routes/adminAuthRoutes.js";
+import AdminGetterRouters from "../routes/adminGetterRoutes.js";
 
-import PublicGetterRouters from "../routes/publicGetterRoutes";
-import ExternalActionRouters from "../routes/externalActionRoutes";
+import PublicGetterRouters from "../routes/publicGetterRoutes.js";
+import ExternalActionRouters from "../routes/externalActionRoutes.js";
 
-import UserActionRouters from "../routes/userActionRoutes";
-import UserAuthRouters from "../routes/userAuthRoutes";
-import UserGetterRouters from "../routes/userGetterRoutes";
+import UserActionRouters from "../routes/userActionRoutes.js";
+import UserAuthRouters from "../routes/userAuthRoutes.js";
+import UserGetterRouters from "../routes/userGetterRoutes.js";
 import rateLimit from "express-rate-limit";
 
 import * as i18nextMiddleware from "i18next-http-middleware";
-import { initI18n } from "./i18n";
+import { initI18n } from "./i18n.js";
 
 export const app = express();
 

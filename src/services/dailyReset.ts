@@ -1,4 +1,4 @@
-import prisma from "../database/client";
+import prisma from "../database/client.js";
 
 export async function resetDailyAdCountersIfNeeded(userId: bigint) {
   const user = await prisma.user.findUnique({

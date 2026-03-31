@@ -1,7 +1,7 @@
-import { decodePayload, sendShoppingAck } from "../services/shoppingTool";
+import { decodePayload, sendShoppingAck } from "../services/shoppingTool.js";
 import type { Request, Response } from "express";
-import prisma from "../database/client";
-import { serializeBigInt } from "../services/serializeBigInt";
+import prisma from "../database/client.js";
+import { serializeBigInt } from "../services/serializeBigInt.js";
 import { VoucherStatus } from "@prisma/client";
 
 function resolveUserWhere(userId: string) {

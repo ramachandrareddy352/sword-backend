@@ -1,8 +1,8 @@
 import type { Response } from "express";
-import prisma from "../database/client";
-import type { UserAuthRequest } from "../middleware/userAuth";
-import { serializeBigInt } from "../services/serializeBigInt";
-import { getPagination } from "../services/queryHelpers";
+import prisma from "../database/client.js";
+import type { UserAuthRequest } from "../middleware/userAuth.js";
+import { serializeBigInt } from "../services/serializeBigInt.js";
+import { getPagination } from "../services/queryHelpers.js";
 
 // 1) Get current user's rank across all leaderboard fields
 export const getUserRank = async (req: UserAuthRequest, res: Response) => {

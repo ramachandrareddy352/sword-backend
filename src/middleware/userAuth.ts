@@ -1,8 +1,8 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import redis from "../config/redis";
-import prisma from "../database/client";
-import { resetDailyAdCountersIfNeeded } from "../services/dailyReset";
+import redis from "../config/redis.js";
+import prisma from "../database/client.js";
+import { resetDailyAdCountersIfNeeded } from "../services/dailyReset.js";
 
 export interface UserAuthRequest extends Request {
   user?: any;

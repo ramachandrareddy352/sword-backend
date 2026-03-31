@@ -1,5 +1,5 @@
 import express from "express";
-import { redeemVoucherFromShopping } from "../controllers/externalActionController";
+import { redeemVoucherFromShopping } from "../controllers/externalActionController.js";
 
 const router = express.Router();
 
