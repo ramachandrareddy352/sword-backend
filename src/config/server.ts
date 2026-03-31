@@ -22,6 +22,9 @@ import UserAuthRouters from "../routes/userAuthRoutes";
 import UserGetterRouters from "../routes/userGetterRoutes";
 import rateLimit from "express-rate-limit";
 
+import * as i18nextMiddleware from "i18next-http-middleware";
+import { initI18n } from "./i18n";
+
 export const app = express();
 
 app.use(bodyParser.json());
@@ -64,6 +67,17 @@ app.use(cors(corsOptions));
 
 // app.set("trust proxy", 1); // Very Important (If Using Nginx / Cloudflare), Otherwise all users may appear as the same IP.
 // app.use(limiter); // order is important, Add after CORS but before routes
+
+// ====================== i18n INITIALIZATION ======================
+
+let i18nInstance: any;
+
+const initializeI18n = async () => {
+  i18nInstance = await initI18n();
+  app.use(i18nextMiddleware.handle(i18nInstance));
+};
+
+await initializeI18n();
 
 app.get("/", (req: Request, res: Response) => {
   res.send("Sword Backend");
