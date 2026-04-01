@@ -12,8 +12,8 @@ export const initI18n = async () => {
     .use(middleware.LanguageDetector)
     .init({
       fallbackLng: "en", // Default language
-      supportedLngs: ["en", "ko", "zh"], // English, Korean, Chinese
-      preload: ["en", "ko", "zh"],
+      supportedLngs: ["en", "ko", "zh", "jp"], // English, Korean, Chinese, Japanese
+      preload: ["en", "ko", "zh", "jp"],
 
       backend: {
         loadPath: path.join(__dirname, "../locales/{{lng}}/translation.json"),
