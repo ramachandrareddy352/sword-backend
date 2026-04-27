@@ -147,6 +147,7 @@ export async function redeemVoucherFromShopping(req: Request, res: Response) {
         success: true,
         points,
         nonce,
+        gameSource: "sword_game",
       });
     });
 
