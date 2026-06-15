@@ -13,17 +13,22 @@ type ResolvedAdmin =
 
 // Resolve whether an email is the super admin, a normal admin, or neither
 async function resolveAdmin(email: string): Promise<ResolvedAdmin | null> {
+  const normalized = email.trim().toLowerCase();
+
   const adminConfig = await prisma.adminConfig.findUnique({
     where: { id: 1n },
     select: { adminEmailId: true },
   });
 
-  if (adminConfig && adminConfig.adminEmailId === email) {
+  if (
+    adminConfig &&
+    adminConfig.adminEmailId.trim().toLowerCase() === normalized
+  ) {
     return { kind: "SUPER" };
   }
 
   const admin = await prisma.admin.findUnique({
-    where: { email },
+    where: { email: normalized },
     select: { role: true, isActive: true },
   });
 
