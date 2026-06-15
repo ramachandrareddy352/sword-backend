@@ -1,23 +1,15 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.getUnreadNotifications = exports.getUserAnvilSwordDetails = exports.getUserOneTimeMissions = exports.getUserDailyMissions = exports.getUserSynthesisHistory = exports.getUserUpgradeHistory = exports.getUserPurchasedShields = exports.getUserPurchasedMaterials = exports.getUserPurchasedSwords = exports.getUserCustomerSupports = exports.getUserVouchers = exports.getUserGifts = exports.getUserMaterials = exports.getUserBasicInfo = exports.getUserSwords = exports.getUserRank = void 0;
-const client_1 = __importDefault(require("../database/client"));
-const serializeBigInt_1 = require("../services/serializeBigInt");
-const queryHelpers_1 = require("../services/queryHelpers");
+import prisma from "../database/client.js";
+import { serializeBigInt } from "../services/serializeBigInt.js";
+import { getPagination } from "../services/queryHelpers.js";
 // 1) Get current user's rank across all leaderboard fields
-const getUserRank = async (req, res) => {
+export const getUserRank = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        // Fetch current user
-        const currentUser = await client_1.default.user.findUnique({
+        const currentUser = await prisma.user.findUnique({
             where: { id: userId },
             select: {
                 id: true,
                 gold: true,
-                trustPoints: true,
                 totalShields: true,
                 totalAdsViewed: true,
                 totalMissionsDone: true,
@@ -30,14 +22,12 @@ const getUserRank = async (req, res) => {
         if (!currentUser || currentUser.isBanned) {
             return res.status(404).json({
                 success: false,
-                error: "User not found or is banned",
+                error: req.t("userGetter.error.userNotFoundOrBanned"),
             });
         }
-        // Compute user's stats
         const userStats = {
             userId: userId.toString(),
             gold: Number(currentUser.gold),
-            trustPoints: currentUser.trustPoints,
             totalShields: currentUser.totalShields,
             totalAdsViewed: currentUser.totalAdsViewed,
             totalMissionsDone: currentUser.totalMissionsDone,
@@ -45,13 +35,11 @@ const getUserRank = async (req, res) => {
             totalMaterials: currentUser.materials.reduce((sum, m) => sum + m.unsoldQuantity, 0),
             createdAt: currentUser.createdAt,
         };
-        // Fetch ALL non-banned users (with minimal fields needed for ranking)
-        const allUsers = await client_1.default.user.findMany({
+        const allUsers = await prisma.user.findMany({
             where: { isBanned: false },
             select: {
                 id: true,
                 gold: true,
-                trustPoints: true,
                 totalShields: true,
                 totalAdsViewed: true,
                 totalMissionsDone: true,
@@ -61,11 +49,9 @@ const getUserRank = async (req, res) => {
             },
         });
         const totalActiveUsers = allUsers.length;
-        // Compute stats for every user
         const leaderboardData = allUsers.map((u) => ({
             userId: u.id.toString(),
             gold: Number(u.gold),
-            trustPoints: u.trustPoints,
             totalShields: u.totalShields,
             totalAdsViewed: u.totalAdsViewed,
             totalMissionsDone: u.totalMissionsDone,
@@ -73,28 +59,23 @@ const getUserRank = async (req, res) => {
             totalMaterials: u.materials.reduce((sum, m) => sum + m.unsoldQuantity, 0),
             createdAt: u.createdAt,
         }));
-        // Define ranking categories
         const rankCategories = [
             "totalSwords",
             "totalMaterials",
             "totalShields",
             "gold",
-            "trustPoints",
             "totalAdsViewed",
             "totalMissionsDone",
             "createdAt",
         ];
         const userRanks = {};
-        // Compute rank for each category
         for (const category of rankCategories) {
             let rank = 1;
             if (category === "createdAt") {
-                // Newer = better (higher rank = smaller number)
                 const better = leaderboardData.filter((u) => u.createdAt > userStats.createdAt).length;
                 rank = better + 1;
             }
             else {
-                // Higher number = better
                 const better = leaderboardData.filter((u) => u[category] > userStats[category]).length;
                 rank = better + 1;
             }
@@ -106,7 +87,7 @@ const getUserRank = async (req, res) => {
         }
         return res.json({
             success: true,
-            message: "Your current ranks across all leaderboard categories",
+            message: req.t("userGetter.success.userRankFetched"),
             ranks: userRanks,
             totalActiveUsers,
         });
@@ -115,49 +96,38 @@ const getUserRank = async (req, res) => {
         console.error("getUserRank error:", err);
         return res.status(500).json({
             success: false,
-            error: "Internal server error",
+            error: req.t("userGetter.error.internalServerError"),
         });
     }
 };
-exports.getUserRank = getUserRank;
-// 2) Authenticated user sees their own swords
-const getUserSwords = async (req, res) => {
+// 2) Get User's Swords
+export const getUserSwords = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { sortCreatedAt, // "asc" | "desc"
-        sortLevel, // "asc" | "desc" — sorts by sword level
-         } = req.query;
-        const pagination = (0, queryHelpers_1.getPagination)(req.query);
+        const { sortCreatedAt, sortLevel } = req.query;
+        const pagination = getPagination(req.query);
         if (!pagination) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid pagination parameters",
+                error: req.t("userGetter.error.invalidPaginationParameters"),
             });
         }
-        // Build where clause (always scoped to current user)
         const where = {
             userId,
-            unsoldQuantity: {
-                gt: 0,
-            },
+            unsoldQuantity: { gt: 0 },
         };
-        // Build orderBy
         const orderBy = [];
         if (sortCreatedAt === "asc" || sortCreatedAt === "desc") {
             orderBy.push({ createdAt: sortCreatedAt });
         }
         if (sortLevel === "asc" || sortLevel === "desc") {
-            orderBy.push({
-                swordLevelDefinition: { level: sortLevel },
-            });
+            orderBy.push({ swordLevelDefinition: { level: sortLevel } });
         }
-        // Default: newest first
         if (orderBy.length === 0) {
             orderBy.push({ createdAt: "desc" });
         }
-        // ─── Single round-trip: count + data ────────────────────────────────
-        const [userSwords, total] = await client_1.default.$transaction([
-            client_1.default.userSword.findMany({
+        const [userSwords, total] = await prisma.$transaction([
+            prisma.userSword.findMany({
                 where,
                 orderBy,
                 skip: pagination.skip,
@@ -189,10 +159,8 @@ const getUserSwords = async (req, res) => {
                     },
                 },
             }),
-            client_1.default.userSword.count({ where }),
+            prisma.userSword.count({ where }),
         ]);
-        // ─────────────────────────────────────────────────────────────────────
-        // Enrich response with computed fields
         const enriched = userSwords.map((entry) => ({
             ...entry,
             swordLevel: entry.swordLevelDefinition.level,
@@ -201,9 +169,9 @@ const getUserSwords = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: enriched.length
-                ? "Your swords fetched successfully"
-                : "You don't own any swords yet",
-            data: (0, serializeBigInt_1.serializeBigInt)(enriched),
+                ? req.t("userGetter.success.userSwordsFetched")
+                : req.t("userGetter.success.noSwordsOwned"),
+            data: serializeBigInt(enriched),
             total,
             page: pagination.page,
             limit: pagination.limit,
@@ -213,58 +181,49 @@ const getUserSwords = async (req, res) => {
         console.error("getUserSwords error:", err);
         return res.status(500).json({
             success: false,
-            error: "Internal server error",
+            error: req.t("userGetter.error.internalServerError"),
         });
     }
 };
-exports.getUserSwords = getUserSwords;
-// 3) Returns only main user table fields (no relations)
-const getUserBasicInfo = async (req, res) => {
+// 3) Get User Basic Info
+export const getUserBasicInfo = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        // Fetch user with only safe scalar fields
-        const user = await client_1.default.user.findUnique({
+        const user = await prisma.user.findUnique({
             where: { id: userId },
         });
         if (!user) {
             return res.status(404).json({
                 success: false,
-                error: "User not found",
+                error: req.t("userGetter.error.userNotFound"),
             });
         }
         return res.status(200).json({
             success: true,
-            message: "Fetched user basic details successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(user),
+            message: req.t("userGetter.success.userBasicInfoFetched"),
+            data: serializeBigInt(user),
         });
     }
     catch (err) {
         console.error("getUserBasicInfo error:", err);
         return res.status(500).json({
             success: false,
-            error: "Internal server error",
+            error: req.t("userGetter.error.internalServerError"),
         });
     }
 };
-exports.getUserBasicInfo = getUserBasicInfo;
-// 4) Authenticated user sees their own materials
-const getUserMaterials = async (req, res) => {
+// 4) Get User Materials
+export const getUserMaterials = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { sortCreatedAt, // 'asc' | 'desc'
-        sortBuyingCost, // 'asc' | 'desc'
-        sortSellingCost, // 'asc' | 'desc'
-        rarity, // 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY' | 'MYTHIC'
-        sold, // 'true' | 'false' (filter soldedQuantity)
-         } = req.query;
-        const pagination = (0, queryHelpers_1.getPagination)(req.query);
+        const { sortCreatedAt, sortBuyingCost, sortSellingCost, rarity, sold } = req.query;
+        const pagination = getPagination(req.query);
         if (!pagination) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid pagination parameters",
+                error: req.t("userGetter.error.invalidPaginationParameters"),
             });
         }
-        // Validate rarity filter if provided
         const validRarities = ["COMMON", "RARE", "EPIC", "LEGENDARY", "MYTHIC"];
         let filterRarity;
         if (rarity) {
@@ -272,28 +231,23 @@ const getUserMaterials = async (req, res) => {
             if (!validRarities.includes(upper)) {
                 return res.status(400).json({
                     success: false,
-                    error: `Invalid rarity. Allowed: ${validRarities.join(", ")}`,
+                    error: req.t("userGetter.error.invalidRarity", {
+                        allowed: validRarities.join(", "),
+                    }),
                 });
             }
             filterRarity = upper;
         }
-        /* ---------------- WHERE ---------------- */
         const where = {
             userId,
-            unsoldQuantity: {
-                gt: 0,
-            },
+            unsoldQuantity: { gt: 0 },
         };
-        if (filterRarity) {
+        if (filterRarity)
             where.material = { rarity: filterRarity };
-        }
-        if (sold === "true") {
+        if (sold === "true")
             where.soldedQuantity = { gt: 0 };
-        }
-        if (sold === "false") {
+        if (sold === "false")
             where.soldedQuantity = 0;
-        }
-        /* ---------------- ORDER BY ---------------- */
         const orderBy = [];
         if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt)) {
             orderBy.push({ createdAt: sortCreatedAt });
@@ -305,15 +259,10 @@ const getUserMaterials = async (req, res) => {
             ["asc", "desc"].includes(sortSellingCost)) {
             orderBy.push({ material: { sellingCost: sortSellingCost } });
         }
-        // Default sort: newest first
-        if (orderBy.length === 0) {
+        if (orderBy.length === 0)
             orderBy.push({ createdAt: "desc" });
-        }
-        const totalCount = await client_1.default.userMaterial.count({
-            where,
-        });
-        /* ---------------- FETCH ---------------- */
-        const materials = await client_1.default.userMaterial.findMany({
+        const totalCount = await prisma.userMaterial.count({ where });
+        const materials = await prisma.userMaterial.findMany({
             where,
             include: {
                 material: {
@@ -336,8 +285,8 @@ const getUserMaterials = async (req, res) => {
         });
         return res.status(200).json({
             success: true,
-            message: "Your materials fetched successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(materials),
+            message: req.t("userGetter.success.userMaterialsFetched"),
+            data: serializeBigInt(materials),
             total: totalCount,
             page: pagination.page,
             limit: pagination.limit,
@@ -345,37 +294,35 @@ const getUserMaterials = async (req, res) => {
     }
     catch (err) {
         console.error("getUserMaterials error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Internal server error" });
+        return res.status(500).json({
+            success: false,
+            error: req.t("userGetter.error.internalServerError"),
+        });
     }
 };
-exports.getUserMaterials = getUserMaterials;
-// 5) get users all gifts
-const getUserGifts = async (req, res) => {
+// 5) Get User Gifts
+export const getUserGifts = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { status, // "PENDING" | "CLAIMED" | "CANCELLED"
-        itemType, // "GOLD" | "TRUST_POINTS" | "MATERIAL" | "SWORD" | "SHIELD"
-        sortCreatedAt, // "asc" | "desc"
-         } = req.query;
-        const pagination = (0, queryHelpers_1.getPagination)(req.query);
+        const { status, itemType, sortCreatedAt } = req.query;
+        const pagination = getPagination(req.query);
         if (!pagination) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid pagination parameters",
+                error: req.t("userGetter.error.invalidPaginationParameters"),
             });
         }
-        /* ---------------- ENUM VALIDATION ---------------- */
         const validStatuses = ["PENDING", "CLAIMED", "CANCELLED"];
-        const validTypes = ["GOLD", "TRUST_POINTS", "MATERIAL", "SWORD", "SHIELD"];
+        const validTypes = ["GOLD", "MATERIAL", "SWORD", "SHIELD"];
         let filterStatus;
         if (status) {
             const upper = String(status).toUpperCase();
             if (!validStatuses.includes(upper)) {
                 return res.status(400).json({
                     success: false,
-                    error: `Invalid status. Allowed: ${validStatuses.join(", ")}`,
+                    error: req.t("userGetter.error.invalidStatus", {
+                        allowed: validStatuses.join(", "),
+                    }),
                 });
             }
             filterStatus = upper;
@@ -386,59 +333,43 @@ const getUserGifts = async (req, res) => {
             if (!validTypes.includes(upper)) {
                 return res.status(400).json({
                     success: false,
-                    error: `Invalid gift type. Allowed: ${validTypes.join(", ")}`,
+                    error: req.t("userGetter.error.invalidGiftType", {
+                        allowed: validTypes.join(", "),
+                    }),
                 });
             }
             filterType = upper;
         }
-        /* ---------------- WHERE ---------------- */
-        const where = {
-            receiverId: userId,
-        };
-        if (filterStatus) {
+        const where = { receiverId: userId };
+        if (filterStatus)
             where.status = filterStatus;
-        }
-        if (filterType) {
-            where.type = filterType; // ← corrected: no items relation anymore
-        }
-        /* ---------------- ORDER BY ---------------- */
+        if (filterType)
+            where.type = filterType;
         const orderBy = [];
         if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt)) {
             orderBy.push({ createdAt: sortCreatedAt });
         }
-        if (orderBy.length === 0) {
+        if (orderBy.length === 0)
             orderBy.push({ createdAt: "desc" });
-        }
-        /* ---------------- FETCH ---------------- */
-        const gifts = await client_1.default.userGift.findMany({
+        const gifts = await prisma.userGift.findMany({
             where,
             include: {
                 material: {
-                    select: {
-                        id: true,
-                        name: true,
-                        rarity: true,
-                        image: true,
-                    },
+                    select: { id: true, name: true, rarity: true, image: true },
                 },
                 swordLevelDefinition: {
-                    select: {
-                        id: true,
-                        level: true,
-                        name: true,
-                        image: true,
-                    },
+                    select: { id: true, level: true, name: true, image: true },
                 },
             },
             orderBy,
             skip: pagination.skip,
             take: pagination.take,
         });
-        const total = await client_1.default.userGift.count({ where });
+        const total = await prisma.userGift.count({ where });
         return res.status(200).json({
             success: true,
-            message: "Your gifts fetched successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(gifts),
+            message: req.t("userGetter.success.userGiftsFetched"),
+            data: serializeBigInt(gifts),
             total,
             page: pagination.page,
             limit: pagination.limit,
@@ -446,45 +377,42 @@ const getUserGifts = async (req, res) => {
     }
     catch (err) {
         console.error("getUserGifts error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Internal server error" });
+        return res.status(500).json({
+            success: false,
+            error: req.t("userGetter.error.internalServerError"),
+        });
     }
 };
-exports.getUserGifts = getUserGifts;
-// 6) User's own vouchers list + total count
-const getUserVouchers = async (req, res) => {
+// 6) Get User Vouchers
+export const getUserVouchers = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const { status, sortCreatedAt, sortGoldAmount } = req.query;
-        const pagination = (0, queryHelpers_1.getPagination)(req.query);
+        const pagination = getPagination(req.query);
         if (!pagination) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid pagination parameters",
+                error: req.t("userGetter.error.invalidPaginationParameters"),
             });
         }
-        /* ---------------- VALIDATION ---------------- */
-        const validStatuses = ["PENDING", "REDEEMED", "CANCELLED", "EXPIRED"];
+        const validStatuses = ["PENDING", "REDEEMED"];
         let filterStatus;
         if (status) {
             const upper = String(status).toUpperCase();
             if (!validStatuses.includes(upper)) {
                 return res.status(400).json({
                     success: false,
-                    error: `Invalid voucher status. Allowed: ${validStatuses.join(", ")}`,
+                    error: req.t("userGetter.error.invalidVoucherStatus", {
+                        allowed: validStatuses.join(", "),
+                    }),
                 });
             }
             filterStatus = upper;
         }
-        /* ---------------- WHERE ---------------- */
         const where = {
-            createdById: userId, // ✅ fixed
+            createdById: userId,
+            status: filterStatus ? filterStatus : { in: validStatuses },
         };
-        if (filterStatus) {
-            where.status = filterStatus;
-        }
-        /* ---------------- ORDER BY ---------------- */
         const orderBy = [];
         if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt)) {
             orderBy.push({ createdAt: sortCreatedAt });
@@ -492,20 +420,23 @@ const getUserVouchers = async (req, res) => {
         if (sortGoldAmount && ["asc", "desc"].includes(sortGoldAmount)) {
             orderBy.push({ goldAmount: sortGoldAmount });
         }
-        /* ---------------- FETCH ---------------- */
-        const [vouchers, total] = await client_1.default.$transaction([
-            client_1.default.userVoucher.findMany({
+        const [vouchers, total] = await prisma.$transaction([
+            prisma.userVoucher.findMany({
                 where,
                 include: {
                     allowedUser: {
                         select: {
                             id: true,
+                            isTelegramLogin: true,
+                            telegramUser: true,
                             email: true,
                         },
                     },
                     redeemedBy: {
                         select: {
                             id: true,
+                            isTelegramLogin: true,
+                            telegramUser: true,
                             email: true,
                         },
                     },
@@ -514,12 +445,12 @@ const getUserVouchers = async (req, res) => {
                 skip: pagination.skip,
                 take: pagination.take,
             }),
-            client_1.default.userVoucher.count({ where }),
+            prisma.userVoucher.count({ where }),
         ]);
         return res.status(200).json({
             success: true,
-            message: "Your vouchers fetched successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(vouchers),
+            message: req.t("userGetter.success.userVouchersFetched"),
+            data: serializeBigInt(vouchers),
             total,
             page: pagination.page,
             limit: pagination.limit,
@@ -529,28 +460,22 @@ const getUserVouchers = async (req, res) => {
         console.error("getUserVouchers error:", err);
         return res.status(500).json({
             success: false,
-            error: "Internal server error",
+            error: req.t("userGetter.error.internalServerError"),
         });
     }
 };
-exports.getUserVouchers = getUserVouchers;
-// 7) User's own support complaints list + total count
-const getUserCustomerSupports = async (req, res) => {
+// 7) Get User Customer Supports / Complaints
+export const getUserCustomerSupports = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { isReviewed, // "true" | "false"
-        category, // GAME_BUG, PAYMENT, etc.
-        priority, // LOW, NORMAL, HIGH, CRITICAL
-        sortCreatedAt, // "asc" | "desc"
-         } = req.query;
-        const pagination = (0, queryHelpers_1.getPagination)(req.query);
+        const { isReviewed, category, priority, sortCreatedAt } = req.query;
+        const pagination = getPagination(req.query);
         if (!pagination) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid pagination parameters",
+                error: req.t("userGetter.error.invalidPaginationParameters"),
             });
         }
-        /* ---------------- VALIDATION ---------------- */
         const validCategories = [
             "GAME_BUG",
             "PAYMENT",
@@ -565,7 +490,7 @@ const getUserCustomerSupports = async (req, res) => {
             if (isReviewed !== "true" && isReviewed !== "false") {
                 return res.status(400).json({
                     success: false,
-                    error: "isReviewed must be 'true' or 'false'",
+                    error: req.t("userGetter.error.isReviewedMustBeBoolean"),
                 });
             }
             filterIsReviewed = isReviewed === "true";
@@ -576,7 +501,9 @@ const getUserCustomerSupports = async (req, res) => {
             if (!validCategories.includes(upper)) {
                 return res.status(400).json({
                     success: false,
-                    error: `Invalid category. Allowed: ${validCategories.join(", ")}`,
+                    error: req.t("userGetter.error.invalidCategory", {
+                        allowed: validCategories.join(", "),
+                    }),
                 });
             }
             filterCategory = upper;
@@ -587,31 +514,25 @@ const getUserCustomerSupports = async (req, res) => {
             if (!validPriorities.includes(upper)) {
                 return res.status(400).json({
                     success: false,
-                    error: `Invalid priority. Allowed: ${validPriorities.join(", ")}`,
+                    error: req.t("userGetter.error.invalidPriority", {
+                        allowed: validPriorities.join(", "),
+                    }),
                 });
             }
             filterPriority = upper;
         }
-        /* ---------------- WHERE ---------------- */
-        const where = {
-            userId,
-        };
-        if (filterIsReviewed !== undefined) {
+        const where = { userId };
+        if (filterIsReviewed !== undefined)
             where.isReviewed = filterIsReviewed;
-        }
-        if (filterCategory) {
+        if (filterCategory)
             where.category = filterCategory;
-        }
-        if (filterPriority) {
+        if (filterPriority)
             where.priority = filterPriority;
-        }
-        /* ---------------- ORDER BY ---------------- */
         const orderBy = [];
         if (sortCreatedAt && ["asc", "desc"].includes(sortCreatedAt)) {
             orderBy.push({ createdAt: sortCreatedAt });
         }
-        /* ---------------- FETCH ---------------- */
-        const complaints = await client_1.default.customerSupport.findMany({
+        const complaints = await prisma.customerSupport.findMany({
             where,
             orderBy: orderBy.length > 0 ? orderBy : [{ createdAt: "desc" }],
             skip: pagination.skip,
@@ -632,8 +553,8 @@ const getUserCustomerSupports = async (req, res) => {
         });
         return res.status(200).json({
             success: true,
-            message: "Your support complaints fetched successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(complaints),
+            message: req.t("userGetter.success.userComplaintsFetched"),
+            data: serializeBigInt(complaints),
             total: complaints.length,
             page: pagination.page,
             limit: pagination.limit,
@@ -641,46 +562,38 @@ const getUserCustomerSupports = async (req, res) => {
     }
     catch (err) {
         console.error("getUserCustomerSupports error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Internal server error" });
+        return res.status(500).json({
+            success: false,
+            error: req.t("userGetter.error.internalServerError"),
+        });
     }
 };
-exports.getUserCustomerSupports = getUserCustomerSupports;
-// 8)  solded single user swords list
-const getUserPurchasedSwords = async (req, res) => {
+// 8) Get User Purchased Swords
+export const getUserPurchasedSwords = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { sortPurchasedAt = "desc", // 'asc' | 'desc'
-        sortPriceGold, // 'asc' | 'desc'
-        sortLevel, // 'asc' | 'desc'
-         } = req.query;
-        const pagination = (0, queryHelpers_1.getPagination)(req.query);
+        const { sortPurchasedAt = "desc", sortPriceGold, sortLevel } = req.query;
+        const pagination = getPagination(req.query);
         if (!pagination) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid pagination parameters",
+                error: req.t("userGetter.error.invalidPaginationParameters"),
             });
         }
         const orderBy = [];
-        if (["asc", "desc"].includes(sortPurchasedAt)) {
+        if (["asc", "desc"].includes(sortPurchasedAt))
             orderBy.push({ purchasedAt: sortPurchasedAt });
-        }
-        if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold)) {
+        if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold))
             orderBy.push({ priceGold: sortPriceGold });
-        }
         if (sortLevel && ["asc", "desc"].includes(sortLevel)) {
-            orderBy.push({
-                swordLevelDefinition: { level: sortLevel },
-            });
+            orderBy.push({ swordLevelDefinition: { level: sortLevel } });
         }
-        if (orderBy.length === 0) {
+        if (orderBy.length === 0)
             orderBy.push({ purchasedAt: "desc" });
-        }
-        const total = await client_1.default.swordMarketplacePurchase.count({
+        const total = await prisma.swordMarketplacePurchase.count({
             where: { userId },
         });
-        const purchases = await client_1.default.swordMarketplacePurchase.findMany({
+        const purchases = await prisma.swordMarketplacePurchase.findMany({
             where: { userId },
             orderBy,
             skip: pagination.skip,
@@ -688,28 +601,22 @@ const getUserPurchasedSwords = async (req, res) => {
             select: {
                 id: true,
                 swordLevelDefinition: {
-                    select: {
-                        level: true,
-                        name: true,
-                        image: true,
-                        successRate: true,
-                    },
+                    select: { level: true, name: true, image: true, successRate: true },
                 },
                 quantity: true,
                 priceGold: true,
                 purchasedAt: true,
             },
         });
-        // Fetch minimal user info for context
-        const user = await client_1.default.user.findUnique({
+        const user = await prisma.user.findUnique({
             where: { id: userId },
             select: { name: true, profileLogo: true },
         });
         return res.json({
             success: true,
-            message: "Your purchased swords fetched successfully",
+            message: req.t("userGetter.success.userPurchasedSwordsFetched"),
             user: user ? { name: user.name, profileLogo: user.profileLogo } : null,
-            data: (0, serializeBigInt_1.serializeBigInt)(purchases),
+            data: serializeBigInt(purchases),
             total,
             page: pagination.page,
             limit: pagination.limit,
@@ -717,44 +624,37 @@ const getUserPurchasedSwords = async (req, res) => {
     }
     catch (err) {
         console.error("getUserPurchasedSwords error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Internal server error" });
+        return res.status(500).json({
+            success: false,
+            error: req.t("userGetter.error.internalServerError"),
+        });
     }
 };
-exports.getUserPurchasedSwords = getUserPurchasedSwords;
-// 9)  solded single user materials list
-const getUserPurchasedMaterials = async (req, res) => {
+// 9) Get User Purchased Materials
+export const getUserPurchasedMaterials = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { sortPurchasedAt = "desc", // 'asc' | 'desc'
-        sortPriceGold, // 'asc' | 'desc'
-        sortMaterialId, // 'asc' | 'desc'
-         } = req.query;
-        const pagination = (0, queryHelpers_1.getPagination)(req.query);
+        const { sortPurchasedAt = "desc", sortPriceGold, sortMaterialId, } = req.query;
+        const pagination = getPagination(req.query);
         if (!pagination) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid pagination parameters",
+                error: req.t("userGetter.error.invalidPaginationParameters"),
             });
         }
         const orderBy = [];
-        if (["asc", "desc"].includes(sortPurchasedAt)) {
+        if (["asc", "desc"].includes(sortPurchasedAt))
             orderBy.push({ purchasedAt: sortPurchasedAt });
-        }
-        if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold)) {
+        if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold))
             orderBy.push({ priceGold: sortPriceGold });
-        }
-        if (sortMaterialId && ["asc", "desc"].includes(sortMaterialId)) {
+        if (sortMaterialId && ["asc", "desc"].includes(sortMaterialId))
             orderBy.push({ materialId: sortMaterialId });
-        }
-        if (orderBy.length === 0) {
+        if (orderBy.length === 0)
             orderBy.push({ purchasedAt: "desc" });
-        }
-        const total = await client_1.default.materialMarketplacePurchase.count({
+        const total = await prisma.materialMarketplacePurchase.count({
             where: { userId },
         });
-        const purchases = await client_1.default.materialMarketplacePurchase.findMany({
+        const purchases = await prisma.materialMarketplacePurchase.findMany({
             where: { userId },
             orderBy,
             skip: pagination.skip,
@@ -762,28 +662,22 @@ const getUserPurchasedMaterials = async (req, res) => {
             select: {
                 id: true,
                 material: {
-                    select: {
-                        id: true,
-                        name: true,
-                        rarity: true,
-                        image: true,
-                    },
+                    select: { id: true, name: true, rarity: true, image: true },
                 },
                 quantity: true,
                 priceGold: true,
                 purchasedAt: true,
             },
         });
-        // Fetch minimal user info
-        const user = await client_1.default.user.findUnique({
+        const user = await prisma.user.findUnique({
             where: { id: userId },
             select: { name: true, profileLogo: true },
         });
         return res.json({
             success: true,
-            message: "Your purchased materials fetched successfully",
+            message: req.t("userGetter.success.userPurchasedMaterialsFetched"),
             user: user ? { name: user.name, profileLogo: user.profileLogo } : null,
-            data: (0, serializeBigInt_1.serializeBigInt)(purchases),
+            data: serializeBigInt(purchases),
             total,
             page: pagination.page,
             limit: pagination.limit,
@@ -791,40 +685,35 @@ const getUserPurchasedMaterials = async (req, res) => {
     }
     catch (err) {
         console.error("getUserPurchasedMaterials error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Internal server error" });
+        return res.status(500).json({
+            success: false,
+            error: req.t("userGetter.error.internalServerError"),
+        });
     }
 };
-exports.getUserPurchasedMaterials = getUserPurchasedMaterials;
-// 10)  solded single user shields list
-const getUserPurchasedShields = async (req, res) => {
+// 10) Get User Purchased Shields
+export const getUserPurchasedShields = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { sortPurchasedAt = "desc", // 'asc' | 'desc'
-        sortPriceGold, // 'asc' | 'desc'
-         } = req.query;
-        const pagination = (0, queryHelpers_1.getPagination)(req.query);
+        const { sortPurchasedAt = "desc", sortPriceGold } = req.query;
+        const pagination = getPagination(req.query);
         if (!pagination) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid pagination parameters",
+                error: req.t("userGetter.error.invalidPaginationParameters"),
             });
         }
         const orderBy = [];
-        if (["asc", "desc"].includes(sortPurchasedAt)) {
+        if (["asc", "desc"].includes(sortPurchasedAt))
             orderBy.push({ purchasedAt: sortPurchasedAt });
-        }
-        if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold)) {
+        if (sortPriceGold && ["asc", "desc"].includes(sortPriceGold))
             orderBy.push({ priceGold: sortPriceGold });
-        }
-        if (orderBy.length === 0) {
+        if (orderBy.length === 0)
             orderBy.push({ purchasedAt: "desc" });
-        }
-        const total = await client_1.default.shieldMarketplacePurchase.count({
+        const total = await prisma.shieldMarketplacePurchase.count({
             where: { userId },
         });
-        const purchases = await client_1.default.shieldMarketplacePurchase.findMany({
+        const purchases = await prisma.shieldMarketplacePurchase.findMany({
             where: { userId },
             orderBy,
             skip: pagination.skip,
@@ -836,16 +725,15 @@ const getUserPurchasedShields = async (req, res) => {
                 purchasedAt: true,
             },
         });
-        // Fetch minimal user info
-        const user = await client_1.default.user.findUnique({
+        const user = await prisma.user.findUnique({
             where: { id: userId },
             select: { name: true, profileLogo: true },
         });
         return res.json({
             success: true,
-            message: "Your purchased shields fetched successfully",
+            message: req.t("userGetter.success.userPurchasedShieldsFetched"),
             user: user ? { name: user.name, profileLogo: user.profileLogo } : null,
-            data: (0, serializeBigInt_1.serializeBigInt)(purchases),
+            data: serializeBigInt(purchases),
             total,
             page: pagination.page,
             limit: pagination.limit,
@@ -853,35 +741,31 @@ const getUserPurchasedShields = async (req, res) => {
     }
     catch (err) {
         console.error("getUserPurchasedShields error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Internal server error" });
+        return res.status(500).json({
+            success: false,
+            error: req.t("userGetter.error.internalServerError"),
+        });
     }
 };
-exports.getUserPurchasedShields = getUserPurchasedShields;
-// 11) Fetch authenticated user's own sword upgrade history
-const getUserUpgradeHistory = async (req, res) => {
+// 11) Get User Upgrade History
+export const getUserUpgradeHistory = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { sortCreatedAt = "desc" } = req.query; // 'asc' | 'desc'
-        const pagination = (0, queryHelpers_1.getPagination)(req.query);
+        const { sortCreatedAt = "desc" } = req.query;
+        const pagination = getPagination(req.query);
         if (!pagination) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid pagination parameters",
+                error: req.t("userGetter.error.invalidPaginationParameters"),
             });
         }
         const orderBy = [];
-        if (["asc", "desc"].includes(sortCreatedAt)) {
+        if (["asc", "desc"].includes(sortCreatedAt))
             orderBy.push({ createdAt: sortCreatedAt });
-        }
-        if (orderBy.length === 0) {
+        if (orderBy.length === 0)
             orderBy.push({ createdAt: "desc" });
-        }
-        const total = await client_1.default.swordUpgradeHistory.count({
-            where: { userId },
-        });
-        const history = await client_1.default.swordUpgradeHistory.findMany({
+        const total = await prisma.swordUpgradeHistory.count({ where: { userId } });
+        const history = await prisma.swordUpgradeHistory.findMany({
             where: { userId },
             orderBy,
             skip: pagination.skip,
@@ -889,8 +773,8 @@ const getUserUpgradeHistory = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "Your sword upgrade history fetched successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(history),
+            message: req.t("userGetter.success.userUpgradeHistoryFetched"),
+            data: serializeBigInt(history),
             total,
             page: pagination.page,
             limit: pagination.limit,
@@ -898,35 +782,33 @@ const getUserUpgradeHistory = async (req, res) => {
     }
     catch (err) {
         console.error("getUserUpgradeHistory error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Internal server error" });
+        return res.status(500).json({
+            success: false,
+            error: req.t("userGetter.error.internalServerError"),
+        });
     }
 };
-exports.getUserUpgradeHistory = getUserUpgradeHistory;
-// 12) Fetch authenticated user's own sword synthesis history
-const getUserSynthesisHistory = async (req, res) => {
+// 12) Get User Synthesis History
+export const getUserSynthesisHistory = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { sortCreatedAt = "desc" } = req.query; // 'asc' | 'desc'
-        const pagination = (0, queryHelpers_1.getPagination)(req.query);
+        const { sortCreatedAt = "desc" } = req.query;
+        const pagination = getPagination(req.query);
         if (!pagination) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid pagination parameters",
+                error: req.t("userGetter.error.invalidPaginationParameters"),
             });
         }
         const orderBy = [];
-        if (["asc", "desc"].includes(sortCreatedAt)) {
+        if (["asc", "desc"].includes(sortCreatedAt))
             orderBy.push({ createdAt: sortCreatedAt });
-        }
-        if (orderBy.length === 0) {
+        if (orderBy.length === 0)
             orderBy.push({ createdAt: "desc" });
-        }
-        const total = await client_1.default.swordSynthesisHistory.count({
+        const total = await prisma.swordSynthesisHistory.count({
             where: { userId },
         });
-        const history = await client_1.default.swordSynthesisHistory.findMany({
+        const history = await prisma.swordSynthesisHistory.findMany({
             where: { userId },
             orderBy,
             skip: pagination.skip,
@@ -934,8 +816,8 @@ const getUserSynthesisHistory = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "Your sword synthesis history fetched successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(history),
+            message: req.t("userGetter.success.userSynthesisHistoryFetched"),
+            data: serializeBigInt(history),
             total,
             page: pagination.page,
             limit: pagination.limit,
@@ -943,18 +825,17 @@ const getUserSynthesisHistory = async (req, res) => {
     }
     catch (err) {
         console.error("getUserSynthesisHistory error:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Internal server error" });
+        return res.status(500).json({
+            success: false,
+            error: req.t("userGetter.error.internalServerError"),
+        });
     }
 };
-exports.getUserSynthesisHistory = getUserSynthesisHistory;
-// 13) Get daily missions for authenticated user
-const getUserDailyMissions = async (req, res) => {
+// 13) Get Daily Missions
+export const getUserDailyMissions = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        // Fetch user ad counters
-        const user = await client_1.default.user.findUnique({
+        const user = await prisma.user.findUnique({
             where: { id: userId },
             select: {
                 oneDayGoldAdsViewed: true,
@@ -966,11 +847,10 @@ const getUserDailyMissions = async (req, res) => {
         if (!user || user.isBanned) {
             return res.status(404).json({
                 success: false,
-                error: "User not found or banned",
+                error: req.t("userGetter.error.userNotFoundOrBanned"),
             });
         }
-        // Fetch admin config (for max limits)
-        const config = await client_1.default.adminConfig.findUnique({
+        const config = await prisma.adminConfig.findUnique({
             where: { id: BigInt(1) },
             select: {
                 maxDailyGoldAds: true,
@@ -981,24 +861,18 @@ const getUserDailyMissions = async (req, res) => {
         if (!config) {
             return res.status(500).json({
                 success: false,
-                error: "Admin config not found",
+                error: req.t("userGetter.error.adminConfigNotFound"),
             });
         }
-        // Fetch all active daily missions
-        const missions = await client_1.default.dailyMissionDefinition.findMany({
+        const missions = await prisma.dailyMissionDefinition.findMany({
             where: { isActive: true },
-            include: {
-                progress: {
-                    where: { userId },
-                },
-            },
+            include: { progress: { where: { userId } } },
             orderBy: { createdAt: "desc" },
         });
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
         const result = missions.map((mission) => {
             const progress = mission.progress[0];
-            // Check if claimed today
             const claimedToday = progress?.lastClaimedAt &&
                 new Date(progress.lastClaimedAt) >= todayStart;
             let currentProgress = 0;
@@ -1019,8 +893,6 @@ const getUserDailyMissions = async (req, res) => {
                             currentProgress = user.oneDaySwordAdsViewed;
                             dynamicTargetValue = config.maxDailySwordAds;
                             break;
-                        default:
-                            console.warn(`Unknown adType: ${condition.adType}`);
                     }
                 }
             }
@@ -1040,26 +912,24 @@ const getUserDailyMissions = async (req, res) => {
         });
         return res.status(200).json({
             success: true,
-            message: "Daily missions fetched successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(result),
+            message: req.t("userGetter.success.dailyMissionsFetched"),
+            data: serializeBigInt(result),
         });
     }
     catch (err) {
         console.error("getUserDailyMissions error:", err);
         return res.status(500).json({
             success: false,
-            error: "Internal server error",
+            error: req.t("userGetter.error.internalServerError"),
         });
     }
 };
-exports.getUserDailyMissions = getUserDailyMissions;
-// 14) GET Active One-Time Missions with eligibility + claimed status
-const getUserOneTimeMissions = async (req, res) => {
+// 14) Get One-Time Missions
+export const getUserOneTimeMissions = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const now = new Date();
-        // Fetch only ACTIVE + valid time missions
-        const missions = await client_1.default.oneTimeMissionDefinition.findMany({
+        const missions = await prisma.oneTimeMissionDefinition.findMany({
             where: {
                 isActive: true,
                 startAt: { lte: now },
@@ -1069,7 +939,7 @@ const getUserOneTimeMissions = async (req, res) => {
         if (missions.length === 0) {
             return res.json({
                 success: true,
-                message: "No active one-time missions",
+                message: req.t("userGetter.success.noActiveOneTimeMissions"),
                 data: [],
             });
         }
@@ -1077,18 +947,13 @@ const getUserOneTimeMissions = async (req, res) => {
         for (const mission of missions) {
             const conditions = mission.conditions;
             let progressValue = 0;
-            // Time filter range
-            const timeFilter = {
-                gte: mission.startAt,
-            };
-            if (mission.expiresAt) {
+            const timeFilter = { gte: mission.startAt };
+            if (mission.expiresAt)
                 timeFilter.lte = mission.expiresAt;
-            }
             for (const cond of conditions) {
                 switch (cond.type) {
-                    // ================= BUY SWORD =================
                     case "buySword":
-                        progressValue += await client_1.default.swordMarketplacePurchase.count({
+                        progressValue += await prisma.swordMarketplacePurchase.count({
                             where: {
                                 userId,
                                 purchasedAt: timeFilter,
@@ -1098,32 +963,24 @@ const getUserOneTimeMissions = async (req, res) => {
                             },
                         });
                         break;
-                    // ================= BUY MATERIAL =================
                     case "buyMaterial":
-                        progressValue += await client_1.default.materialMarketplacePurchase.count({
+                        progressValue += await prisma.materialMarketplacePurchase.count({
                             where: {
                                 userId,
                                 purchasedAt: timeFilter,
-                                ...(cond.materialId && {
-                                    materialId: BigInt(cond.materialId),
-                                }),
+                                ...(cond.materialId && { materialId: BigInt(cond.materialId) }),
                             },
                         });
                         break;
-                    // ================= BUY SHIELD =================
                     case "buyShield":
-                        const shieldPurchases = await client_1.default.shieldMarketplacePurchase.findMany({
-                            where: {
-                                userId,
-                                purchasedAt: timeFilter,
-                            },
+                        const shieldPurchases = await prisma.shieldMarketplacePurchase.findMany({
+                            where: { userId, purchasedAt: timeFilter },
                             select: { quantity: true },
                         });
                         progressValue += shieldPurchases.reduce((sum, s) => sum + s.quantity, 0);
                         break;
-                    // ================= UPGRADE SWORD =================
                     case "upgradeSword":
-                        progressValue += await client_1.default.swordUpgradeHistory.count({
+                        progressValue += await prisma.swordUpgradeHistory.count({
                             where: {
                                 userId,
                                 createdAt: timeFilter,
@@ -1134,9 +991,8 @@ const getUserOneTimeMissions = async (req, res) => {
                             },
                         });
                         break;
-                    // ================= SYNTHESIZE =================
                     case "synthesize":
-                        progressValue += await client_1.default.swordSynthesisHistory.count({
+                        progressValue += await prisma.swordSynthesisHistory.count({
                             where: {
                                 userId,
                                 createdAt: timeFilter,
@@ -1148,14 +1004,8 @@ const getUserOneTimeMissions = async (req, res) => {
                         break;
                 }
             }
-            // Check if already claimed
-            const claimedRecord = await client_1.default.userOneTimeMissionProgress.findUnique({
-                where: {
-                    userId_missionId: {
-                        userId,
-                        missionId: mission.id,
-                    },
-                },
+            const claimedRecord = await prisma.userOneTimeMissionProgress.findUnique({
+                where: { userId_missionId: { userId, missionId: mission.id } },
             });
             const claimed = !!claimedRecord;
             const canClaim = !claimed && progressValue >= mission.targetValue;
@@ -1174,33 +1024,31 @@ const getUserOneTimeMissions = async (req, res) => {
         }
         return res.json({
             success: true,
-            message: "Active one-time missions fetched",
-            data: (0, serializeBigInt_1.serializeBigInt)(missionResults),
+            message: req.t("userGetter.success.oneTimeMissionsFetched"),
+            data: serializeBigInt(missionResults),
         });
     }
     catch (err) {
         console.error("getUserOneTimeMissions error:", err);
         return res.status(500).json({
             success: false,
-            error: "Internal server error",
+            error: req.t("userGetter.error.internalServerError"),
         });
     }
 };
-exports.getUserOneTimeMissions = getUserOneTimeMissions;
-// user anvil sword details
-const getUserAnvilSwordDetails = async (req, res) => {
+// 15) Get User Anvil Sword Details
+export const getUserAnvilSwordDetails = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const { level } = req.query;
         if (!level || isNaN(Number(level))) {
             return res.status(400).json({
                 success: false,
-                error: "Valid 'level' query parameter is required",
+                error: req.t("userGetter.error.validLevelRequired"),
             });
         }
         const swordLevel = Number(level);
-        // ─── Fetch sword definition ────────────────────────────────────────
-        const swordDef = await client_1.default.swordLevelDefinition.findUnique({
+        const swordDef = await prisma.swordLevelDefinition.findUnique({
             where: { level: swordLevel },
             select: {
                 id: true,
@@ -1217,12 +1065,7 @@ const getUserAnvilSwordDetails = async (req, res) => {
                 upgradeDrops: {
                     select: {
                         material: {
-                            select: {
-                                id: true,
-                                name: true,
-                                image: true,
-                                rarity: true,
-                            },
+                            select: { id: true, name: true, image: true, rarity: true },
                         },
                         dropPercentage: true,
                         minQuantity: true,
@@ -1234,17 +1077,13 @@ const getUserAnvilSwordDetails = async (req, res) => {
         if (!swordDef) {
             return res.status(404).json({
                 success: false,
-                error: `Sword level ${swordLevel} not found`,
+                error: req.t("userGetter.error.swordLevelNotFound", {
+                    level: swordLevel,
+                }),
             });
         }
-        // ─── Fetch user's ownership stats for this exact sword level ────────
-        const userSword = await client_1.default.userSword.findUnique({
-            where: {
-                userId_swordId: {
-                    userId,
-                    swordId: swordDef.id,
-                },
-            },
+        const userSword = await prisma.userSword.findUnique({
+            where: { userId_swordId: { userId, swordId: swordDef.id } },
             select: {
                 unsoldQuantity: true,
                 soldedQuantity: true,
@@ -1252,15 +1091,14 @@ const getUserAnvilSwordDetails = async (req, res) => {
                 isOnAnvil: true,
             },
         });
-        // ─── Combine & respond ──────────────────────────────────────────────
         return res.status(200).json({
             success: true,
             message: userSword
-                ? "Anvil sword details fetched successfully"
-                : "Sword definition found, but you do not own any of this level",
-            data: (0, serializeBigInt_1.serializeBigInt)({
+                ? req.t("userGetter.success.anvilSwordDetailsFetched")
+                : req.t("userGetter.success.swordDefinitionFoundButNotOwned"),
+            data: serializeBigInt({
                 swordDefinition: swordDef,
-                userOwnership: userSword || null, // null if user doesn't have it
+                userOwnership: userSword || null,
             }),
         });
     }
@@ -1268,56 +1106,46 @@ const getUserAnvilSwordDetails = async (req, res) => {
         console.error("getUserAnvilSwordDetails error:", err);
         return res.status(500).json({
             success: false,
-            error: "Internal server error",
+            error: req.t("userGetter.error.internalServerError"),
         });
     }
 };
-exports.getUserAnvilSwordDetails = getUserAnvilSwordDetails;
-const getUnreadNotifications = async (req, res) => {
+// 16) Get Unread Notifications
+export const getUnreadNotifications = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        // Fetch user with join date (createdAt) and last read time
-        const user = await client_1.default.user.findUnique({
+        const user = await prisma.user.findUnique({
             where: { id: userId },
-            select: {
-                createdAt: true, // join time
-                lastNotificationReadTime: true,
-            },
+            select: { createdAt: true, lastNotificationReadTime: true },
         });
         if (!user) {
             return res.status(404).json({
                 success: false,
-                error: "User not found",
+                error: req.t("userGetter.error.userNotFound"),
             });
         }
-        const where = {
-            createdAt: {
-                gte: user.createdAt, // Only notifications after user joined
-            },
-        };
-        // If user has ever marked notifications as read, show only newer unread ones
+        const where = { createdAt: { gte: user.createdAt } };
         if (user.lastNotificationReadTime) {
             where.createdAt.gt = user.lastNotificationReadTime;
         }
-        const notifications = await client_1.default.notification.findMany({
+        const notifications = await prisma.notification.findMany({
             where,
-            orderBy: { createdAt: "desc" }, // Newest first
+            orderBy: { createdAt: "desc" },
         });
         return res.status(200).json({
             success: true,
             message: notifications.length > 0
-                ? "Unread notifications fetched"
-                : "No unread notifications",
-            data: (0, serializeBigInt_1.serializeBigInt)(notifications),
+                ? req.t("userGetter.success.unreadNotificationsFetched")
+                : req.t("userGetter.success.noUnreadNotifications"),
+            data: serializeBigInt(notifications),
         });
     }
     catch (err) {
         console.error("getUnreadNotifications error:", err);
         return res.status(500).json({
             success: false,
-            error: "Internal server error",
+            error: req.t("userGetter.error.internalServerError"),
         });
     }
 };
-exports.getUnreadNotifications = getUnreadNotifications;
 //# sourceMappingURL=userGetterController.js.map

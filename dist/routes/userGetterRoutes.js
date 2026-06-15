@@ -1,36 +1,31 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = __importDefault(require("express"));
-const userAuth_1 = __importDefault(require("../middleware/userAuth"));
-const userGetterController_1 = require("../controllers/userGetterController");
-const commonGetterController_1 = require("../controllers/commonGetterController");
-const router = express_1.default.Router();
-router.get("/notifications/all", userAuth_1.default, commonGetterController_1.getAllNotifications);
-router.get("/notifications/unread", userAuth_1.default, userGetterController_1.getUnreadNotifications);
+import express from "express";
+import userAuth from "../middleware/userAuth.js";
+import { getUserRank, getUserBasicInfo, getUserSwords, getUserMaterials, getUserGifts, getUserVouchers, getUserCustomerSupports, getUserPurchasedSwords, getUserPurchasedMaterials, getUserPurchasedShields, getUserUpgradeHistory, getUserSynthesisHistory, getUserDailyMissions, getUserOneTimeMissions, getUserAnvilSwordDetails, getUnreadNotifications, } from "../controllers/userGetterController.js";
+import { getAllNotifications } from "../controllers/commonGetterController.js";
+const router = express.Router();
+router.get("/notifications/all", userAuth, getAllNotifications);
+router.get("/notifications/unread", userAuth, getUnreadNotifications);
 /* ───────────────────── USER CORE ───────────────────── */
-router.get("/user/basic-info", userAuth_1.default, userGetterController_1.getUserBasicInfo);
-router.get("/user/rank", userAuth_1.default, userGetterController_1.getUserRank);
-router.get("/user/anvil-sword-details", userAuth_1.default, userGetterController_1.getUserAnvilSwordDetails);
+router.get("/user/basic-info", userAuth, getUserBasicInfo);
+router.get("/user/rank", userAuth, getUserRank);
+router.get("/user/anvil-sword-details", userAuth, getUserAnvilSwordDetails);
 /* ───────────────────── INVENTORY ───────────────────── */
-router.get("/user/swords", userAuth_1.default, userGetterController_1.getUserSwords);
-router.get("/user/materials", userAuth_1.default, userGetterController_1.getUserMaterials);
+router.get("/user/swords", userAuth, getUserSwords);
+router.get("/user/materials", userAuth, getUserMaterials);
 /* ───────────────────── GIFTS & VOUCHERS ────────────── */
-router.get("/user/gifts", userAuth_1.default, userGetterController_1.getUserGifts);
-router.get("/user/vouchers", userAuth_1.default, userGetterController_1.getUserVouchers);
+router.get("/user/gifts", userAuth, getUserGifts);
+router.get("/user/vouchers", userAuth, getUserVouchers);
 /* ───────────────────── SUPPORT ─────────────────────── */
-router.get("/user/complaints", userAuth_1.default, userGetterController_1.getUserCustomerSupports);
+router.get("/user/complaints", userAuth, getUserCustomerSupports);
 /* ───────────────────── MARKETPLACE HISTORY ─────────── */
-router.get("/user/purchases/swords", userAuth_1.default, userGetterController_1.getUserPurchasedSwords);
-router.get("/user/purchases/materials", userAuth_1.default, userGetterController_1.getUserPurchasedMaterials);
-router.get("/user/purchases/shields", userAuth_1.default, userGetterController_1.getUserPurchasedShields);
+router.get("/user/purchases/swords", userAuth, getUserPurchasedSwords);
+router.get("/user/purchases/materials", userAuth, getUserPurchasedMaterials);
+router.get("/user/purchases/shields", userAuth, getUserPurchasedShields);
 /* ───────────────────── HISTORY ─────────────────────── */
-router.get("/user/history/upgrades", userAuth_1.default, userGetterController_1.getUserUpgradeHistory);
-router.get("/user/history/synthesis", userAuth_1.default, userGetterController_1.getUserSynthesisHistory);
+router.get("/user/history/upgrades", userAuth, getUserUpgradeHistory);
+router.get("/user/history/synthesis", userAuth, getUserSynthesisHistory);
 /* ───────────────────── MISSIONS ─────────────────────── */
-router.get("/user/missions/daily", userAuth_1.default, userGetterController_1.getUserDailyMissions);
-router.get("/user/missions/one-time", userAuth_1.default, userGetterController_1.getUserOneTimeMissions);
-exports.default = router;
+router.get("/user/missions/daily", userAuth, getUserDailyMissions);
+router.get("/user/missions/one-time", userAuth, getUserOneTimeMissions);
+export default router;
 //# sourceMappingURL=userGetterRoutes.js.map

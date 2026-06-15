@@ -1,27 +1,18 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.markNotificationsAsRead = exports.claimOneTimeMission = exports.claimDailyMission = exports.verifyAdSession = exports.createAdSession = exports.toggleShieldProtection = exports.claimGift = exports.synthesizeSword = exports.upgradeSword = exports.removeSwordFromAnvil = exports.setSwordOnAnvil = exports.sellMaterial = exports.sellSword = exports.deleteComplaint = exports.updateComplaint = exports.createComplaint = exports.cancelVoucher = exports.removeAllowedUserFromVoucher = exports.assignAllowedUserToVoucher = exports.createVoucher = void 0;
-exports.buySword = buySword;
-exports.buyMaterial = buyMaterial;
-exports.buyShields = buyShields;
-const crypto_1 = __importDefault(require("crypto"));
-const client_1 = __importDefault(require("../database/client"));
-const generateCode_1 = require("../services/generateCode");
-const queryHelpers_1 = require("../services/queryHelpers");
-const client_2 = require("@prisma/client");
-const serializeBigInt_1 = require("../services/serializeBigInt");
+import crypto from "crypto";
+import prisma from "../database/client.js";
+import { generateSecureCode } from "../services/generateCode.js";
+import { userGuard } from "../services/queryHelpers.js";
+import { VoucherStatus, SupportCategory, SupportPriority, AdRewardType, GiftItemType, GiftStatus, } from "@prisma/client";
+import { serializeBigInt } from "../services/serializeBigInt.js";
 // 1) Create Voucher (User creates a voucher by locking gold)
-const createVoucher = async (req, res) => {
+export const createVoucher = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const { goldAmount } = req.body;
         if (!goldAmount || typeof goldAmount !== "number" || goldAmount <= 0) {
             return res.status(400).json({
                 success: false,
-                error: "goldAmount must be a positive number",
+                error: req.t("userAction.error.goldAmountRequired"),
             });
         }
         const amount = Math.floor(goldAmount);
@@ -29,35 +20,41 @@ const createVoucher = async (req, res) => {
         if (amount % 1000 !== 0) {
             return res.status(400).json({
                 success: false,
-                error: "Voucher amount must be in multiples of 1000 (e.g., 1000, 2000, 5000)",
+                error: req.t("userAction.error.voucherMultipleOf1000"),
             });
         }
-        const config = await client_1.default.adminConfig.findUnique({
+        const config = await prisma.adminConfig.findUnique({
             where: { id: BigInt(1) },
             select: { minVoucherGold: true, maxVoucherGold: true },
         });
         if (!config) {
-            return res.status(500).json({
+            return res.status(400).json({
                 success: false,
-                error: "Admin configuration not found",
+                error: req.t("userAction.error.adminConfigNotFound"),
             });
         }
         if (amount < config.minVoucherGold || amount > config.maxVoucherGold) {
             return res.status(400).json({
                 success: false,
-                error: `Voucher amount must be between ${config.minVoucherGold} and ${config.maxVoucherGold}`,
+                error: req.t("userAction.error.voucherAmountOutOfRange", {
+                    min: config.minVoucherGold,
+                    max: config.maxVoucherGold,
+                }),
             });
         }
         let voucher;
         // Retry loop for unique code
         for (let attempt = 0; attempt < 10; attempt++) {
-            const code = (0, generateCode_1.generateSecureCode)(16); // increase entropy
+            const code = generateSecureCode(16); // increase entropy
             try {
-                voucher = await client_1.default.$transaction(async (tx) => {
+                voucher = await prisma.$transaction(async (tx) => {
                     //  Always check balance inside transaction (race-safe)
-                    const user = await (0, queryHelpers_1.userGuard)(userId);
+                    const user = await userGuard(userId);
                     if (!user || user.gold < amount) {
-                        throw new Error("Insufficient gold balance");
+                        return res.status(400).json({
+                            success: false,
+                            error: req.t("userAction.error.InsufficientGold"),
+                        });
                     }
                     // Deduct gold
                     await tx.user.update({
@@ -73,7 +70,7 @@ const createVoucher = async (req, res) => {
                             createdById: userId,
                             allowedUserId: null, // initially null
                             goldAmount: amount,
-                            status: client_2.VoucherStatus.PENDING,
+                            status: VoucherStatus.PENDING,
                         },
                     });
                 });
@@ -90,104 +87,106 @@ const createVoucher = async (req, res) => {
         if (!voucher) {
             return res.status(500).json({
                 success: false,
-                error: "Failed to generate unique voucher code after retries",
+                error: req.t("userAction.error.voucherCodeGenerationFailed"),
             });
         }
         return res.json({
             success: true,
-            message: "Voucher created successfully.",
-            data: (0, serializeBigInt_1.serializeBigInt)(voucher),
+            message: req.t("userAction.success.voucherCreated"),
+            data: serializeBigInt(voucher),
         });
     }
     catch (err) {
         console.error("Creating voucher error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.createVoucher = createVoucher;
 // 2)
-const assignAllowedUserToVoucher = async (req, res) => {
+export const assignAllowedUserToVoucher = async (req, res) => {
     try {
         const creatorId = BigInt(req.user.userId);
-        const { voucherId, allowedEmail } = req.body;
+        const { voucherId, allowedEmail, allowedTgUserName } = req.body;
         if (!voucherId || isNaN(Number(voucherId))) {
             return res.status(400).json({
                 success: false,
-                error: "Valid voucher ID required",
+                error: req.t("userAction.error.voucherIdRequired"),
             });
         }
-        if (!allowedEmail) {
+        // must provide at least one
+        if (!allowedEmail && !allowedTgUserName) {
             return res.status(400).json({
                 success: false,
-                error: "Valid allowedEmail required",
+                error: req.t("userAction.error.provideEmailOrTgUsername"),
             });
         }
-        const normalizedEmail = allowedEmail.trim().toLowerCase();
-        // 🔥 Validate creator
-        await (0, queryHelpers_1.userGuard)(creatorId);
-        // 🔥 Find voucher
-        const voucher = await client_1.default.userVoucher.findUnique({
+        await userGuard(creatorId);
+        const voucher = await prisma.userVoucher.findUnique({
             where: { id: BigInt(voucherId) },
         });
         if (!voucher) {
             return res.status(404).json({
                 success: false,
-                error: "Voucher not found",
+                error: req.t("userAction.error.voucherNotFound"),
             });
         }
-        // 🔥 Ownership check
         if (voucher.createdById !== creatorId) {
             return res.status(400).json({
                 success: false,
-                error: "You can only assign your own vouchers",
+                error: req.t("userAction.error.notYourVoucher"),
             });
         }
-        // 🔥 Must be pending
-        if (voucher.status !== client_2.VoucherStatus.PENDING) {
+        if (voucher.status !== VoucherStatus.PENDING) {
             return res.status(400).json({
                 success: false,
-                error: "Only pending vouchers can be assigned",
+                error: req.t("userAction.error.onlyPendingVoucherAssignable"),
             });
         }
-        // 🔥 Expiry check (if enabled)
-        // if (voucher.expiresAt && voucher.expiresAt < new Date()) {
-        //   return res.status(400).json({
-        //     success: false,
-        //     error: "Voucher has expired",
-        //   });
-        // }
-        // 🔥 Find allowed user by email
-        const allowedUser = await client_1.default.user.findUnique({
-            where: { email: normalizedEmail },
-        });
+        let allowedUser = null;
+        // EMAIL CASE
+        if (allowedEmail) {
+            const normalizedEmail = allowedEmail.trim().toLowerCase();
+            allowedUser = await prisma.user.findUnique({
+                where: { email: normalizedEmail },
+            });
+        }
+        // TELEGRAM USERNAME CASE
+        else if (allowedTgUserName) {
+            const normalizedTg = allowedTgUserName
+                .replace("@", "")
+                .trim()
+                .toLowerCase();
+            allowedUser = await prisma.user.findFirst({
+                where: {
+                    telegramUser: normalizedTg,
+                    isTelegramLogin: true,
+                },
+            });
+        }
         if (!allowedUser) {
             return res.status(404).json({
                 success: false,
-                error: "Allowed user not found",
+                error: req.t("userAction.error.allowedUserNotFound"),
             });
         }
-        // 🔥 Check allowed user banned
         if (allowedUser.isBanned) {
             return res.status(400).json({
                 success: false,
-                error: "Allowed user is banned",
+                error: req.t("userAction.error.allowedUserBanned"),
             });
         }
-        // 🔥 Prevent self-assign
         if (allowedUser.id === creatorId) {
             return res.status(400).json({
                 success: false,
-                error: "You cannot assign voucher to yourself",
+                error: req.t("userAction.error.cannotAssignToSelf"),
             });
         }
-        // 🔥 Atomic update
-        await client_1.default.userVoucher.update({
+        await prisma.userVoucher.update({
             where: {
                 id: BigInt(voucherId),
-                status: client_2.VoucherStatus.PENDING, // prevents race condition
+                status: VoucherStatus.PENDING,
             },
             data: {
                 allowedUserId: allowedUser.id,
@@ -195,31 +194,30 @@ const assignAllowedUserToVoucher = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "Voucher successfully assigned to user",
+            message: req.t("userAction.success.voucherAssigned"),
         });
     }
     catch (err) {
         console.error("Assign voucher error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.assignAllowedUserToVoucher = assignAllowedUserToVoucher;
 // 3)
-const removeAllowedUserFromVoucher = async (req, res) => {
+export const removeAllowedUserFromVoucher = async (req, res) => {
     try {
         const creatorId = BigInt(req.user.userId);
         const { voucherId } = req.body;
         if (!voucherId || isNaN(Number(voucherId))) {
             return res.status(400).json({
                 success: false,
-                error: "Valid voucher ID required",
+                error: req.t("userAction.error.voucherIdRequired"),
             });
         }
-        await (0, queryHelpers_1.userGuard)(creatorId);
-        const voucher = await client_1.default.userVoucher.findUnique({
+        await userGuard(creatorId);
+        const voucher = await prisma.userVoucher.findUnique({
             where: { id: BigInt(voucherId) },
             select: {
                 createdById: true,
@@ -230,29 +228,29 @@ const removeAllowedUserFromVoucher = async (req, res) => {
         if (!voucher) {
             return res.status(404).json({
                 success: false,
-                error: "Voucher not found",
+                error: req.t("userAction.error.voucherNotFound"),
             });
         }
         if (voucher.createdById !== creatorId) {
             return res.status(400).json({
                 success: false,
-                error: "You can only modify your own vouchers",
+                error: req.t("userAction.error.notYourVoucher"),
             });
         }
-        if (voucher.status !== client_2.VoucherStatus.PENDING) {
+        if (voucher.status !== VoucherStatus.PENDING) {
             return res.status(400).json({
                 success: false,
-                error: "Only PENDING vouchers can have their assigned user removed",
+                error: req.t("userAction.error.onlyPendingVoucherAssignable"),
             });
         }
         if (!voucher.allowedUserId) {
             return res.status(400).json({
                 success: false,
-                error: "No user is currently assigned to this voucher",
+                error: req.t("userAction.error.noUserAssigned"),
             });
         }
         // Remove assignment
-        await client_1.default.userVoucher.update({
+        await prisma.userVoucher.update({
             where: { id: BigInt(voucherId) },
             data: {
                 allowedUserId: null,
@@ -260,31 +258,30 @@ const removeAllowedUserFromVoucher = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "Assigned user removed. Voucher is now redeemable by you.",
+            message: req.t("userAction.success.assignedUserRemoved"),
         });
     }
     catch (err) {
         console.error("Remove allowed user error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Failed to remove assigned user",
+            error: req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.removeAllowedUserFromVoucher = removeAllowedUserFromVoucher;
 // 4) Cancel Voucher (refund gold if pending)
-const cancelVoucher = async (req, res) => {
+export const cancelVoucher = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        await (0, queryHelpers_1.userGuard)(userId);
+        await userGuard(userId);
         const { voucherId } = req.body;
         if (!voucherId || isNaN(Number(voucherId))) {
             return res.status(400).json({
                 success: false,
-                error: "Valid voucher ID required",
+                error: req.t("userAction.error.voucherIdRequired"),
             });
         }
-        const voucher = await client_1.default.userVoucher.findUnique({
+        const voucher = await prisma.userVoucher.findUnique({
             where: { id: BigInt(voucherId) },
             select: {
                 createdById: true,
@@ -293,23 +290,24 @@ const cancelVoucher = async (req, res) => {
             },
         });
         if (!voucher) {
-            return res
-                .status(404)
-                .json({ success: false, error: "Voucher not found" });
+            return res.status(404).json({
+                success: false,
+                error: req.t("userAction.error.voucherNotFound"),
+            });
         }
         if (voucher.createdById !== userId) {
             return res.status(400).json({
                 success: false,
-                error: "You can only cancel your own vouchers",
+                error: req.t("userAction.error.notYourVoucher"),
             });
         }
-        if (voucher.status !== client_2.VoucherStatus.PENDING) {
+        if (voucher.status !== VoucherStatus.PENDING) {
             return res.status(400).json({
                 success: false,
-                error: "Only pending vouchers can be cancelled",
+                error: req.t("userAction.error.onlyPendingVoucherCancellable"),
             });
         }
-        await client_1.default.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx) => {
             // Refund gold
             await tx.user.update({
                 where: { id: userId },
@@ -319,63 +317,66 @@ const cancelVoucher = async (req, res) => {
             await tx.userVoucher.update({
                 where: { id: BigInt(voucherId) },
                 data: {
-                    status: client_2.VoucherStatus.CANCELLED,
+                    status: VoucherStatus.CANCELLED,
                     updatedAt: new Date(),
                 },
             });
         });
         return res.json({
             success: true,
-            message: "Voucher cancelled successfully. Gold refunded.",
+            message: req.t("userAction.success.voucherCancelled"),
         });
     }
     catch (err) {
         console.error("Cancelling voucher error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.cancelVoucher = cancelVoucher;
 // 5) Create Customer Support Complaint(no check for the user ban here)
-const createComplaint = async (req, res) => {
+export const createComplaint = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { title, content, message, category = client_2.SupportCategory.OTHER, priority = client_2.SupportPriority.NORMAL, } = req.body;
+        const { title, content, message, category = SupportCategory.OTHER, priority = SupportPriority.NORMAL, } = req.body;
         // Basic validation
         if (!title || typeof title !== "string" || title.trim().length < 5) {
             return res.status(400).json({
                 success: false,
-                error: "Title must be at least 5 characters",
+                error: req.t("userAction.error.titleTooShort"),
             });
         }
         if (!content || typeof content !== "string" || content.trim().length < 5) {
             return res.status(400).json({
                 success: false,
-                error: "Content must be at least 5 characters",
+                error: req.t("userAction.error.contentTooShort"),
             });
         }
         if (!message || typeof message !== "string" || message.trim().length < 10) {
             return res.status(400).json({
                 success: false,
-                error: "Message must be at least 10 characters",
+                error: req.t("userAction.error.messageTooShort"),
             });
         }
         // Validate category & priority enums
-        if (!Object.values(client_2.SupportCategory).includes(category)) {
+        if (!Object.values(SupportCategory).includes(category)) {
             return res.status(400).json({
                 success: false,
-                error: `Invalid category. Allowed: ${Object.values(client_2.SupportCategory).join(", ")}`,
+                error: req.t("userAction.error.invalidCategory", {
+                    allowed: Object.values(SupportCategory).join(", "),
+                }),
             });
         }
-        if (!Object.values(client_2.SupportPriority).includes(priority)) {
+        if (!Object.values(SupportPriority).includes(priority)) {
             return res.status(400).json({
                 success: false,
-                error: `Invalid priority. Allowed: ${Object.values(client_2.SupportPriority).join(", ")}`,
+                error: req.t("userAction.error.invalidPriority", {
+                    allowed: Object.values(SupportPriority).join(", "),
+                }),
             });
         }
-        const complaint = await client_1.default.customerSupport.create({
+        const complaint = await prisma.customerSupport.create({
             data: {
                 userId,
                 title: title.trim(),
@@ -387,68 +388,64 @@ const createComplaint = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "Complaint submitted successfully. We'll review it soon.",
-            data: (0, serializeBigInt_1.serializeBigInt)(complaint),
+            message: req.t("userAction.success.complaintSubmitted"),
+            data: serializeBigInt(complaint),
         });
     }
     catch (err) {
         console.error("Create Complaint error:", err);
-        return res
-            .status(400)
-            .json({ success: false, error: err.message || "Internal server error" });
+        return res.status(400).json({
+            success: false,
+            error: req.t("userAction.error.internalServerError"),
+        });
     }
 };
-exports.createComplaint = createComplaint;
 // 6) Update Complaint (only if not reviewed)
-const updateComplaint = async (req, res) => {
+export const updateComplaint = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const { complaintId, title, content, message } = req.body;
         if (!complaintId || isNaN(Number(complaintId))) {
             return res.status(400).json({
                 success: false,
-                error: "Valid complaint ID required",
-            });
+                error: req.t("userAction.error.voucherIdRequired"),
+            }); // reuse key or add new
         }
         if (!title && !content && !message) {
             return res.status(400).json({
                 success: false,
-                error: "Provide at least one field to update (title, content, or message)",
+                error: req.t("userAction.error.provideAtLeastOneField"),
             });
         }
         // Validate lengths if provided
-        if (title && (typeof title !== "string" || title.trim().length < 5)) {
+        if (!title || typeof title !== "string" || title.trim().length < 5) {
             return res.status(400).json({
                 success: false,
-                error: "Title must be at least 5 characters if provided",
+                error: req.t("userAction.error.titleTooShort"),
             });
         }
-        if (content && (typeof content !== "string" || content.trim().length < 5)) {
+        if (!content || typeof content !== "string" || content.trim().length < 5) {
             return res.status(400).json({
                 success: false,
-                error: "Content must be at least 5 characters if provided",
+                error: req.t("userAction.error.contentTooShort"),
             });
         }
-        if (message &&
-            (typeof message !== "string" || message.trim().length < 10)) {
+        if (!message || typeof message !== "string" || message.trim().length < 10) {
             return res.status(400).json({
                 success: false,
-                error: "Message must be at least 10 characters if provided",
+                error: req.t("userAction.error.messageTooShort"),
             });
         }
-        const updated = await client_1.default.$transaction(async (tx) => {
+        const updated = await prisma.$transaction(async (tx) => {
             const complaint = await tx.customerSupport.findUnique({
                 where: { id: BigInt(complaintId) },
             });
-            if (!complaint) {
-                throw new Error("Complaint not found");
-            }
-            if (complaint.userId !== userId) {
-                throw new Error("Not your complaint");
-            }
-            if (complaint.isReviewed) {
-                throw new Error("Complaint is already reviewed");
-            }
+            if (!complaint)
+                throw new Error(req.t("userAction.error.complaintNotFound"));
+            if (complaint.userId !== userId)
+                throw new Error(req.t("userAction.error.notYourComplaint"));
+            if (complaint.isReviewed)
+                throw new Error(req.t("userAction.error.complaintAlreadyReviewed"));
             return tx.customerSupport.update({
                 where: { id: BigInt(complaintId) },
                 data: {
@@ -469,46 +466,42 @@ const updateComplaint = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "Complaint updated successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(updated),
+            message: req.t("userAction.success.complaintUpdated"),
+            data: serializeBigInt(updated),
         });
     }
     catch (err) {
         console.error("Update Complaint error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.updateComplaint = updateComplaint;
 // 7) Delete Complaint (only if not reviewed)
-const deleteComplaint = async (req, res) => {
+export const deleteComplaint = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const { complaintId } = req.body;
         if (!complaintId || isNaN(Number(complaintId))) {
             return res.status(400).json({
                 success: false,
-                error: "Valid complaint ID required",
+                error: req.t("userAction.error.voucherIdRequired"), // Consider making a generic "idRequired" later
             });
         }
-        await client_1.default.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx) => {
             const complaint = await tx.customerSupport.findUnique({
                 where: { id: BigInt(complaintId) },
-                select: {
-                    userId: true,
-                    isReviewed: true,
-                },
+                select: { userId: true, isReviewed: true },
             });
             if (!complaint) {
-                throw new Error("Complaint not found");
+                throw new Error(req.t("userAction.error.complaintNotFound"));
             }
             if (complaint.userId !== userId) {
-                throw new Error("Not your complaint");
+                throw new Error(req.t("userAction.error.notYourComplaint"));
             }
             if (complaint.isReviewed) {
-                throw new Error("Complaint is already reviewed");
+                throw new Error(req.t("userAction.error.complaintAlreadyReviewed"));
             }
             await tx.customerSupport.delete({
                 where: { id: BigInt(complaintId) },
@@ -516,27 +509,26 @@ const deleteComplaint = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "Complaint deleted successfully",
+            message: req.t("userAction.success.complaintDeleted"),
         });
     }
     catch (err) {
         console.error("Delete Complaint error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.deleteComplaint = deleteComplaint;
 // 8) Buy Sword from Marketplace (with quantity)
-async function buySword(req, res) {
+export async function buySword(req, res) {
     try {
         const userId = BigInt(req.user.userId);
         const { swordLevelDefinitionId, quantity } = req.body;
         if (!swordLevelDefinitionId || !quantity) {
             return res.status(400).json({
                 success: false,
-                error: "swordLevelDefinitionId and quantity are required",
+                error: req.t("userAction.error.swordLevelAndQuantityRequired"),
             });
         }
         const swordDefId = BigInt(swordLevelDefinitionId);
@@ -544,55 +536,41 @@ async function buySword(req, res) {
         if (qty <= 0 || !Number.isInteger(qty)) {
             return res.status(400).json({
                 success: false,
-                error: "Quantity must be a positive integer",
+                error: req.t("userAction.error.quantityMustBePositiveInteger"),
             });
         }
-        // User guard
-        const user = await (0, queryHelpers_1.userGuard)(userId);
-        // Fetch sword definition
-        const swordDefinition = await client_1.default.swordLevelDefinition.findUnique({
+        const user = await userGuard(userId);
+        const swordDefinition = await prisma.swordLevelDefinition.findUnique({
             where: { id: swordDefId },
-            select: {
-                id: true,
-                level: true,
-                buyingCost: true,
-                isBuyingAllow: true,
-            },
+            select: { id: true, level: true, buyingCost: true, isBuyingAllow: true },
         });
         if (!swordDefinition) {
             return res.status(404).json({
                 success: false,
-                error: "Sword not found",
+                error: req.t("userAction.error.swordNotFound"),
             });
         }
-        // Check if buying is allowed
         if (!swordDefinition.isBuyingAllow) {
             return res.status(400).json({
                 success: false,
-                error: "This sword is not available for purchase now",
+                error: req.t("userAction.error.swordNotAvailableForPurchase"),
             });
         }
-        const pricePerUnit = swordDefinition.buyingCost;
-        const totalPrice = pricePerUnit * qty;
-        // Check sufficient gold
+        const totalPrice = swordDefinition.buyingCost * qty;
         if (user.gold < totalPrice) {
             return res.status(400).json({
                 success: false,
-                error: "Insufficient gold to buy this quantity",
+                error: req.t("userAction.error.insufficientGold"),
             });
         }
         let purchaseRecord;
-        await client_1.default.$transaction(async (tx) => {
-            // Deduct gold
+        await prisma.$transaction(async (tx) => {
             await tx.user.update({
                 where: { id: userId },
                 data: { gold: { decrement: totalPrice } },
             });
-            // Upsert UserSword (add to unsoldQuantity)
             await tx.userSword.upsert({
-                where: {
-                    userId_swordId: { userId, swordId: swordDefId },
-                },
+                where: { userId_swordId: { userId, swordId: swordDefId } },
                 update: { unsoldQuantity: { increment: qty } },
                 create: {
                     userId,
@@ -603,7 +581,6 @@ async function buySword(req, res) {
                     brokenQuantity: 0,
                 },
             });
-            // Create purchase record
             purchaseRecord = await tx.swordMarketplacePurchase.create({
                 data: {
                     userId,
@@ -615,27 +592,27 @@ async function buySword(req, res) {
         });
         return res.json({
             success: true,
-            message: "Sword purchased successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(purchaseRecord),
+            message: req.t("userAction.success.swordPurchased"),
+            data: serializeBigInt(purchaseRecord),
         });
     }
     catch (err) {
         console.error("buySword error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 }
-// 8) Buy Material from Marketplace (with quantity)
-async function buyMaterial(req, res) {
+// 9) Buy Material from Marketplace (with quantity)
+export async function buyMaterial(req, res) {
     try {
         const userId = BigInt(req.user.userId);
         const { materialId, quantity } = req.body;
         if (!materialId || !quantity) {
             return res.status(400).json({
                 success: false,
-                error: "materialId and quantity are required",
+                error: req.t("userAction.error.swordLevelAndQuantityRequired"), // Reuse or create specific key
             });
         }
         const matId = BigInt(materialId);
@@ -643,54 +620,41 @@ async function buyMaterial(req, res) {
         if (qty <= 0 || !Number.isInteger(qty)) {
             return res.status(400).json({
                 success: false,
-                error: "Quantity must be a positive integer",
+                error: req.t("userAction.error.quantityMustBePositiveInteger"),
             });
         }
-        // User guard
-        const user = await (0, queryHelpers_1.userGuard)(userId);
-        // Fetch material
-        const material = await client_1.default.material.findUnique({
+        const user = await userGuard(userId);
+        const material = await prisma.material.findUnique({
             where: { id: matId },
-            select: {
-                id: true,
-                buyingCost: true,
-                isBuyingAllow: true,
-            },
+            select: { id: true, buyingCost: true, isBuyingAllow: true },
         });
         if (!material) {
             return res.status(404).json({
                 success: false,
-                error: "Material not found",
+                error: req.t("userAction.error.materialNotFound"),
             });
         }
-        // Check if buying is allowed
         if (!material.isBuyingAllow) {
             return res.status(400).json({
                 success: false,
-                error: "This material is not available for purchase",
+                error: req.t("userAction.error.materialNotAvailableForPurchase"),
             });
         }
-        const pricePerUnit = material.buyingCost;
-        const totalPrice = pricePerUnit * qty;
-        // Check sufficient gold
+        const totalPrice = material.buyingCost * qty;
         if (user.gold < totalPrice) {
             return res.status(400).json({
                 success: false,
-                error: "Insufficient gold to buy this quantity",
+                error: req.t("userAction.error.insufficientGold"),
             });
         }
         let purchaseRecord;
-        await client_1.default.$transaction(async (tx) => {
-            // Deduct gold
+        await prisma.$transaction(async (tx) => {
             await tx.user.update({
                 where: { id: userId },
                 data: { gold: { decrement: totalPrice } },
             });
-            // Upsert UserMaterial (add to unsoldQuantity)
             await tx.userMaterial.upsert({
-                where: {
-                    userId_materialId: { userId, materialId: matId },
-                },
+                where: { userId_materialId: { userId, materialId: matId } },
                 update: { unsoldQuantity: { increment: qty } },
                 create: {
                     userId,
@@ -699,7 +663,6 @@ async function buyMaterial(req, res) {
                     soldedQuantity: 0,
                 },
             });
-            // Create purchase record
             purchaseRecord = await tx.materialMarketplacePurchase.create({
                 data: {
                     userId,
@@ -711,40 +674,38 @@ async function buyMaterial(req, res) {
         });
         return res.json({
             success: true,
-            message: "Material purchased successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(purchaseRecord),
+            message: req.t("userAction.success.materialPurchased"),
+            data: serializeBigInt(purchaseRecord),
         });
     }
     catch (err) {
         console.error("buyMaterial error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 }
-// 9) Buy Shields from Marketplace (with quantity)
-async function buyShields(req, res) {
+// 10) Buy Shields
+export async function buyShields(req, res) {
     try {
         const userId = BigInt(req.user.userId);
         const { quantity } = req.body;
         if (!quantity) {
             return res.status(400).json({
                 success: false,
-                error: "quantity is required",
+                error: req.t("userAction.error.quantityMustBePositiveInteger"),
             });
         }
         const qty = Number(quantity);
         if (qty <= 0 || !Number.isInteger(qty)) {
             return res.status(400).json({
                 success: false,
-                error: "Quantity must be a positive integer",
+                error: req.t("userAction.error.quantityMustBePositiveInteger"),
             });
         }
-        // User guard
-        const user = await (0, queryHelpers_1.userGuard)(userId);
-        // Fetch admin config for shields
-        const config = await client_1.default.adminConfig.findUnique({
+        const user = await userGuard(userId);
+        const config = await prisma.adminConfig.findUnique({
             where: { id: BigInt(1) },
             select: {
                 shieldGoldPrice: true,
@@ -755,77 +716,68 @@ async function buyShields(req, res) {
         if (!config) {
             return res.status(500).json({
                 success: false,
-                error: "Admin configuration not found",
+                error: req.t("userAction.error.adminConfigNotFound"),
             });
         }
-        // Check if shields are active for purchase
         if (!config.shieldActiveOnMarketplace) {
             return res.status(400).json({
                 success: false,
-                error: "Shields are not available for purchase at this time",
+                error: req.t("userAction.error.shieldsNotAvailable"),
             });
         }
-        const pricePerShield = config.shieldGoldPrice;
-        const totalPrice = pricePerShield * qty;
-        // Check sufficient gold
+        const totalPrice = config.shieldGoldPrice * qty;
         if (user.gold < totalPrice) {
             return res.status(400).json({
                 success: false,
-                error: "Insufficient gold to buy this quantity",
+                error: req.t("userAction.error.insufficientGold"),
             });
         }
-        // Check max hold limit (if maxShieldHold > 0)
         if (config.maxShieldHold > 0 &&
             user.totalShields + qty > config.maxShieldHold) {
             return res.status(400).json({
                 success: false,
-                error: `Cannot exceed maximum shield hold limit of ${config.maxShieldHold}`,
+                error: req.t("userAction.error.maxShieldLimitExceeded", {
+                    max: config.maxShieldHold,
+                }),
             });
         }
         let purchaseRecord;
-        await client_1.default.$transaction(async (tx) => {
-            // Deduct gold
+        await prisma.$transaction(async (tx) => {
             await tx.user.update({
                 where: { id: userId },
                 data: { gold: { decrement: totalPrice } },
             });
-            // Increment totalShields
             await tx.user.update({
                 where: { id: userId },
                 data: { totalShields: { increment: qty } },
             });
-            // Create purchase record
             purchaseRecord = await tx.shieldMarketplacePurchase.create({
-                data: {
-                    userId,
-                    quantity: qty,
-                    priceGold: totalPrice,
-                },
+                data: { userId, quantity: qty, priceGold: totalPrice },
             });
         });
         return res.json({
             success: true,
-            message: "Shields purchased successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(purchaseRecord),
+            message: req.t("userAction.success.shieldsPurchased"),
+            data: serializeBigInt(purchaseRecord),
         });
     }
     catch (err) {
         console.error("buy Shields error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 }
-// 10) Sell Sword (quantity sword)
-const sellSword = async (req, res) => {
+// 11) Sell Sword
+export const sellSword = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { swordId, quantity } = req.body; // swordId here means swordLevelDefinitionId
+        const { swordId, quantity } = req.body;
         if (!swordId || !quantity) {
             return res.status(400).json({
                 success: false,
-                error: "swordId (level) and quantity are required",
+                error: req.t("userAction.error.swordLevelAndQuantityRequired"),
             });
         }
         const swordDefId = BigInt(swordId);
@@ -833,76 +785,60 @@ const sellSword = async (req, res) => {
         if (qty <= 0 || !Number.isInteger(qty)) {
             return res.status(400).json({
                 success: false,
-                error: "Quantity must be a positive integer",
+                error: req.t("userAction.error.quantityMustBePositiveInteger"),
             });
         }
-        // User guard: checks user exists and not banned
-        await (0, queryHelpers_1.userGuard)(userId);
-        // Fetch user's sword ownership + definition
-        const userSword = await client_1.default.userSword.findUnique({
-            where: {
-                userId_swordId: { userId, swordId: swordDefId },
-            },
+        await userGuard(userId);
+        const userSword = await prisma.userSword.findUnique({
+            where: { userId_swordId: { userId, swordId: swordDefId } },
             include: {
                 swordLevelDefinition: {
-                    select: {
-                        level: true,
-                        sellingCost: true,
-                        isSellingAllow: true,
-                    },
+                    select: { level: true, sellingCost: true, isSellingAllow: true },
                 },
             },
         });
         if (!userSword) {
             return res.status(404).json({
                 success: false,
-                error: "You do not own any swords of this level",
+                error: req.t("userAction.error.youDoNotOwnThisSword"),
             });
         }
-        // Check if selling is allowed for this sword level
         if (!userSword.swordLevelDefinition.isSellingAllow) {
             return res.status(400).json({
                 success: false,
-                error: "Selling is not allowed for this sword level",
+                error: req.t("userAction.error.sellingNotAllowed"),
             });
         }
-        // Check sufficient unsold quantity
         if (userSword.unsoldQuantity < qty) {
             return res.status(400).json({
                 success: false,
-                error: `Insufficient unsold quantity (you have ${userSword.unsoldQuantity})`,
+                error: req.t("userAction.error.insufficientUnsoldQuantity", {
+                    count: userSword.unsoldQuantity,
+                }),
             });
         }
-        const pricePerUnit = userSword.swordLevelDefinition.sellingCost;
-        const goldToAdd = pricePerUnit * qty;
-        await client_1.default.$transaction(async (tx) => {
-            // Update UserSword: reduce unsold, increase sold
+        const goldToAdd = userSword.swordLevelDefinition.sellingCost * qty;
+        await prisma.$transaction(async (tx) => {
             await tx.userSword.update({
-                where: {
-                    userId_swordId: { userId, swordId: swordDefId },
-                },
+                where: { userId_swordId: { userId, swordId: swordDefId } },
                 data: {
                     unsoldQuantity: { decrement: qty },
                     soldedQuantity: { increment: qty },
-                    // If on anvil and we're selling the last one, clear anvil (optional safety)
                     ...(userSword.isOnAnvil && userSword.unsoldQuantity === qty
                         ? { isOnAnvil: false }
                         : {}),
                 },
             });
-            // If anvil sword was this level and now zero unsold → clear anvilSwordLevel
             if (userSword.isOnAnvil && userSword.unsoldQuantity === qty) {
                 await tx.user.update({
                     where: { id: userId },
                     data: { anvilSwordLevel: null },
                 });
             }
-            // Add gold to user
             await tx.user.update({
                 where: { id: userId },
                 data: { gold: { increment: goldToAdd } },
             });
-            // Create sell history record
             await tx.swordSellHistory.create({
                 data: {
                     userId,
@@ -915,7 +851,7 @@ const sellSword = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "Sword sold successfully",
+            message: req.t("userAction.success.swordSold"),
             goldAdded: goldToAdd,
             quantitySold: qty,
         });
@@ -924,20 +860,19 @@ const sellSword = async (req, res) => {
         console.error("sellSword error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.sellSword = sellSword;
-// 11) Sell Material (with quantity)
-const sellMaterial = async (req, res) => {
+// 12) Sell Material
+export const sellMaterial = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const { materialId, quantity } = req.body;
         if (!materialId || !quantity) {
             return res.status(400).json({
                 success: false,
-                error: "materialId and quantity are required",
+                error: req.t("userAction.error.swordLevelAndQuantityRequired"),
             });
         }
         const matId = BigInt(materialId);
@@ -945,64 +880,49 @@ const sellMaterial = async (req, res) => {
         if (qty <= 0 || !Number.isInteger(qty)) {
             return res.status(400).json({
                 success: false,
-                error: "Quantity must be a positive integer",
+                error: req.t("userAction.error.quantityMustBePositiveInteger"),
             });
         }
-        // User guard: checks user exists and not banned
-        await (0, queryHelpers_1.userGuard)(userId);
-        // Fetch user material with material definition
-        const userMaterial = await client_1.default.userMaterial.findUnique({
-            where: {
-                userId_materialId: { userId, materialId: matId },
-            },
+        await userGuard(userId);
+        const userMaterial = await prisma.userMaterial.findUnique({
+            where: { userId_materialId: { userId, materialId: matId } },
             include: {
-                material: {
-                    select: {
-                        sellingCost: true,
-                        isSellingAllow: true,
-                    },
-                },
+                material: { select: { sellingCost: true, isSellingAllow: true } },
             },
         });
         if (!userMaterial) {
             return res.status(404).json({
                 success: false,
-                error: "You do not have this material",
+                error: req.t("userAction.error.youDoNotOwnThisMaterial"),
             });
         }
-        // Check if selling is allowed for this material
         if (!userMaterial.material.isSellingAllow) {
             return res.status(400).json({
                 success: false,
-                error: "Selling is not allowed for this material",
+                error: req.t("userAction.error.materialSellingNotAllowed"),
             });
         }
-        // Check sufficient unsold quantity
         if (userMaterial.unsoldQuantity < qty) {
             return res.status(400).json({
                 success: false,
-                error: `Insufficient unsold quantity (you have ${userMaterial.unsoldQuantity})`,
+                error: req.t("userAction.error.insufficientUnsoldQuantity", {
+                    count: userMaterial.unsoldQuantity,
+                }),
             });
         }
-        const pricePerUnit = userMaterial.material.sellingCost;
-        const goldToAdd = pricePerUnit * qty;
-        await client_1.default.$transaction(async (tx) => {
-            // Update UserMaterial: reduce unsold, increase sold
+        const goldToAdd = userMaterial.material.sellingCost * qty;
+        await prisma.$transaction(async (tx) => {
             await tx.userMaterial.update({
-                where: {
-                    userId_materialId: { userId, materialId: matId },
-                },
+                where: { userId_materialId: { userId, materialId: matId } },
                 data: {
                     unsoldQuantity: { decrement: qty },
                     soldedQuantity: { increment: qty },
                 },
             });
-            // Add gold to user
             await tx.user.update({
                 where: { id: userId },
                 data: { gold: { increment: goldToAdd } },
             });
-            // Create sell history record
             await tx.materialSellHistory.create({
                 data: {
                     userId,
@@ -1015,7 +935,7 @@ const sellMaterial = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "Material sold successfully",
+            message: req.t("userAction.success.materialSold"),
             goldAdded: goldToAdd,
             quantitySold: qty,
         });
@@ -1024,74 +944,56 @@ const sellMaterial = async (req, res) => {
         console.error("sell material error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.sellMaterial = sellMaterial;
-// 12) Set Sword on Anvil (only if not already on anvil, not broken, not sold, user not banned)
-const setSwordOnAnvil = async (req, res) => {
+// 13) Set Sword on Anvil
+export const setSwordOnAnvil = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const { swordId } = req.body; // swordId here means swordLevelDefinitionId (level)
+        const { swordId } = req.body;
         if (!swordId || isNaN(Number(swordId))) {
             return res.status(400).json({
                 success: false,
-                error: "Valid sword level ID required",
+                error: req.t("userAction.error.swordLevelAndQuantityRequired"), // Better to create "swordIdRequired" later
             });
         }
         const swordDefId = BigInt(swordId);
-        // User guard: checks user exists and not banned
-        const user = await (0, queryHelpers_1.userGuard)(userId);
-        // Fetch user's ownership of this sword level
-        const userSword = await client_1.default.userSword.findUnique({
-            where: {
-                userId_swordId: { userId, swordId: swordDefId },
-            },
-            select: {
-                userId: true,
-                unsoldQuantity: true,
-                isOnAnvil: true,
-            },
+        const user = await userGuard(userId);
+        const userSword = await prisma.userSword.findUnique({
+            where: { userId_swordId: { userId, swordId: swordDefId } },
+            select: { unsoldQuantity: true, isOnAnvil: true },
         });
         if (!userSword) {
             return res.status(404).json({
                 success: false,
-                error: "You do not own any swords of this level",
+                error: req.t("userAction.error.youDoNotOwnThisSword"),
             });
         }
-        // Cannot place on anvil if already on anvil
         if (userSword.isOnAnvil) {
             return res.status(400).json({
                 success: false,
-                error: "This sword level is already on the anvil",
+                error: req.t("userAction.error.swordAlreadyOnAnvil"),
             });
         }
-        // New rule: Must have at least 1 unsold sword
         if (userSword.unsoldQuantity < 1) {
             return res.status(400).json({
                 success: false,
-                error: "You must have at least one unsold sword of this level to place on anvil",
+                error: req.t("userAction.error.noUnsoldSwordForAnvil"),
             });
         }
-        await client_1.default.$transaction(async (tx) => {
-            // Remove current anvil sword if any (clear old one)
+        await prisma.$transaction(async (tx) => {
             if (user.anvilSwordLevel) {
                 await tx.userSword.update({
-                    where: {
-                        userId_swordId: { userId, swordId: user.anvilSwordLevel },
-                    },
+                    where: { userId_swordId: { userId, swordId: user.anvilSwordLevel } },
                     data: { isOnAnvil: false },
                 });
             }
-            // Set new sword on anvil
             await tx.userSword.update({
-                where: {
-                    userId_swordId: { userId, swordId: swordDefId },
-                },
+                where: { userId_swordId: { userId, swordId: swordDefId } },
                 data: { isOnAnvil: true },
             });
-            // Update user's anvil reference (now stores level, not individual sword ID)
             await tx.user.update({
                 where: { id: userId },
                 data: { anvilSwordLevel: swordDefId },
@@ -1099,70 +1001,43 @@ const setSwordOnAnvil = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "Sword successfully placed on anvil",
+            message: req.t("userAction.success.swordOnAnvil"),
         });
     }
     catch (err) {
         console.error("setSwordOnAnvil error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.setSwordOnAnvil = setSwordOnAnvil;
-// 13) Remove Sword from Anvil (only if it is currently on anvil)
-const removeSwordFromAnvil = async (req, res) => {
+// 14) Remove Sword from Anvil
+export const removeSwordFromAnvil = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        // User guard
-        const user = await (0, queryHelpers_1.userGuard)(userId);
-        // Check if there is any sword on anvil at all
+        const user = await userGuard(userId);
         if (!user.anvilSwordLevel) {
             return res.status(400).json({
                 success: false,
-                error: "No sword is currently on the anvil",
+                error: req.t("userAction.error.noSwordOnAnvil"),
             });
         }
-        // Verify the sword level exists and belongs to user
-        const userSword = await client_1.default.userSword.findUnique({
-            where: {
-                userId_swordId: { userId, swordId: user.anvilSwordLevel },
-            },
-            select: {
-                userId: true,
-                isOnAnvil: true,
-                swordId: true,
-            },
+        const userSword = await prisma.userSword.findUnique({
+            where: { userId_swordId: { userId, swordId: user.anvilSwordLevel } },
+            select: { isOnAnvil: true },
         });
-        if (!userSword) {
-            return res.status(404).json({
-                success: false,
-                error: "Anvil sword not found in your inventory",
-            });
-        }
-        if (userSword.userId !== userId) {
+        if (!userSword || !userSword.isOnAnvil) {
             return res.status(400).json({
                 success: false,
-                error: "You do not own this sword",
+                error: req.t("userAction.error.swordNotOnAnvil"),
             });
         }
-        // Ensure it is actually on the anvil
-        if (!userSword.isOnAnvil) {
-            return res.status(400).json({
-                success: false,
-                error: "This sword level is not currently on the anvil",
-            });
-        }
-        await client_1.default.$transaction(async (tx) => {
-            // Remove from anvil
+        await prisma.$transaction(async (tx) => {
             await tx.userSword.update({
-                where: {
-                    userId_swordId: { userId, swordId: user.anvilSwordLevel },
-                },
+                where: { userId_swordId: { userId, swordId: user.anvilSwordLevel } },
                 data: { isOnAnvil: false },
             });
-            // Clear user's anvil reference
             await tx.user.update({
                 where: { id: userId },
                 data: { anvilSwordLevel: null },
@@ -1170,7 +1045,7 @@ const removeSwordFromAnvil = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "Sword successfully removed from anvil and placed back in inventory",
+            message: req.t("userAction.success.swordRemovedFromAnvil"),
             swordLevel: user.anvilSwordLevel.toString(),
         });
     }
@@ -1178,27 +1053,26 @@ const removeSwordFromAnvil = async (req, res) => {
         console.error("removeSwordFromAnvil error:", err);
         return res.status(500).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.removeSwordFromAnvil = removeSwordFromAnvil;
 // 14) Upgrade Sword (with shield protection, 4 cases, random byproduct on break + history record)
-const upgradeSword = async (req, res) => {
+export const upgradeSword = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const { swordId } = req.body; // swordId here means swordLevelDefinitionId (level)
         if (!swordId || isNaN(Number(swordId))) {
             return res.status(400).json({
                 success: false,
-                error: "Valid sword level ID required",
+                error: req.t("userAction.error.swordLevelAndQuantityRequired"),
             });
         }
         const currentLevelId = BigInt(swordId);
         // User guard
-        const user = await (0, queryHelpers_1.userGuard)(userId);
+        const user = await userGuard(userId);
         // Fetch current sword level ownership
-        const currentSword = await client_1.default.userSword.findUnique({
+        const currentSword = await prisma.userSword.findUnique({
             where: {
                 userId_swordId: { userId, swordId: currentLevelId },
             },
@@ -1216,35 +1090,33 @@ const upgradeSword = async (req, res) => {
         if (!currentSword) {
             return res.status(404).json({
                 success: false,
-                error: "You do not own any swords of this level",
+                error: req.t("userAction.error.youDoNotOwnThisSword"),
             });
         }
-        // Must have at least 1 unsold to upgrade
         if (currentSword.unsoldQuantity < 1) {
             return res.status(400).json({
                 success: false,
-                error: "You need at least 1 unsold sword of this level to upgrade",
+                error: req.t("userAction.error.needAtLeastOneUnsoldSword"),
             });
         }
-        // Must be on anvil
         if (!currentSword.isOnAnvil) {
             return res.status(400).json({
                 success: false,
-                error: "Sword must be on anvil to upgrade",
+                error: req.t("userAction.error.swordMustBeOnAnvil"),
             });
         }
         // Max level check
         if (currentSword.swordLevelDefinition.level >= 100) {
             return res.status(400).json({
                 success: false,
-                error: "Sword has reached maximum level (100)",
+                error: req.t("userAction.error.swordAtMaxLevel"),
             });
         }
         const upgradeCost = currentSword.swordLevelDefinition.upgradeCost;
         if (user.gold < upgradeCost) {
             return res.status(400).json({
                 success: false,
-                error: "Insufficient gold for upgrade",
+                error: req.t("userAction.error.insufficientGoldForUpgrade"),
             });
         }
         const successRate = currentSword.swordLevelDefinition.successRate / 100;
@@ -1257,14 +1129,14 @@ const upgradeSword = async (req, res) => {
             goldSpent: upgradeCost,
         };
         const nextLevel = currentSword.swordLevelDefinition.level + 1;
-        const nextDef = await client_1.default.swordLevelDefinition.findUnique({
+        const nextDef = await prisma.swordLevelDefinition.findUnique({
             where: { level: nextLevel },
             select: { id: true },
         });
         if (!nextDef) {
-            throw new Error("Next level definition is not defined.");
+            throw new Error(req.t("userAction.error.nextLevelNotDefined"));
         }
-        await client_1.default.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx) => {
             // Always deduct cost
             await tx.user.update({
                 where: { id: userId },
@@ -1274,7 +1146,7 @@ const upgradeSword = async (req, res) => {
             if (randomChance <= successRate) {
                 if (user.isShieldOn) {
                     if (user.totalShields < 1) {
-                        throw new Error("Shield protection is on but no shields available");
+                        throw new Error(req.t("userAction.error.noShieldProtection"));
                     }
                     await tx.user.update({
                         where: { id: userId },
@@ -1318,7 +1190,9 @@ const upgradeSword = async (req, res) => {
                 historyData.success = true;
                 result = {
                     type: "success",
-                    message: `Upgrade successful! Sword upgraded to level ${nextLevel}`,
+                    message: req.t("userAction.success.upgradeSuccess", {
+                        level: nextLevel,
+                    }),
                     newLevel: nextLevel,
                 };
             }
@@ -1327,7 +1201,7 @@ const upgradeSword = async (req, res) => {
                 if (user.isShieldOn) {
                     // Shield protects → consume shield, no damage
                     if (user.totalShields < 1) {
-                        throw new Error("Shield protection is on but no shields available");
+                        throw new Error(req.t("userAction.error.noShieldProtection"));
                     }
                     await tx.user.update({
                         where: { id: userId },
@@ -1335,7 +1209,7 @@ const upgradeSword = async (req, res) => {
                     });
                     result = {
                         type: "protected_failure",
-                        message: "Upgrade failed, but shield protected the sword!",
+                        message: req.t("userAction.success.upgradeProtected"),
                         shieldConsumed: true,
                         swordBroken: false,
                     };
@@ -1379,7 +1253,7 @@ const upgradeSword = async (req, res) => {
                         },
                     });
                     if (drops.length === 0) {
-                        throw new Error("No drop materials defined for this sword level");
+                        throw new Error(req.t("userAction.success.noDropMaterialsFound"));
                     }
                     let randomDrop = Math.random() * 100;
                     let selectedDrop = drops[0];
@@ -1420,10 +1294,11 @@ const upgradeSword = async (req, res) => {
                     historyData.droppedQuantity = qty;
                     result = {
                         type: "broken_failure",
-                        message: "Upgrade failed! Sword broke" +
-                            (qty > 0
-                                ? ", but received random material as byproduct."
-                                : ". No material dropped this time."),
+                        message: req.t("userAction.success.upgradeFailedBroken", {
+                            byproduct: qty > 0
+                                ? req.t("userAction.success.upgradeFailedBrokenWithByproduct")
+                                : req.t("userAction.success.upgradeFailedBrokenNoByproduct"),
+                        }),
                         swordBroken: true,
                         shieldConsumed: false,
                         byproduct,
@@ -1438,34 +1313,32 @@ const upgradeSword = async (req, res) => {
         return res.json({
             success: true,
             message: result.message,
-            data: (0, serializeBigInt_1.serializeBigInt)(result),
+            data: serializeBigInt(result),
         });
     }
     catch (err) {
         console.error("upgradeSword error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error during upgrade",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.upgradeSword = upgradeSword;
 // 15) Sword Synthesis (Consume exact required materials, guarantee 1 new sword + record history)
-const synthesizeSword = async (req, res) => {
+// 15) Sword Synthesis
+export const synthesizeSword = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const { swordLevelDefinitionId } = req.body;
         if (!swordLevelDefinitionId || isNaN(Number(swordLevelDefinitionId))) {
             return res.status(400).json({
                 success: false,
-                error: "swordLevelDefinitionId is required and must be a valid number",
+                error: req.t("userAction.error.swordLevelAndQuantityRequired"), // You can add a more specific key later
             });
         }
         const targetLevelId = BigInt(swordLevelDefinitionId);
-        // User guard: checks user exists and not banned
-        const user = await (0, queryHelpers_1.userGuard)(userId);
-        // Fetch target sword level definition
-        const targetLevel = await client_1.default.swordLevelDefinition.findUnique({
+        const user = await userGuard(userId);
+        const targetLevel = await prisma.swordLevelDefinition.findUnique({
             where: { id: targetLevelId },
             select: {
                 id: true,
@@ -1477,44 +1350,39 @@ const synthesizeSword = async (req, res) => {
         if (!targetLevel) {
             return res.status(404).json({
                 success: false,
-                error: "Target sword level not found",
+                error: req.t("userAction.error.swordNotFound"), // Reusing sword not found is acceptable, or add "targetSwordNotFound"
             });
         }
-        // Check if synthesis is allowed for this level
         if (!targetLevel.isSynthesizeAllow) {
             return res.status(400).json({
                 success: false,
-                error: "Synthesis is not allowed for this sword level",
+                error: req.t("userAction.error.synthesisNotAllowed"),
             });
         }
-        // Check sufficient gold
         if (user.gold < targetLevel.synthesizeCost) {
             return res.status(400).json({
                 success: false,
-                error: `Insufficient gold. Required: ${targetLevel.synthesizeCost}, You have: ${user.gold}`,
+                error: req.t("userAction.error.insufficientGoldForSynthesis", {
+                    required: targetLevel.synthesizeCost,
+                    have: user.gold,
+                }),
             });
         }
-        // Fetch required materials for this level
-        const requiredMaterials = await client_1.default.swordSynthesisRequirement.findMany({
+        const requiredMaterials = await prisma.swordSynthesisRequirement.findMany({
             where: { swordLevelDefinitionId: targetLevelId },
             include: {
-                material: {
-                    select: {
-                        id: true,
-                        name: true,
-                    },
-                },
+                material: { select: { id: true, name: true } },
             },
         });
         if (requiredMaterials.length === 0) {
             return res.status(400).json({
                 success: false,
-                error: "No synthesis requirements defined for this sword level",
+                error: req.t("userAction.error.noSynthesisRequirements"),
             });
         }
-        // Check user has enough unsold quantity for each required material
+        // Check material quantities
         for (const reqMat of requiredMaterials) {
-            const userMat = await client_1.default.userMaterial.findUnique({
+            const userMat = await prisma.userMaterial.findUnique({
                 where: {
                     userId_materialId: { userId, materialId: reqMat.materialId },
                 },
@@ -1523,39 +1391,33 @@ const synthesizeSword = async (req, res) => {
             if (!userMat || userMat.unsoldQuantity < reqMat.requiredQuantity) {
                 return res.status(400).json({
                     success: false,
-                    error: `Insufficient ${reqMat.material.name}. Required: ${reqMat.requiredQuantity}, You have: ${userMat?.unsoldQuantity ?? 0}`,
+                    error: req.t("userAction.error.insufficientMaterial", {
+                        material: reqMat.material.name,
+                        required: reqMat.requiredQuantity,
+                        have: userMat?.unsoldQuantity ?? 0,
+                    }),
                 });
             }
         }
         let historyRecord;
-        await client_1.default.$transaction(async (tx) => {
-            // Deduct synthesize cost
+        await prisma.$transaction(async (tx) => {
             await tx.user.update({
                 where: { id: userId },
                 data: { gold: { decrement: targetLevel.synthesizeCost } },
             });
-            // Consume required materials
             for (const reqMat of requiredMaterials) {
                 await tx.userMaterial.update({
                     where: {
                         userId_materialId: { userId, materialId: reqMat.materialId },
                     },
-                    data: {
-                        unsoldQuantity: { decrement: reqMat.requiredQuantity },
-                    },
+                    data: { unsoldQuantity: { decrement: reqMat.requiredQuantity } },
                 });
             }
-            // Upsert: create new sword entry or increment unsoldQuantity if already owned
             await tx.userSword.upsert({
                 where: {
-                    userId_swordId: {
-                        userId,
-                        swordId: targetLevel.id, // swordId references SwordLevelDefinition.id
-                    },
+                    userId_swordId: { userId, swordId: targetLevel.id },
                 },
-                update: {
-                    unsoldQuantity: { increment: 1 },
-                },
+                update: { unsoldQuantity: { increment: 1 } },
                 create: {
                     userId,
                     swordId: targetLevel.id,
@@ -1565,7 +1427,6 @@ const synthesizeSword = async (req, res) => {
                     brokenQuantity: 0,
                 },
             });
-            // Record synthesis history
             historyRecord = await tx.swordSynthesisHistory.create({
                 data: {
                     userId,
@@ -1576,53 +1437,49 @@ const synthesizeSword = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: `Synthesis successful! You crafted a Level ${targetLevel.level} sword.`,
-            history: (0, serializeBigInt_1.serializeBigInt)(historyRecord),
+            message: req.t("userAction.success.synthesisSuccess", {
+                level: targetLevel.level,
+            }),
+            history: serializeBigInt(historyRecord),
         });
     }
     catch (err) {
-        if (err.message === "INSUFFICIENT_GOLD") {
-            return res.status(400).json({
-                success: false,
-                error: "Not enough gold to synthesize",
-            });
-        }
         console.error("synthesizeSword error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Internal server error",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.synthesizeSword = synthesizeSword;
-// 16) gift claim endpoint
-const claimGift = async (req, res) => {
+// 16) Claim Gift
+export const claimGift = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const { giftId } = req.body;
         if (!giftId) {
-            return res.status(400).json({ success: false, error: "giftId required" });
+            return res.status(400).json({
+                success: false,
+                error: req.t("userAction.error.giftIdRequired"),
+            });
         }
-        await client_1.default.$transaction(async (tx) => {
-            // Fetch the gift with direct content fields
+        await prisma.$transaction(async (tx) => {
             const gift = await tx.userGift.findUnique({
                 where: { id: BigInt(giftId) },
                 include: {
-                    material: true, // if MATERIAL
-                    swordLevelDefinition: true, // if SWORD
+                    material: true,
+                    swordLevelDefinition: true,
                 },
             });
             if (!gift)
-                throw new Error("Gift not found");
+                throw new Error(req.t("userAction.error.giftNotFound"));
             if (gift.receiverId !== userId)
-                throw new Error("Not your gift");
-            if (gift.status === client_2.GiftStatus.CLAIMED)
-                throw new Error("Gift was already claimed");
-            if (gift.status === client_2.GiftStatus.CANCELLED)
-                throw new Error("Gift was cancelled by admin");
-            // Handle reward based on gift type (only one type per gift)
+                throw new Error(req.t("userAction.error.notYourGift"));
+            if (gift.status === GiftStatus.CLAIMED)
+                throw new Error(req.t("userAction.error.giftAlreadyClaimed"));
+            if (gift.status === GiftStatus.CANCELLED)
+                throw new Error(req.t("userAction.error.giftCancelled"));
             switch (gift.type) {
-                case client_2.GiftItemType.GOLD:
+                case GiftItemType.GOLD:
                     if (gift.amount && gift.amount > 0) {
                         await tx.user.update({
                             where: { id: userId },
@@ -1630,15 +1487,7 @@ const claimGift = async (req, res) => {
                         });
                     }
                     break;
-                case client_2.GiftItemType.TRUST_POINTS:
-                    if (gift.amount && gift.amount > 0) {
-                        await tx.user.update({
-                            where: { id: userId },
-                            data: { trustPoints: { increment: gift.amount } },
-                        });
-                    }
-                    break;
-                case client_2.GiftItemType.SHIELD:
+                case GiftItemType.SHIELD:
                     if (gift.amount && gift.amount > 0) {
                         await tx.user.update({
                             where: { id: userId },
@@ -1646,7 +1495,7 @@ const claimGift = async (req, res) => {
                         });
                     }
                     break;
-                case client_2.GiftItemType.MATERIAL:
+                case GiftItemType.MATERIAL:
                     if (gift.materialId &&
                         gift.materialQuantity &&
                         gift.materialQuantity > 0) {
@@ -1654,9 +1503,7 @@ const claimGift = async (req, res) => {
                             where: {
                                 userId_materialId: { userId, materialId: gift.materialId },
                             },
-                            update: {
-                                unsoldQuantity: { increment: gift.materialQuantity },
-                            },
+                            update: { unsoldQuantity: { increment: gift.materialQuantity } },
                             create: {
                                 userId,
                                 materialId: gift.materialId,
@@ -1666,21 +1513,18 @@ const claimGift = async (req, res) => {
                         });
                     }
                     break;
-                case client_2.GiftItemType.SWORD:
+                case GiftItemType.SWORD:
                     if (gift.swordId && gift.swordQuantity && gift.swordQuantity > 0) {
-                        // swordId is the level (Int/BigInt)
                         const def = await tx.swordLevelDefinition.findUnique({
-                            where: { level: Number(gift.swordId) }, // level is Int
+                            where: { level: Number(gift.swordId) },
                         });
                         if (!def)
-                            throw new Error("Invalid sword level in gift");
+                            throw new Error(req.t("userAction.error.swordNotFound"));
                         await tx.userSword.upsert({
                             where: {
                                 userId_swordId: { userId, swordId: BigInt(gift.swordId) },
                             },
-                            update: {
-                                unsoldQuantity: { increment: gift.swordQuantity },
-                            },
+                            update: { unsoldQuantity: { increment: gift.swordQuantity } },
                             create: {
                                 userId,
                                 swordId: BigInt(gift.swordId),
@@ -1693,38 +1537,35 @@ const claimGift = async (req, res) => {
                     }
                     break;
                 default:
-                    throw new Error("Unsupported gift type");
+                    throw new Error(req.t("userAction.error.unsupportedGiftType"));
             }
-            // Mark gift as claimed
             await tx.userGift.update({
                 where: { id: BigInt(giftId) },
                 data: {
-                    status: client_2.GiftStatus.CLAIMED,
+                    status: GiftStatus.CLAIMED,
                     claimedAt: new Date(),
                 },
             });
         });
         return res.json({
             success: true,
-            message: "Gift claimed successfully",
+            message: req.t("userAction.success.giftClaimed"),
         });
     }
     catch (err) {
         console.error("Claim gift Error: ", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Failed to claim gift",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.claimGift = claimGift;
-// 17) toggle the shiled protection
-// userActionController.ts
-const toggleShieldProtection = async (req, res) => {
+// 17) Toggle Shield Protection
+export const toggleShieldProtection = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        const user = await (0, queryHelpers_1.userGuard)(userId);
-        const updated = await client_1.default.user.update({
+        const user = await userGuard(userId);
+        const updated = await prisma.user.update({
             where: { id: userId },
             data: { isShieldOn: !user.isShieldOn },
             select: { isShieldOn: true },
@@ -1732,37 +1573,39 @@ const toggleShieldProtection = async (req, res) => {
         return res.json({
             success: true,
             isShieldOn: updated.isShieldOn,
+            message: req.t("userAction.success.shieldToggled"),
         });
     }
     catch (err) {
-        console.error("Toggle shiled protection Error:", err);
-        return res
-            .status(400)
-            .json({ success: false, error: err.message || "Internal server Error" });
+        console.error("Toggle shield protection Error:", err);
+        return res.status(400).json({
+            success: false,
+            error: err.message || req.t("userAction.error.internalServerError"),
+        });
     }
 };
-exports.toggleShieldProtection = toggleShieldProtection;
-// 18) Start Session (Authenticated)
-const createAdSession = async (req, res) => {
+// 18) Create Ad Session
+export const createAdSession = async (req, res) => {
     try {
         const { rewardType } = req.body;
         const userId = BigInt(req.user.userId);
         if (!["GOLD", "OLD_SWORD", "SHIELD"].includes(rewardType)) {
-            return res
-                .status(400)
-                .json({ success: false, error: "Invalid reward type" });
+            return res.status(400).json({
+                success: false,
+                error: req.t("userAction.error.invalidRewardType"),
+            });
         }
-        // Check limits from AdminConfig and User
-        const config = await client_1.default.adminConfig.findUnique({
+        const config = await prisma.adminConfig.findUnique({
             where: { id: BigInt(1) },
         });
-        const user = await client_1.default.user.findUnique({ where: { id: userId } });
+        const user = await prisma.user.findUnique({ where: { id: userId } });
         if (!config || !user) {
-            return res
-                .status(400)
-                .json({ success: false, error: "Config or user not found" });
+            return res.status(400).json({
+                success: false,
+                error: req.t("userAction.error.configNotFound"),
+            });
         }
-        // ─── Global 1-hour cooldown check ───────────────────────────────
+        // Global 1-hour cooldown
         if (user.lastAdViewedAt) {
             const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
             if (user.lastAdViewedAt > oneHourAgo) {
@@ -1770,96 +1613,96 @@ const createAdSession = async (req, res) => {
                 const minutesLeft = Math.ceil(timeLeftMs / 1000 / 60);
                 return res.status(429).json({
                     success: false,
-                    error: `You can watch only 1 ad per hour. Please wait ${minutesLeft} minute${minutesLeft > 1 ? "s" : ""}.`,
+                    error: req.t("userAction.error.adCooldown", {
+                        minutes: minutesLeft,
+                        plural: minutesLeft > 1 ? "s" : "",
+                    }),
                 });
             }
         }
-        if (rewardType === client_2.AdRewardType.SHIELD) {
+        if (rewardType === AdRewardType.SHIELD) {
             if (user.oneDayShieldAdsViewed >= config.maxDailyShieldAds) {
-                return res
-                    .status(400)
-                    .json({ success: false, error: "Daily shield ad limit reached" });
+                return res.status(400).json({
+                    success: false,
+                    error: req.t("userAction.error.dailyShieldLimitReached"),
+                });
             }
             if (user.totalShields >= config.maxShieldHold) {
-                return res
-                    .status(400)
-                    .json({ success: false, error: "Max shields held" });
+                return res.status(400).json({
+                    success: false,
+                    error: req.t("userAction.error.maxShieldsHeld"),
+                });
             }
         }
-        else if (rewardType === client_2.AdRewardType.GOLD) {
+        else if (rewardType === AdRewardType.GOLD) {
             if (user.oneDayGoldAdsViewed >= config.maxDailyGoldAds) {
-                return res
-                    .status(400)
-                    .json({ success: false, error: "Daily gold ad limit reached" });
+                return res.status(400).json({
+                    success: false,
+                    error: req.t("userAction.error.dailyGoldLimitReached"),
+                });
             }
         }
-        else if (rewardType === client_2.AdRewardType.OLD_SWORD) {
+        else if (rewardType === AdRewardType.OLD_SWORD) {
             if (user.oneDaySwordAdsViewed >= config.maxDailySwordAds) {
-                return res
-                    .status(400)
-                    .json({ success: false, error: "Daily sword ad limit reached" });
+                return res.status(400).json({
+                    success: false,
+                    error: req.t("userAction.error.dailySwordLimitReached"),
+                });
             }
         }
-        else {
-            return res
-                .status(400)
-                .json({ success: false, error: "Invalid Ad request type" });
-        }
-        const nonce = crypto_1.default.randomBytes(32).toString("hex");
-        await client_1.default.adRewardSession.create({
-            data: {
-                userId,
-                nonce,
-                rewardType,
-                rewarded: false,
-            },
+        const nonce = crypto.randomBytes(32).toString("hex");
+        await prisma.adRewardSession.create({
+            data: { userId, nonce, rewardType, rewarded: false },
         });
-        res.json({ success: true, nonce, userId: userId.toString() });
+        return res.json({
+            success: true,
+            message: req.t("userAction.success.adSessionCreated"),
+            nonce,
+            userId: userId.toString(),
+        });
     }
     catch (err) {
-        console.error("Create add Error:", err);
-        return res
-            .status(400)
-            .json({ success: false, error: err.message || "Internal server Error" });
+        console.error("Create ad session Error:", err);
+        return res.status(400).json({
+            success: false,
+            error: err.message || req.t("userAction.error.internalServerError"),
+        });
     }
 };
-exports.createAdSession = createAdSession;
-// 19) Claim Reward (Authenticated)
-const verifyAdSession = async (req, res) => {
+// 19) Verify / Claim Ad Reward
+export const verifyAdSession = async (req, res) => {
     try {
         const { nonce } = req.body;
         const userId = BigInt(req.user.userId);
-        // CLEANUP expired sessions (15 minutes old)
-        await client_1.default.adRewardSession.deleteMany({
-            where: {
-                createdAt: {
-                    lt: new Date(Date.now() - 15 * 60 * 1000),
-                },
-            },
+        // Cleanup expired sessions
+        await prisma.adRewardSession.deleteMany({
+            where: { createdAt: { lt: new Date(Date.now() - 60 * 60 * 1000) } },
         });
-        const session = await client_1.default.adRewardSession.findUnique({
+        const session = await prisma.adRewardSession.findUnique({
             where: { nonce },
         });
         if (!session ||
             session.userId !== userId ||
-            session.rewarded !== true || // SSV Admob verification
+            session.rewarded !== true ||
             session.rewardedAt !== null) {
-            return res
-                .status(400)
-                .json({ success: false, error: "Invalid or unverified session" });
+            return res.status(400).json({
+                success: false,
+                error: req.t("userAction.error.invalidOrUnverifiedSession"),
+            });
         }
-        const config = await client_1.default.adminConfig.findUnique({
+        const config = await prisma.adminConfig.findUnique({
             where: { id: BigInt(1) },
         });
         if (!config) {
-            return res
-                .status(400)
-                .json({ success: false, error: "Config not found" });
+            return res.status(400).json({
+                success: false,
+                error: req.t("userAction.error.configNotFound"),
+            });
         }
-        // Grant reward
+        // Grant reward (logic remains same)
         switch (session.rewardType) {
-            case client_2.AdRewardType.GOLD:
-                await client_1.default.user.update({
+            case AdRewardType.GOLD:
+                await prisma.user.update({
                     where: { id: userId },
                     data: {
                         gold: { increment: config.goldReward },
@@ -1869,36 +1712,26 @@ const verifyAdSession = async (req, res) => {
                     },
                 });
                 break;
-            case client_2.AdRewardType.OLD_SWORD:
-                // Find the reward sword definition
-                const swordDef = await client_1.default.swordLevelDefinition.findUnique({
+            case AdRewardType.OLD_SWORD:
+                const swordDef = await prisma.swordLevelDefinition.findUnique({
                     where: { level: config.swordLevelReward },
                 });
                 if (!swordDef) {
-                    throw new Error("Sword definition not found for reward level");
+                    throw new Error(req.t("userAction.error.swordDefinitionNotFound"));
                 }
-                // Upsert: create if not exists, or increment unsoldQuantity if already owned
-                await client_1.default.userSword.upsert({
-                    where: {
-                        userId_swordId: {
-                            userId,
-                            swordId: BigInt(swordDef.id), // swordId = level
-                        },
-                    },
-                    update: {
-                        unsoldQuantity: { increment: 1 },
-                    },
+                await prisma.userSword.upsert({
+                    where: { userId_swordId: { userId, swordId: BigInt(swordDef.id) } },
+                    update: { unsoldQuantity: { increment: 1 } },
                     create: {
                         userId,
-                        swordId: BigInt(swordDef.level),
+                        swordId: BigInt(swordDef.id),
                         isOnAnvil: false,
                         unsoldQuantity: 1,
                         soldedQuantity: 0,
                         brokenQuantity: 0,
                     },
                 });
-                // Update ad view counters
-                await client_1.default.user.update({
+                await prisma.user.update({
                     where: { id: userId },
                     data: {
                         oneDaySwordAdsViewed: { increment: 1 },
@@ -1907,8 +1740,8 @@ const verifyAdSession = async (req, res) => {
                     },
                 });
                 break;
-            case client_2.AdRewardType.SHIELD:
-                await client_1.default.user.update({
+            case AdRewardType.SHIELD:
+                await prisma.user.update({
                     where: { id: userId },
                     data: {
                         totalShields: { increment: 1 },
@@ -1919,33 +1752,34 @@ const verifyAdSession = async (req, res) => {
                 });
                 break;
         }
-        // Delete the session after successful reward
-        await client_1.default.adRewardSession.delete({
-            where: { nonce },
+        await prisma.adRewardSession.delete({ where: { nonce } });
+        return res.json({
+            success: true,
+            message: req.t("userAction.success.adRewardClaimed"),
+            rewardType: session.rewardType,
         });
-        res.json({ success: true, rewardType: session.rewardType });
     }
     catch (err) {
         console.error("verifyAdSession Error:", err);
-        return res
-            .status(400)
-            .json({ success: false, error: err.message || "Internal server error" });
+        return res.status(400).json({
+            success: false,
+            error: err.message || req.t("userAction.error.internalServerError"),
+        });
     }
 };
-exports.verifyAdSession = verifyAdSession;
 // 20) daily missions claim
-const claimDailyMission = async (req, res) => {
+export const claimDailyMission = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const { missionId } = req.body;
         if (!missionId || isNaN(Number(missionId))) {
             return res.status(400).json({
                 success: false,
-                error: "Valid missionId is required",
+                error: req.t("userAction.error.missionIdRequired"),
             });
         }
         const missionIdBig = BigInt(missionId);
-        const result = await client_1.default.$transaction(async (tx) => {
+        const result = await prisma.$transaction(async (tx) => {
             // 1. Fetch mission definition
             const mission = await tx.dailyMissionDefinition.findUnique({
                 where: { id: missionIdBig },
@@ -1959,26 +1793,25 @@ const claimDailyMission = async (req, res) => {
                 },
             });
             if (!mission) {
-                throw new Error("Mission not found");
+                throw new Error(req.t("userAction.error.missionNotFound"));
             }
             if (!mission.isActive) {
-                throw new Error("This mission is no longer active");
+                throw new Error(req.t("userAction.error.missionNotActive"));
             }
             // 2. Validate "completeAllAds" condition and get adType
             let adType;
             try {
                 const conditions = mission.conditions;
                 if (!Array.isArray(conditions) || conditions.length === 0) {
-                    throw new Error("Mission has no valid conditions");
+                    throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
                 }
                 const adCondition = conditions.find((c) => c?.type === "completeAllAds" && c?.adType);
                 if (!adCondition) {
-                    throw new Error(`Mission does not contain a valid "completeAllAds" condition. ` +
-                        `Found: ${JSON.stringify(conditions)}`);
+                    throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
                 }
                 adType = adCondition.adType;
                 if (!["GOLD", "SHIELD", "OLD_SWORD"].includes(adType)) {
-                    throw new Error(`Unsupported ad type: ${adType}`);
+                    throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
                 }
             }
             catch (parseErr) {
@@ -1986,10 +1819,10 @@ const claimDailyMission = async (req, res) => {
                     missionId,
                     conditions: mission.conditions,
                 });
-                throw new Error("Invalid mission configuration");
+                throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
             }
             // 3. Fetch user ad views + admin config
-            const [user, config] = await Promise.all([
+            const [userData, config] = await Promise.all([
                 tx.user.findUnique({
                     where: { id: userId },
                     select: {
@@ -2007,10 +1840,10 @@ const claimDailyMission = async (req, res) => {
                     },
                 }),
             ]);
-            if (!user)
-                throw new Error("User not found");
+            if (!userData)
+                throw new Error(req.t("userAction.error.missionNotFound")); // Generic fallback
             if (!config)
-                throw new Error("Server configuration missing");
+                throw new Error(req.t("userAction.error.configNotFound"));
             // 4. Check if already claimed today
             const progress = await tx.userDailyMissionProgress.findUnique({
                 where: {
@@ -2022,31 +1855,31 @@ const claimDailyMission = async (req, res) => {
             todayStart.setHours(0, 0, 0, 0);
             if (progress?.lastClaimedAt &&
                 new Date(progress.lastClaimedAt) >= todayStart) {
-                throw new Error("You have already claimed this mission today");
+                throw new Error(req.t("userAction.error.missionAlreadyClaimedToday"));
             }
             // 5. Validate ad completion
             let eligible = false;
             switch (adType) {
                 case "GOLD":
-                    eligible = user.oneDayGoldAdsViewed >= config.maxDailyGoldAds;
+                    eligible = userData.oneDayGoldAdsViewed >= config.maxDailyGoldAds;
                     break;
                 case "SHIELD":
-                    eligible = user.oneDayShieldAdsViewed >= config.maxDailyShieldAds;
+                    eligible = userData.oneDayShieldAdsViewed >= config.maxDailyShieldAds;
                     break;
                 case "OLD_SWORD":
-                    eligible = user.oneDaySwordAdsViewed >= config.maxDailySwordAds;
+                    eligible = userData.oneDaySwordAdsViewed >= config.maxDailySwordAds;
                     break;
             }
             if (!eligible) {
-                throw new Error("You have not completed the required ads yet");
+                throw new Error(req.t("userAction.error.missionNotCompleted"));
             }
-            // 6. Grant reward (now supports quantity for swords)
+            // 6. Grant reward
             const reward = mission.reward;
             let rewardMessage = "";
             switch (reward?.type) {
                 case "gold":
                     if (typeof reward.amount !== "number" || reward.amount <= 0) {
-                        throw new Error("Invalid gold reward amount");
+                        throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
                     }
                     await tx.user.update({
                         where: { id: userId },
@@ -2056,7 +1889,7 @@ const claimDailyMission = async (req, res) => {
                     break;
                 case "trustPoints":
                     if (typeof reward.amount !== "number" || reward.amount <= 0) {
-                        throw new Error("Invalid trust points reward amount");
+                        throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
                     }
                     await tx.user.update({
                         where: { id: userId },
@@ -2066,7 +1899,7 @@ const claimDailyMission = async (req, res) => {
                     break;
                 case "shield":
                     if (typeof reward.quantity !== "number" || reward.quantity <= 0) {
-                        throw new Error("Invalid shield reward quantity");
+                        throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
                     }
                     await tx.user.update({
                         where: { id: userId },
@@ -2079,13 +1912,13 @@ const claimDailyMission = async (req, res) => {
                         reward.level < 1 ||
                         typeof reward.quantity !== "number" ||
                         reward.quantity < 1) {
-                        throw new Error("Invalid sword reward: level and quantity required");
+                        throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
                     }
                     const swordDef = await tx.swordLevelDefinition.findUnique({
                         where: { level: reward.level },
                     });
                     if (!swordDef) {
-                        throw new Error(`Sword level ${reward.level} not found`);
+                        throw new Error(req.t("userAction.error.swordDefinitionNotFound"));
                     }
                     await tx.userSword.upsert({
                         where: {
@@ -2109,7 +1942,7 @@ const claimDailyMission = async (req, res) => {
                     if (typeof reward.materialId !== "number" ||
                         typeof reward.quantity !== "number" ||
                         reward.quantity <= 0) {
-                        throw new Error("Invalid material reward data");
+                        throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
                     }
                     await tx.userMaterial.upsert({
                         where: {
@@ -2131,7 +1964,7 @@ const claimDailyMission = async (req, res) => {
                     rewardMessage = `${reward.quantity} × material ID ${reward.materialId}`;
                     break;
                 default:
-                    throw new Error(`Unsupported reward type: ${reward?.type}`);
+                    throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
             }
             // 7. Update user mission counter
             await tx.user.update({
@@ -2162,7 +1995,9 @@ const claimDailyMission = async (req, res) => {
             }
             return {
                 success: true,
-                message: `Daily mission claimed successfully! Reward: ${rewardMessage}`,
+                message: req.t("userAction.success.dailyMissionClaimed", {
+                    reward: rewardMessage,
+                }),
             };
         });
         return res.json(result);
@@ -2181,37 +2016,36 @@ const claimDailyMission = async (req, res) => {
             : 500;
         return res.status(status).json({
             success: false,
-            error: err.message || "Failed to claim daily mission",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.claimDailyMission = claimDailyMission;
-// 21) one time missions claim
-const claimOneTimeMission = async (req, res) => {
+// 21) One-Time Mission Claim
+export const claimOneTimeMission = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
         const { missionId } = req.body;
         if (!missionId || isNaN(Number(missionId))) {
             return res.status(400).json({
                 success: false,
-                error: "Valid missionId required",
+                error: req.t("userAction.error.missionIdRequired"),
             });
         }
-        await client_1.default.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx) => {
             // 1. Fetch mission
             const mission = await tx.oneTimeMissionDefinition.findUnique({
                 where: { id: BigInt(missionId) },
             });
             if (!mission || !mission.isActive) {
-                throw new Error("Mission not active");
+                throw new Error(req.t("userAction.error.missionNotActive"));
             }
             const now = new Date();
             // 2. Check time window
             if (mission.startAt > now) {
-                throw new Error("Mission not started yet");
+                throw new Error(req.t("userAction.error.missionNotStarted"));
             }
             if (mission.expiresAt && mission.expiresAt < now) {
-                throw new Error("Mission expired");
+                throw new Error(req.t("userAction.error.missionExpired"));
             }
             // 3. Check already claimed
             const existing = await tx.userOneTimeMissionProgress.findUnique({
@@ -2223,7 +2057,7 @@ const claimOneTimeMission = async (req, res) => {
                 },
             });
             if (existing) {
-                throw new Error("Mission already claimed");
+                throw new Error(req.t("userAction.error.oneTimeMissionAlreadyClaimed"));
             }
             const conditions = mission.conditions;
             const targetValue = mission.targetValue;
@@ -2309,12 +2143,15 @@ const claimOneTimeMission = async (req, res) => {
                         break;
                     }
                     default:
-                        throw new Error(`Unsupported mission condition: ${cond.type}`);
+                        throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
                 }
             }
             // 4. Check completion
             if (totalProgress < targetValue) {
-                throw new Error(`Mission not completed. Progress: ${totalProgress}/${targetValue}`);
+                throw new Error(req.t("userAction.error.missionNotCompletedProgress", {
+                    progress: totalProgress,
+                    target: targetValue,
+                }));
             }
             // 5. Grant reward
             const reward = mission.reward;
@@ -2342,7 +2179,7 @@ const claimOneTimeMission = async (req, res) => {
                         where: { level: reward.level },
                     });
                     if (!def)
-                        throw new Error("Invalid sword reward");
+                        throw new Error(req.t("userAction.error.swordDefinitionNotFound"));
                     await tx.userSword.upsert({
                         where: {
                             userId_swordId: { userId, swordId: BigInt(reward.level) },
@@ -2381,9 +2218,9 @@ const claimOneTimeMission = async (req, res) => {
                     });
                     break;
                 default:
-                    throw new Error("Invalid reward type");
+                    throw new Error(req.t("userAction.error.invalidMissionConfiguration"));
             }
-            // 6. Update mission counters
+            // 6. Update user mission counter
             await tx.user.update({
                 where: { id: userId },
                 data: {
@@ -2401,37 +2238,35 @@ const claimOneTimeMission = async (req, res) => {
         });
         return res.json({
             success: true,
-            message: "One-time mission claimed successfully",
+            message: req.t("userAction.success.oneTimeMissionClaimed"),
         });
     }
     catch (err) {
         console.error("Claim one-time mission error:", err);
         return res.status(400).json({
             success: false,
-            error: err.message || "Failed to claim mission",
+            error: err.message || req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.claimOneTimeMission = claimOneTimeMission;
-const markNotificationsAsRead = async (req, res) => {
+export const markNotificationsAsRead = async (req, res) => {
     try {
         const userId = BigInt(req.user.userId);
-        await client_1.default.user.update({
+        await prisma.user.update({
             where: { id: userId },
             data: { lastNotificationReadTime: new Date() },
         });
         return res.status(200).json({
             success: true,
-            message: "Last notification read time updated",
+            message: req.t("userAction.success.notificationsMarkedRead"),
         });
     }
     catch (err) {
         console.error("markNotificationsAsRead error:", err);
         return res.status(500).json({
             success: false,
-            error: "Internal server error",
+            error: req.t("userAction.error.internalServerError"),
         });
     }
 };
-exports.markNotificationsAsRead = markNotificationsAsRead;
 //# sourceMappingURL=userActionController.js.map

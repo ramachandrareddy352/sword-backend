@@ -1,42 +1,37 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = __importDefault(require("express"));
-const userAuth_1 = __importDefault(require("../middleware/userAuth"));
-const userActionController_1 = require("../controllers/userActionController");
-const router = express_1.default.Router();
-router.post("/notifications/mark-read", userAuth_1.default, userActionController_1.markNotificationsAsRead);
+import express from "express";
+import userAuth from "../middleware/userAuth.js";
+import { createVoucher, cancelVoucher, createComplaint, updateComplaint, deleteComplaint, buySword, buyMaterial, buyShields, sellSword, sellMaterial, setSwordOnAnvil, removeSwordFromAnvil, upgradeSword, synthesizeSword, claimGift, toggleShieldProtection, createAdSession, verifyAdSession, claimOneTimeMission, claimDailyMission, assignAllowedUserToVoucher, removeAllowedUserFromVoucher, markNotificationsAsRead, } from "../controllers/userActionController.js";
+const router = express.Router();
+router.post("/notifications/mark-read", userAuth, markNotificationsAsRead);
 /* ───────────────────── VOUCHERS ───────────────────────── */
-router.post("/vouchers/create", userAuth_1.default, userActionController_1.createVoucher);
-router.post("/vouchers/assign-user", userAuth_1.default, userActionController_1.assignAllowedUserToVoucher);
-router.post("/vouchers/remove-assigned-user", userAuth_1.default, userActionController_1.removeAllowedUserFromVoucher);
-router.post("/vouchers/cancel", userAuth_1.default, userActionController_1.cancelVoucher);
+router.post("/vouchers/create", userAuth, createVoucher);
+router.post("/vouchers/assign-user", userAuth, assignAllowedUserToVoucher);
+router.post("/vouchers/remove-assigned-user", userAuth, removeAllowedUserFromVoucher);
+router.post("/vouchers/cancel", userAuth, cancelVoucher);
 /* ───────────────────── COMPLAINTS ─────────────────────── */
-router.post("/complaints/create", userAuth_1.default, userActionController_1.createComplaint);
-router.put("/complaints/update", userAuth_1.default, userActionController_1.updateComplaint);
-router.delete("/complaints/delete", userAuth_1.default, userActionController_1.deleteComplaint);
+router.post("/complaints/create", userAuth, createComplaint);
+router.put("/complaints/update", userAuth, updateComplaint);
+router.delete("/complaints/delete", userAuth, deleteComplaint);
 /* ───────────────────── MARKETPLACE (BUY) ──────────────── */
-router.post("/marketplace/buy/sword", userAuth_1.default, userActionController_1.buySword);
-router.post("/marketplace/buy/material", userAuth_1.default, userActionController_1.buyMaterial);
-router.post("/marketplace/buy/shields", userAuth_1.default, userActionController_1.buyShields);
+router.post("/marketplace/buy/sword", userAuth, buySword);
+router.post("/marketplace/buy/material", userAuth, buyMaterial);
+router.post("/marketplace/buy/shields", userAuth, buyShields);
 /* ───────────────────── MARKETPLACE (SELL) ─────────────── */
-router.post("/marketplace/sell/sword", userAuth_1.default, userActionController_1.sellSword);
-router.post("/marketplace/sell/material", userAuth_1.default, userActionController_1.sellMaterial);
+router.post("/marketplace/sell/sword", userAuth, sellSword);
+router.post("/marketplace/sell/material", userAuth, sellMaterial);
 /* ───────────────────── ANVIL ──────────────────────────── */
-router.post("/anvil/set-sword", userAuth_1.default, userActionController_1.setSwordOnAnvil);
-router.post("/anvil/remove-sword", userAuth_1.default, userActionController_1.removeSwordFromAnvil);
+router.post("/anvil/set-sword", userAuth, setSwordOnAnvil);
+router.post("/anvil/remove-sword", userAuth, removeSwordFromAnvil);
 /* ───────────────────── SWORD CORE ACTIONS ─────────────── */
-router.post("/sword/upgrade", userAuth_1.default, userActionController_1.upgradeSword);
-router.post("/sword/synthesize", userAuth_1.default, userActionController_1.synthesizeSword);
-router.post("/gifts/claim", userAuth_1.default, userActionController_1.claimGift);
-router.patch("/shield/toggle", userAuth_1.default, userActionController_1.toggleShieldProtection);
+router.post("/sword/upgrade", userAuth, upgradeSword);
+router.post("/sword/synthesize", userAuth, synthesizeSword);
+router.post("/gifts/claim", userAuth, claimGift);
+router.patch("/shield/toggle", userAuth, toggleShieldProtection);
 /* ───────────────────── ADS ────────────────────────────── */
-router.post("/ad/start-session", userAuth_1.default, userActionController_1.createAdSession);
-router.post("/ad/claim-reward", userAuth_1.default, userActionController_1.verifyAdSession);
+router.post("/ad/start-session", userAuth, createAdSession);
+router.post("/ad/claim-reward", userAuth, verifyAdSession);
 /* ───────────────────── MISSIONS ───────────────────── */
-router.post("/mission/daily/claim", userAuth_1.default, userActionController_1.claimDailyMission);
-router.post("/mission/one-time/claim", userAuth_1.default, userActionController_1.claimOneTimeMission);
-exports.default = router;
+router.post("/mission/daily/claim", userAuth, claimDailyMission);
+router.post("/mission/one-time/claim", userAuth, claimOneTimeMission);
+export default router;
 //# sourceMappingURL=userActionRoutes.js.map

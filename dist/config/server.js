@@ -1,29 +1,26 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.app = void 0;
-const express_1 = __importDefault(require("express"));
-const http_1 = require("http");
-const body_parser_1 = __importDefault(require("body-parser"));
-const cookie_parser_1 = __importDefault(require("cookie-parser"));
-const cors_1 = __importDefault(require("cors"));
-const crypto_1 = __importDefault(require("crypto"));
-const axios_1 = __importDefault(require("axios"));
-const client_1 = __importDefault(require("../database/client"));
-const adminActionRoutes_1 = __importDefault(require("../routes/adminActionRoutes"));
-const adminAuthRoutes_1 = __importDefault(require("../routes/adminAuthRoutes"));
-const adminGetterRoutes_1 = __importDefault(require("../routes/adminGetterRoutes"));
-const publicGetterRoutes_1 = __importDefault(require("../routes/publicGetterRoutes"));
-const externalActionRoutes_1 = __importDefault(require("../routes/externalActionRoutes"));
-const userActionRoutes_1 = __importDefault(require("../routes/userActionRoutes"));
-const userAuthRoutes_1 = __importDefault(require("../routes/userAuthRoutes"));
-const userGetterRoutes_1 = __importDefault(require("../routes/userGetterRoutes"));
-exports.app = (0, express_1.default)();
-exports.app.use(body_parser_1.default.json());
-exports.app.use((0, cookie_parser_1.default)());
-exports.app.use(express_1.default.json());
+import express from "express";
+import { createServer } from "http";
+import bodyParser from "body-parser";
+import cookieParser from "cookie-parser";
+import cors from "cors";
+import crypto from "crypto";
+import axios from "axios";
+import prisma from "../database/client.js";
+import AdminActionRouters from "../routes/adminActionRoutes.js";
+import AdminAuthRouters from "../routes/adminAuthRoutes.js";
+import AdminGetterRouters from "../routes/adminGetterRoutes.js";
+import PublicGetterRouters from "../routes/publicGetterRoutes.js";
+import ExternalActionRouters from "../routes/externalActionRoutes.js";
+import UserActionRouters from "../routes/userActionRoutes.js";
+import UserAuthRouters from "../routes/userAuthRoutes.js";
+import UserGetterRouters from "../routes/userGetterRoutes.js";
+import SuperAdminRouters from "../routes/superAdminRoutes.js";
+import * as i18nextMiddleware from "i18next-http-middleware";
+import { initI18n } from "./i18n.js";
+export const app = express();
+app.use(bodyParser.json());
+app.use(cookieParser());
+app.use(express.json());
 const corsOptions = {
     origin: (_origin, callback) => {
         // Check if the origin is in the list of allowed origins
@@ -43,8 +40,27 @@ const corsOptions = {
     // credentials: true,
     allowedHeaders: "*",
 };
-exports.app.use((0, cors_1.default)(corsOptions));
-exports.app.get("/", (req, res) => {
+app.use(cors(corsOptions));
+// const limiter = rateLimit({
+//   windowMs: 60 * 1000, // 1 minute
+//   max: 60, // limit each IP to 60 requests per window
+//   standardHeaders: true, // return rate limit info in headers
+//   legacyHeaders: false,
+//   message: {
+//     success: false,
+//     error: "Too many requests, please try again after 1 minute.",
+//   },
+// });
+// app.set("trust proxy", 1); // Very Important (If Using Nginx / Cloudflare), Otherwise all users may appear as the same IP.
+// app.use(limiter); // order is important, Add after CORS but before routes
+// ====================== i18n INITIALIZATION ======================
+let i18nInstance;
+const initializeI18n = async () => {
+    i18nInstance = await initI18n();
+    app.use(i18nextMiddleware.handle(i18nInstance));
+};
+await initializeI18n();
+app.get("/", (req, res) => {
     res.send("Sword Backend");
 });
 // Public keys cache
@@ -55,7 +71,7 @@ async function fetchPublicKeys() {
     if (Date.now() - lastKeyFetch < 24 * 60 * 60 * 1000)
         return;
     try {
-        const res = await axios_1.default.get("https://www.gstatic.com/admob/reward/verifier-keys.json");
+        const res = await axios.get("https://www.gstatic.com/admob/reward/verifier-keys.json");
         publicKeys = {};
         for (const key of res.data.keys) {
             publicKeys[key.keyId] = key.pem;
@@ -67,7 +83,7 @@ async function fetchPublicKeys() {
     }
 }
 // AdMob SSV Callback (public, GET)
-exports.app.get("/api/admob/ssv-callback", async (req, res) => {
+app.get("/api/admob/ssv-callback", async (req, res) => {
     try {
         if (!req.query.signature || !req.query.key_id) {
             return res.status(200).send("OK");
@@ -86,7 +102,7 @@ exports.app.get("/api/admob/ssv-callback", async (req, res) => {
         const message = paramKeys
             .map((k) => `${k}=${encodeURIComponent(params[k])}`)
             .join("&");
-        const verifier = crypto_1.default.createVerify("RSA-SHA256");
+        const verifier = crypto.createVerify("RSA-SHA256");
         verifier.update(message);
         const verified = verifier.verify(publicKeys[keyId], signature, "base64");
         if (!verified) {
@@ -97,7 +113,7 @@ exports.app.get("/api/admob/ssv-callback", async (req, res) => {
         if (!nonce || !userIdStr) {
             return res.status(200).send("OK");
         }
-        const session = await client_1.default.adRewardSession.findUnique({
+        const session = await prisma.adRewardSession.findUnique({
             where: { nonce },
         });
         if (!session || session.rewarded) {
@@ -107,7 +123,7 @@ exports.app.get("/api/admob/ssv-callback", async (req, res) => {
             return res.status(200).send("OK");
         }
         // ✅ Mark rewarded
-        await client_1.default.adRewardSession.update({
+        await prisma.adRewardSession.update({
             where: { nonce },
             data: { rewarded: true },
         });
@@ -118,14 +134,47 @@ exports.app.get("/api/admob/ssv-callback", async (req, res) => {
         return res.status(200).send("OK"); // Always 200 for Google
     }
 });
-exports.app.use("/api/adminActions", adminActionRoutes_1.default);
-exports.app.use("/api/adminAuth", adminAuthRoutes_1.default);
-exports.app.use("/api/adminGetters", adminGetterRoutes_1.default);
-exports.app.use("/api/publicGetters", publicGetterRoutes_1.default);
-exports.app.use("/api/externalActions", externalActionRoutes_1.default);
-exports.app.use("/api/userActions", userActionRoutes_1.default);
-exports.app.use("/api/userAuth", userAuthRoutes_1.default);
-exports.app.use("/api/userGetters", userGetterRoutes_1.default);
-const server = (0, http_1.createServer)(exports.app);
-exports.default = server;
+app.get("/api/adsgram/reward", async (req, res) => {
+    try {
+        const telegramIdStr = req.query.userId;
+        if (!telegramIdStr) {
+            return res.status(200).send("OK");
+        }
+        const telegramId = BigInt(telegramIdStr);
+        // Find user by telegram id
+        const user = await prisma.user.findUnique({
+            where: { telegramId },
+            select: { id: true },
+        });
+        if (!user) {
+            return res.status(200).send("OK");
+        }
+        // Mark ALL pending sessions for this user as rewarded
+        await prisma.adRewardSession.updateMany({
+            where: {
+                userId: user.id,
+                rewarded: false,
+            },
+            data: {
+                rewarded: true,
+            },
+        });
+        return res.status(200).send("OK");
+    }
+    catch (err) {
+        console.error("AdsGram SSV error:", err);
+        return res.status(200).send("OK");
+    }
+});
+app.use("/api/adminActions", AdminActionRouters);
+app.use("/api/adminAuth", AdminAuthRouters);
+app.use("/api/adminGetters", AdminGetterRouters);
+app.use("/api/publicGetters", PublicGetterRouters);
+app.use("/api/externalActions", ExternalActionRouters);
+app.use("/api/userActions", UserActionRouters);
+app.use("/api/userAuth", UserAuthRouters);
+app.use("/api/userGetters", UserGetterRouters);
+app.use("/api/superAdmin", SuperAdminRouters);
+const server = createServer(app);
+export default server;
 //# sourceMappingURL=server.js.map

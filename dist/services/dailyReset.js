@@ -1,12 +1,6 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.resetDailyAdCountersIfNeeded = resetDailyAdCountersIfNeeded;
-const client_1 = __importDefault(require("../database/client"));
-async function resetDailyAdCountersIfNeeded(userId) {
-    const user = await client_1.default.user.findUnique({
+import prisma from "../database/client.js";
+export async function resetDailyAdCountersIfNeeded(userId) {
+    const user = await prisma.user.findUnique({
         where: { id: userId },
         select: {
             lastReviewed: true,
@@ -21,7 +15,7 @@ async function resetDailyAdCountersIfNeeded(userId) {
         now.getUTCDate() !== lastReset.getUTCDate();
     if (!isDifferentDay)
         return;
-    await client_1.default.user.update({
+    await prisma.user.update({
         where: { id: userId },
         data: {
             oneDayGoldAdsViewed: 0,

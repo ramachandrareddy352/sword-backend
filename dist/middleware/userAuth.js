@@ -1,55 +1,57 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.default = auth;
-const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const redis_1 = __importDefault(require("../config/redis"));
-const client_1 = __importDefault(require("../database/client"));
-const dailyReset_1 = require("../services/dailyReset");
-async function auth(req, res, next) {
+import jwt from "jsonwebtoken";
+import redis from "../config/redis.js";
+import prisma from "../database/client.js";
+import { resetDailyAdCountersIfNeeded } from "../services/dailyReset.js";
+export default async function auth(req, res, next) {
     const token = req.headers.authorization?.split(" ")[1];
     if (!token)
-        return res.status(401).json({ error: "Unauthorized" });
+        return res.status(401).json({
+            success: false,
+            error: req.t("others.error.unauthorized"),
+        });
     try {
-        const payload = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET);
+        const payload = jwt.verify(token, process.env.JWT_SECRET);
         const sessionKey = `session:${payload.jti}`;
-        const exists = await redis_1.default.exists(sessionKey);
+        const exists = await redis.exists(sessionKey);
         if (!exists) {
-            return res.status(401).json({ error: "Session expired" });
+            return res
+                .status(401)
+                .json({ error: req.t("others.error.sessionExpired") });
         }
         req.user = payload;
         // 1. Check if game is stopped (before proceeding)
-        const config = await client_1.default.adminConfig.findUnique({
+        const config = await prisma.adminConfig.findUnique({
             where: { id: BigInt(1) },
             select: { isGameStopped: true },
         });
         if (config?.isGameStopped === true) {
             return res.status(403).json({
                 success: false,
-                error: "Game is currently under maintenance. Please try again later.",
+                error: req.t("others.error.gameUnderMaintenance"),
             });
         }
-        await (0, dailyReset_1.resetDailyAdCountersIfNeeded)(BigInt(payload.userId));
+        await resetDailyAdCountersIfNeeded(BigInt(payload.userId));
         await forceSetLowestSwordOnAnvilIfNeeded(BigInt(payload.userId));
         next();
         await forceSetLowestSwordOnAnvilIfNeeded(BigInt(payload.userId));
     }
     catch {
-        return res.status(401).json({ error: "Invalid token" });
+        return res.status(401).json({
+            success: false,
+            error: req.t("others.error.invalidToken"),
+        });
     }
 }
 async function forceSetLowestSwordOnAnvilIfNeeded(userId) {
     try {
         // Get current user anvil level
-        const user = await client_1.default.user.findUnique({
+        const user = await prisma.user.findUnique({
             where: { id: userId },
             select: { anvilSwordLevel: true },
         });
         if (!user)
             return;
-        await client_1.default.user.update({
+        await prisma.user.update({
             where: { id: userId },
             data: {
                 lastLoginAt: new Date(), // sets to now()
@@ -58,7 +60,7 @@ async function forceSetLowestSwordOnAnvilIfNeeded(userId) {
         if (user.anvilSwordLevel !== null)
             return; // Already set → skip
         // Find the lowest level sword the user owns with unsold > 0
-        const lowestSword = await client_1.default.userSword.findFirst({
+        const lowestSword = await prisma.userSword.findFirst({
             where: {
                 userId,
                 unsoldQuantity: { gt: 0 },
@@ -75,11 +77,11 @@ async function forceSetLowestSwordOnAnvilIfNeeded(userId) {
             return; // User has no eligible swords
         const lowestLevel = lowestSword.swordLevelDefinition.level;
         // Update user's anvilSwordLevel
-        await client_1.default.user.update({
+        await prisma.user.update({
             where: { id: userId },
             data: { anvilSwordLevel: lowestLevel },
         });
-        await client_1.default.userSword.update({
+        await prisma.userSword.update({
             where: {
                 userId_swordId: {
                     userId,

@@ -1,21 +1,15 @@
-"use strict";
 // controllers/notificationController.ts
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAllNotifications = void 0;
-const client_1 = __importDefault(require("../database/client"));
-const queryHelpers_1 = require("../services/queryHelpers");
-const serializeBigInt_1 = require("../services/serializeBigInt");
-const getAllNotifications = async (req, res) => {
+import prisma from "../database/client.js";
+import { getPagination } from "../services/queryHelpers.js";
+import { serializeBigInt } from "../services/serializeBigInt.js";
+export const getAllNotifications = async (req, res) => {
     try {
         // Pagination from query params (page, limit)
-        const pagination = (0, queryHelpers_1.getPagination)(req.query);
+        const pagination = getPagination(req.query);
         if (!pagination) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid pagination parameters",
+                error: req.t("commonGetter.error.invalidPaginationParameters"),
             });
         }
         // Optional: admin can pass extra filters if needed in future
@@ -29,8 +23,8 @@ const getAllNotifications = async (req, res) => {
             orderBy.push({ createdAt: "desc" }); // default newest first
         }
         // Fetch paginated list + total count in transaction
-        const [notifications, total] = await client_1.default.$transaction([
-            client_1.default.notification.findMany({
+        const [notifications, total] = await prisma.$transaction([
+            prisma.notification.findMany({
                 skip: pagination.skip,
                 take: pagination.take,
                 orderBy,
@@ -42,14 +36,14 @@ const getAllNotifications = async (req, res) => {
                     createdAt: true,
                 },
             }),
-            client_1.default.notification.count(),
+            prisma.notification.count(),
         ]);
         return res.status(200).json({
             success: true,
             message: notifications.length
-                ? "Notifications fetched successfully"
-                : "No notifications found",
-            data: (0, serializeBigInt_1.serializeBigInt)(notifications),
+                ? req.t("commonGetter.success.notificationsFetched")
+                : req.t("commonGetter.success.noNotificationsFound"),
+            data: serializeBigInt(notifications),
             total,
             page: pagination.page,
             limit: pagination.limit,
@@ -60,9 +54,8 @@ const getAllNotifications = async (req, res) => {
         console.error("getAllNotifications error:", err);
         return res.status(500).json({
             success: false,
-            error: "Internal server error",
+            error: req.t("commonGetter.error.internalServerError"),
         });
     }
 };
-exports.getAllNotifications = getAllNotifications;
 //# sourceMappingURL=commonGetterController.js.map

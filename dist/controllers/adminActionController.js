@@ -1,33 +1,8 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteNotification = exports.createNotification = void 0;
-exports.updateAdminConfig = updateAdminConfig;
-exports.createMaterial = createMaterial;
-exports.updateMaterial = updateMaterial;
-exports.toggleUserBan = toggleUserBan;
-exports.replyToSupportTicket = replyToSupportTicket;
-exports.createSwordLevel = createSwordLevel;
-exports.updateSwordLevel = updateSwordLevel;
-exports.updateSynthesizeRequirements = updateSynthesizeRequirements;
-exports.updateUpgradeDrops = updateUpgradeDrops;
-exports.updateSwordMaterials = updateSwordMaterials;
-exports.createGift = createGift;
-exports.cancelGift = cancelGift;
-exports.deleteGift = deleteGift;
-exports.createDailyMission = createDailyMission;
-exports.toggleDailyMission = toggleDailyMission;
-exports.deleteDailyMission = deleteDailyMission;
-exports.createOneTimeMission = createOneTimeMission;
-exports.toggleOneTimeMission = toggleOneTimeMission;
-exports.deleteOneTimeMission = deleteOneTimeMission;
-const client_1 = __importDefault(require("../database/client"));
-const client_2 = require("@prisma/client");
-const serializeBigInt_1 = require("../services/serializeBigInt");
-const uploadToCloudinary_1 = require("../services/uploadToCloudinary");
-const cloudinary_1 = __importDefault(require("../config/cloudinary"));
+import prisma from "../database/client.js";
+import { MaterialRarity, GiftItemType, GiftStatus } from "@prisma/client";
+import { serializeBigInt } from "../services/serializeBigInt.js";
+import { uploadToCloudinary } from "../services/uploadToCloudinary.js";
+import cloudinary from "../config/cloudinary.js";
 // get the image id using teh complete URL
 function getPublicIdFromUrl(url) {
     try {
@@ -54,7 +29,7 @@ async function findSwordByLevel(tx, level) {
     return sword;
 }
 // 1) update the admin config data(except mailID)
-async function updateAdminConfig(req, res) {
+export async function updateAdminConfig(req, res) {
     try {
         const data = req.body;
         const updateData = {};
@@ -226,14 +201,14 @@ async function updateAdminConfig(req, res) {
                 error: "No valid fields provided for update",
             });
         }
-        const updatedConfig = await client_1.default.adminConfig.update({
+        const updatedConfig = await prisma.adminConfig.update({
             where: { id: 1n },
             data: updateData,
         });
         return res.status(200).json({
             success: true,
             message: "Admin configuration updated successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(updatedConfig),
+            data: serializeBigInt(updatedConfig),
         });
     }
     catch (err) {
@@ -257,7 +232,7 @@ function parseVersion(version) {
     return [parts[0], parts[1], parts[2]];
 }
 // 2) Create material, name should be unique
-async function createMaterial(req, res) {
+export async function createMaterial(req, res) {
     try {
         const { name, description, buyingCost, sellingCost, rarity, isBuyingAllow, isSellingAllow, } = req.body;
         // ================= Validation =================
@@ -273,13 +248,13 @@ async function createMaterial(req, res) {
                 error: "buyingCost and sellingCost must be non-negative integers",
             });
         }
-        if (rarity && !Object.values(client_2.MaterialRarity).includes(rarity)) {
+        if (rarity && !Object.values(MaterialRarity).includes(rarity)) {
             return res.status(400).json({
                 success: false,
                 error: "Invalid material rarity type",
             });
         }
-        const existing = await client_1.default.material.findUnique({
+        const existing = await prisma.material.findUnique({
             where: { name },
         });
         if (existing) {
@@ -296,7 +271,7 @@ async function createMaterial(req, res) {
                 error: "Material image is required",
             });
         }
-        const uploaded = await (0, uploadToCloudinary_1.uploadToCloudinary)(file.buffer, "sword-game/materials");
+        const uploaded = await uploadToCloudinary(file.buffer, "sword-game/materials");
         const image = uploaded?.secure_url;
         if (!image) {
             return res.status(400).json({
@@ -308,7 +283,7 @@ async function createMaterial(req, res) {
         let created;
         for (let i = 0; i < 5; i++) {
             try {
-                created = await client_1.default.material.create({
+                created = await prisma.material.create({
                     data: {
                         name,
                         description: description ?? null,
@@ -336,7 +311,7 @@ async function createMaterial(req, res) {
         return res.json({
             success: true,
             message: "Material created successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(created),
+            data: serializeBigInt(created),
         });
     }
     catch (err) {
@@ -348,7 +323,7 @@ async function createMaterial(req, res) {
     }
 }
 // 3) Update material data using code
-async function updateMaterial(req, res) {
+export async function updateMaterial(req, res) {
     try {
         const { name, description, buyingCost, sellingCost, rarity, isBuyingAllow, isSellingAllow, isImageChanged, } = req.body;
         if (!name) {
@@ -357,7 +332,7 @@ async function updateMaterial(req, res) {
                 error: "Material name is required",
             });
         }
-        const existing = await client_1.default.material.findUnique({
+        const existing = await prisma.material.findUnique({
             where: { name },
         });
         if (!existing) {
@@ -379,7 +354,7 @@ async function updateMaterial(req, res) {
                 error: "Invalid sellingCost",
             });
         }
-        if (rarity && !Object.values(client_2.MaterialRarity).includes(rarity)) {
+        if (rarity && !Object.values(MaterialRarity).includes(rarity)) {
             return res.status(400).json({
                 success: false,
                 error: "Invalid material rarity",
@@ -389,7 +364,7 @@ async function updateMaterial(req, res) {
         let image;
         const file = req.file;
         if (isImageChanged === "yes" && file) {
-            const uploaded = await (0, uploadToCloudinary_1.uploadToCloudinary)(file.buffer, "sword-game/materials");
+            const uploaded = await uploadToCloudinary(file.buffer, "sword-game/materials");
             image = uploaded?.secure_url;
             if (!image) {
                 return res.status(400).json({
@@ -400,12 +375,12 @@ async function updateMaterial(req, res) {
             if (existing.image) {
                 const oldPublicId = getPublicIdFromUrl(existing.image);
                 if (oldPublicId) {
-                    await cloudinary_1.default.uploader.destroy(oldPublicId);
+                    await cloudinary.uploader.destroy(oldPublicId);
                 }
             }
         }
         // ================= Update =================
-        const updated = await client_1.default.material.update({
+        const updated = await prisma.material.update({
             where: { name },
             data: {
                 description: description ?? existing.description,
@@ -422,7 +397,7 @@ async function updateMaterial(req, res) {
         return res.json({
             success: true,
             message: "Material updated successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(updated),
+            data: serializeBigInt(updated),
         });
     }
     catch (err) {
@@ -434,14 +409,14 @@ async function updateMaterial(req, res) {
     }
 }
 // 4) Ban user from making actions in the game
-async function toggleUserBan(req, res) {
+export async function toggleUserBan(req, res) {
     try {
-        const { id, email, ban } = req.body;
+        const { id, email, telegramUserName, ban } = req.body;
         // ---------- Validation ----------
-        if (!id && !email) {
+        if (!id && !email && !telegramUserName) {
             return res.status(400).json({
                 success: false,
-                error: "Either user id or email is required",
+                error: "Either user id or email or telegramUserName is required",
             });
         }
         let whereClause = {};
@@ -459,8 +434,11 @@ async function toggleUserBan(req, res) {
         else if (email) {
             whereClause.email = email;
         }
+        else if (telegramUserName) {
+            whereClause.telegramUser = telegramUserName.trim();
+        }
         // ---------- Fetch User ----------
-        const user = await client_1.default.user.findUnique({
+        const user = await prisma.user.findUnique({
             where: whereClause,
         });
         if (!user) {
@@ -474,18 +452,18 @@ async function toggleUserBan(req, res) {
             return res.json({
                 success: true,
                 message: ban ? "User already banned" : "User already unbanned",
-                data: (0, serializeBigInt_1.serializeBigInt)(user),
+                data: serializeBigInt(user),
             });
         }
         // ---------- Update ----------
-        const updated = await client_1.default.user.update({
+        const updated = await prisma.user.update({
             where: { id: user.id },
             data: { isBanned: ban },
         });
         return res.json({
             success: true,
             message: ban ? "User banned successfully" : "User unbanned successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(updated),
+            data: serializeBigInt(updated),
         });
     }
     catch (err) {
@@ -497,7 +475,7 @@ async function toggleUserBan(req, res) {
     }
 }
 // 5) Reply to customer complaints
-async function replyToSupportTicket(req, res) {
+export async function replyToSupportTicket(req, res) {
     try {
         const { id, adminReply } = req.body;
         if (!adminReply || !adminReply.trim()) {
@@ -514,7 +492,7 @@ async function replyToSupportTicket(req, res) {
                 .status(400)
                 .json({ success: false, error: "Invalid ticket id" });
         }
-        const ticket = await client_1.default.customerSupport.findUnique({
+        const ticket = await prisma.customerSupport.findUnique({
             where: { id: ticketId },
             select: { id: true },
         });
@@ -523,14 +501,14 @@ async function replyToSupportTicket(req, res) {
                 .status(404)
                 .json({ success: false, error: "Support ticket not found" });
         }
-        const updated = await client_1.default.customerSupport.update({
+        const updated = await prisma.customerSupport.update({
             where: { id: ticketId },
             data: { adminReply, isReviewed: true, reviewedAt: new Date() },
         });
         return res.json({
             success: true,
             message: "Reply sent and ticket marked as reviewed",
-            data: (0, serializeBigInt_1.serializeBigInt)(updated),
+            data: serializeBigInt(updated),
         });
     }
     catch (err) {
@@ -572,7 +550,7 @@ Example body:
   ]
 }
 */
-async function createSwordLevel(req, res) {
+export async function createSwordLevel(req, res) {
     try {
         const { name, synthesizeName, description, buyingCost, sellingCost, upgradeCost, synthesizeCost, successRate, isBuyingAllow, isSellingAllow, isSynthesizeAllow, materials: materialsRaw, } = req.body;
         // ────────────────────────────────────────────────
@@ -724,7 +702,7 @@ async function createSwordLevel(req, res) {
             }
         }
         // Verify materials exist in DB
-        const existingMaterials = await client_1.default.material.findMany({
+        const existingMaterials = await prisma.material.findMany({
             where: { id: { in: materialIds } },
             select: { id: true },
         });
@@ -737,7 +715,7 @@ async function createSwordLevel(req, res) {
             });
         }
         // Determine next level
-        const maxLevel = await client_1.default.swordLevelDefinition.aggregate({
+        const maxLevel = await prisma.swordLevelDefinition.aggregate({
             _max: { level: true },
         });
         const currentMax = maxLevel._max.level ?? 0;
@@ -749,7 +727,7 @@ async function createSwordLevel(req, res) {
             });
         }
         // Safety check: ensure no gap (someone deleted a record manually)
-        const count = await client_1.default.swordLevelDefinition.count();
+        const count = await prisma.swordLevelDefinition.count();
         if (count !== currentMax) {
             return res.status(400).json({
                 success: false,
@@ -766,7 +744,7 @@ async function createSwordLevel(req, res) {
         }
         let imageUrl;
         try {
-            const uploaded = await (0, uploadToCloudinary_1.uploadToCloudinary)(file.buffer, "sword-game/swords");
+            const uploaded = await uploadToCloudinary(file.buffer, "sword-game/swords");
             imageUrl = uploaded.secure_url;
             if (!imageUrl)
                 throw new Error("No secure_url from Cloudinary");
@@ -781,7 +759,7 @@ async function createSwordLevel(req, res) {
         // ────────────────────────────────────────────────
         // Transaction: create sword + requirements + drops
         // ────────────────────────────────────────────────
-        const sword = await client_1.default.$transaction(async (tx) => {
+        const sword = await prisma.$transaction(async (tx) => {
             const created = await tx.swordLevelDefinition.create({
                 data: {
                     id: BigInt(nextLevel),
@@ -818,7 +796,7 @@ async function createSwordLevel(req, res) {
             });
             return created;
         });
-        const fullSword = await client_1.default.swordLevelDefinition.findUnique({
+        const fullSword = await prisma.swordLevelDefinition.findUnique({
             where: { id: sword.id },
             include: {
                 synthesisRequirements: true,
@@ -828,7 +806,7 @@ async function createSwordLevel(req, res) {
         return res.json({
             success: true,
             message: `Sword level ${nextLevel} created successfully`,
-            data: (0, serializeBigInt_1.serializeBigInt)(fullSword),
+            data: serializeBigInt(fullSword),
         });
     }
     catch (err) {
@@ -840,7 +818,7 @@ async function createSwordLevel(req, res) {
     }
 }
 // 7) Update thhe sword definations
-async function updateSwordLevel(req, res) {
+export async function updateSwordLevel(req, res) {
     try {
         const { level, name, synthesizeName, isImageChanged, // "yes" or anything else / missing
         description, buyingCost, sellingCost, upgradeCost, synthesizeCost, successRate, isBuyingAllow, isSellingAllow, isSynthesizeAllow, } = req.body;
@@ -852,7 +830,7 @@ async function updateSwordLevel(req, res) {
             });
         }
         // ---------- 2. Find existing sword ----------
-        const existing = await client_1.default.swordLevelDefinition.findFirst({
+        const existing = await prisma.swordLevelDefinition.findFirst({
             where: {
                 OR: [
                     level !== undefined ? { level: Number(level) } : undefined,
@@ -921,7 +899,7 @@ async function updateSwordLevel(req, res) {
                 });
             }
             try {
-                const uploaded = await (0, uploadToCloudinary_1.uploadToCloudinary)(file.buffer, "sword-game/swords");
+                const uploaded = await uploadToCloudinary(file.buffer, "sword-game/swords");
                 newImageUrl = uploaded.secure_url;
                 if (!newImageUrl || newImageUrl === "") {
                     throw new Error("Cloudinary returned empty URL");
@@ -930,7 +908,7 @@ async function updateSwordLevel(req, res) {
                 if (existing.image) {
                     const oldPublicId = getPublicIdFromUrl(existing.image);
                     if (oldPublicId) {
-                        await cloudinary_1.default.uploader.destroy(oldPublicId);
+                        await cloudinary.uploader.destroy(oldPublicId);
                     }
                 }
             }
@@ -969,7 +947,7 @@ async function updateSwordLevel(req, res) {
                 isSynthesizeAllow === "true" ? true : false;
         // If name is provided and different → update (but check uniqueness if changed)
         if (name !== undefined && name.trim() !== existing.name) {
-            const nameExists = await client_1.default.swordLevelDefinition.findFirst({
+            const nameExists = await prisma.swordLevelDefinition.findFirst({
                 where: { name: name.trim(), id: { not: existing.id } },
             });
             if (nameExists) {
@@ -985,11 +963,11 @@ async function updateSwordLevel(req, res) {
             return res.json({
                 success: true,
                 message: "No changes provided - sword remains unchanged",
-                data: (0, serializeBigInt_1.serializeBigInt)(existing),
+                data: serializeBigInt(existing),
             });
         }
         // ---------- 6. Update ----------
-        const updated = await client_1.default.swordLevelDefinition.update({
+        const updated = await prisma.swordLevelDefinition.update({
             where: { id: existing.id },
             data: updateData,
             include: {
@@ -1000,7 +978,7 @@ async function updateSwordLevel(req, res) {
         return res.json({
             success: true,
             message: "Sword level updated successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(updated),
+            data: serializeBigInt(updated),
         });
     }
     catch (err) {
@@ -1023,7 +1001,7 @@ async function updateSwordLevel(req, res) {
 // → Only updates quantities for materials already linked to this sword
 // → Cannot add new materials or remove existing ones
 // In updateSynthesizeRequirements
-async function updateSynthesizeRequirements(req, res) {
+export async function updateSynthesizeRequirements(req, res) {
     try {
         const { level, materials } = req.body;
         if (level === undefined) {
@@ -1061,7 +1039,7 @@ async function updateSynthesizeRequirements(req, res) {
                 });
             }
         }
-        await client_1.default.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx) => {
             // 1. Find the sword
             const sword = await findSwordByLevel(tx, level);
             // 2. Get currently attached synthesis materials for this sword
@@ -1107,7 +1085,7 @@ async function updateSynthesizeRequirements(req, res) {
             });
         });
         // 7. Return full updated sword with relations
-        const fullSword = await client_1.default.swordLevelDefinition.findUnique({
+        const fullSword = await prisma.swordLevelDefinition.findUnique({
             where: { level: Number(level) },
             include: {
                 synthesisRequirements: true,
@@ -1117,7 +1095,7 @@ async function updateSynthesizeRequirements(req, res) {
         return res.json({
             success: true,
             message: "Sword Synthesize data is updated",
-            data: (0, serializeBigInt_1.serializeBigInt)(fullSword),
+            data: serializeBigInt(fullSword),
         });
     }
     catch (err) {
@@ -1129,7 +1107,7 @@ async function updateSynthesizeRequirements(req, res) {
     }
 }
 // 9) Similarly for updateUpgradeDrops
-async function updateUpgradeDrops(req, res) {
+export async function updateUpgradeDrops(req, res) {
     try {
         const { level, materials } = req.body;
         if (level === undefined) {
@@ -1198,7 +1176,7 @@ async function updateUpgradeDrops(req, res) {
                 error: `Drop percentages must sum exactly to 100 (current: ${totalDrop})`,
             });
         }
-        await client_1.default.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx) => {
             // 1. Find the sword
             const sword = await findSwordByLevel(tx, level);
             // 2. Get currently attached upgrade drops for this sword
@@ -1251,7 +1229,7 @@ async function updateUpgradeDrops(req, res) {
             });
         });
         // 7. Return full updated sword with relations
-        const fullSword = await client_1.default.swordLevelDefinition.findUnique({
+        const fullSword = await prisma.swordLevelDefinition.findUnique({
             where: { level: Number(level) },
             include: {
                 synthesisRequirements: true,
@@ -1260,7 +1238,7 @@ async function updateUpgradeDrops(req, res) {
         });
         return res.json({
             success: true,
-            data: (0, serializeBigInt_1.serializeBigInt)(fullSword),
+            data: serializeBigInt(fullSword),
         });
     }
     catch (err) {
@@ -1285,7 +1263,7 @@ async function updateUpgradeDrops(req, res) {
 // → Completely replaces old list with new one
 // → Can add new materials, remove old ones, change quantities/percentages
 // → No duplicates allowed
-async function updateSwordMaterials(req, res) {
+export async function updateSwordMaterials(req, res) {
     try {
         const { level, materials } = req.body;
         if (level === undefined) {
@@ -1371,7 +1349,7 @@ async function updateSwordMaterials(req, res) {
         // ────────────────────────────────────────────────
         // Check existence with BigInt IDs
         // ────────────────────────────────────────────────
-        const existingMaterials = await client_1.default.material.findMany({
+        const existingMaterials = await prisma.material.findMany({
             where: { id: { in: materialIds } },
             select: { id: true, name: true }, // ← added name for better debugging
         });
@@ -1390,7 +1368,7 @@ async function updateSwordMaterials(req, res) {
         // ────────────────────────────────────────────────
         // Transaction – full replace
         // ────────────────────────────────────────────────
-        await client_1.default.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx) => {
             const sword = await findSwordByLevel(tx, level);
             // Delete old ones
             await tx.swordSynthesisRequirement.deleteMany({
@@ -1423,7 +1401,7 @@ async function updateSwordMaterials(req, res) {
                 data: { successRate: sword.successRate }, // dummy
             });
         });
-        const fullSword = await client_1.default.swordLevelDefinition.findUnique({
+        const fullSword = await prisma.swordLevelDefinition.findUnique({
             where: { level: Number(level) },
             include: {
                 synthesisRequirements: {
@@ -1437,7 +1415,7 @@ async function updateSwordMaterials(req, res) {
         return res.json({
             success: true,
             message: "Sword materials fully updated",
-            data: (0, serializeBigInt_1.serializeBigInt)(fullSword),
+            data: serializeBigInt(fullSword),
         });
     }
     catch (err) {
@@ -1451,31 +1429,30 @@ async function updateSwordMaterials(req, res) {
 // 11) Create Gift (Admin)
 // Body example:
 // {
-//   "email": "user@example.com",           // or "userId": "123"
+//   "email": "user@example.com",           // or "userId": "123" or telegramUserName
 //   "note": "Happy birthday!",
 //   "items": [
 //     { "type": "GOLD", "amount": 5000 },
-//     { "type": "TRUST_POINTS", "amount": 200 },
 //     { "type": "MATERIAL", "materialId": 17, "materialQuantity": 50 },
 //     { "type": "SWORD", "swordLevel": 5 },
 //     { "type": "SHIELD", "amount": 10 }
 //   ]
 // }
-async function createGift(req, res) {
+export async function createGift(req, res) {
     try {
-        const { email, userId, type, amount, materialId, materialQuantity, swordLevel, swordQuantity, note, } = req.body;
+        const { email, userId, telegramUserName, type, amount, materialId, materialQuantity, swordLevel, swordQuantity, note, } = req.body;
         // Only one item type per gift (schema constraint: exactly one non-null content field)
-        if (!Object.values(client_2.GiftItemType).includes(type)) {
+        if (!Object.values(GiftItemType).includes(type)) {
             return res.status(400).json({
                 success: false,
-                error: `Invalid gift type. Allowed: ${Object.values(client_2.GiftItemType).join(", ")}`,
+                error: `Invalid gift type. Allowed: ${Object.values(GiftItemType).join(", ")}`,
             });
         }
         // ---------- Resolve Receiver ----------
         let receiverId;
         let receiver;
         if (userId) {
-            receiver = await client_1.default.user.findUnique({
+            receiver = await prisma.user.findUnique({
                 where: { id: BigInt(userId) },
                 select: { id: true, isBanned: true },
             });
@@ -1486,7 +1463,7 @@ async function createGift(req, res) {
             }
         }
         else if (email) {
-            receiver = await client_1.default.user.findUnique({
+            receiver = await prisma.user.findUnique({
                 where: { email: email },
                 select: { id: true, isBanned: true },
             });
@@ -1494,6 +1471,20 @@ async function createGift(req, res) {
                 return res
                     .status(404)
                     .json({ success: false, error: "User not found (by email)" });
+            }
+        }
+        else if (telegramUserName) {
+            receiver = await prisma.user.findFirst({
+                where: {
+                    telegramUser: telegramUserName.trim(),
+                },
+                select: { id: true, isBanned: true },
+            });
+            if (!receiver) {
+                return res.status(404).json({
+                    success: false,
+                    error: "User not found (by telegram username)",
+                });
             }
         }
         else {
@@ -1510,14 +1501,13 @@ async function createGift(req, res) {
         // ---------- Validate Content based on type ----------
         let giftData = {
             receiverId,
-            status: client_2.GiftStatus.PENDING,
+            status: GiftStatus.PENDING,
             note: note || null,
             type,
         };
         switch (type) {
-            case client_2.GiftItemType.GOLD:
-            case client_2.GiftItemType.TRUST_POINTS:
-            case client_2.GiftItemType.SHIELD:
+            case GiftItemType.GOLD:
+            case GiftItemType.SHIELD:
                 if (typeof amount !== "number" ||
                     amount <= 0 ||
                     !Number.isInteger(amount)) {
@@ -1528,7 +1518,7 @@ async function createGift(req, res) {
                 }
                 giftData.amount = amount;
                 break;
-            case client_2.GiftItemType.MATERIAL:
+            case GiftItemType.MATERIAL:
                 if (!materialId || BigInt(materialId) <= 0n) {
                     return res.status(400).json({
                         success: false,
@@ -1543,7 +1533,7 @@ async function createGift(req, res) {
                         error: "Positive integer materialQuantity required",
                     });
                 }
-                const material = await client_1.default.material.findUnique({
+                const material = await prisma.material.findUnique({
                     where: { id: BigInt(materialId) },
                     select: { id: true },
                 });
@@ -1556,7 +1546,7 @@ async function createGift(req, res) {
                 giftData.materialId = BigInt(materialId);
                 giftData.materialQuantity = materialQuantity;
                 break;
-            case client_2.GiftItemType.SWORD:
+            case GiftItemType.SWORD:
                 if (!swordLevel || !Number.isInteger(swordLevel) || swordLevel <= 0) {
                     return res.status(400).json({
                         success: false,
@@ -1571,7 +1561,7 @@ async function createGift(req, res) {
                         error: "Positive integer swordQuantity required",
                     });
                 }
-                const swordDef = await client_1.default.swordLevelDefinition.findUnique({
+                const swordDef = await prisma.swordLevelDefinition.findUnique({
                     where: { level: swordLevel },
                     select: { id: true },
                 });
@@ -1590,14 +1580,22 @@ async function createGift(req, res) {
                     .json({ success: false, error: "Unsupported gift type" });
         }
         // Create the gift
-        const createdGift = await client_1.default.userGift.create({
+        const createdGift = await prisma.userGift.create({
             data: giftData,
             include: {
-                receiver: { select: { id: true, name: true, email: true } },
-                material: type === client_2.GiftItemType.MATERIAL
+                receiver: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        isTelegramLogin: true,
+                        telegramUser: true,
+                    },
+                },
+                material: type === GiftItemType.MATERIAL
                     ? { select: { id: true, name: true, rarity: true } }
                     : undefined,
-                swordLevelDefinition: type === client_2.GiftItemType.SWORD
+                swordLevelDefinition: type === GiftItemType.SWORD
                     ? { select: { level: true, name: true } }
                     : undefined,
             },
@@ -1605,7 +1603,7 @@ async function createGift(req, res) {
         return res.status(201).json({
             success: true,
             message: "Gift created successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(createdGift),
+            data: serializeBigInt(createdGift),
         });
     }
     catch (err) {
@@ -1622,7 +1620,7 @@ async function createGift(req, res) {
     }
 }
 // 12) Cancel Gift (only if PENDING)
-async function cancelGift(req, res) {
+export async function cancelGift(req, res) {
     try {
         const { giftId } = req.body;
         if (!giftId || isNaN(Number(giftId))) {
@@ -1630,22 +1628,22 @@ async function cancelGift(req, res) {
                 .status(400)
                 .json({ success: false, error: "Valid giftId is required" });
         }
-        const gift = await client_1.default.userGift.findUnique({
+        const gift = await prisma.userGift.findUnique({
             where: { id: BigInt(giftId) },
             select: { status: true },
         });
         if (!gift) {
             return res.status(404).json({ success: false, error: "Gift not found" });
         }
-        if (gift.status !== client_2.GiftStatus.PENDING) {
+        if (gift.status !== GiftStatus.PENDING) {
             return res.status(400).json({
                 success: false,
                 error: "Only pending gifts can be cancelled",
             });
         }
-        await client_1.default.userGift.update({
+        await prisma.userGift.update({
             where: { id: BigInt(giftId) },
-            data: { status: client_2.GiftStatus.CANCELLED, cancelledAt: new Date() },
+            data: { status: GiftStatus.CANCELLED, cancelledAt: new Date() },
         });
         return res.json({
             success: true,
@@ -1660,7 +1658,7 @@ async function cancelGift(req, res) {
     }
 }
 // 13) Delete Gift (only if PENDING)
-async function deleteGift(req, res) {
+export async function deleteGift(req, res) {
     try {
         const { giftId } = req.body;
         if (!giftId || isNaN(Number(giftId))) {
@@ -1668,21 +1666,21 @@ async function deleteGift(req, res) {
                 .status(400)
                 .json({ success: false, error: "Valid giftId is required" });
         }
-        const gift = await client_1.default.userGift.findUnique({
+        const gift = await prisma.userGift.findUnique({
             where: { id: BigInt(giftId) },
             select: { status: true },
         });
         if (!gift) {
             return res.status(404).json({ success: false, error: "Gift not found" });
         }
-        if (gift.status !== client_2.GiftStatus.PENDING) {
+        if (gift.status !== GiftStatus.PENDING) {
             return res.status(400).json({
                 success: false,
                 error: "Only pending gifts can be deleted",
             });
         }
-        await client_1.default.$transaction([
-            client_1.default.userGift.delete({ where: { id: BigInt(giftId) } }),
+        await prisma.$transaction([
+            prisma.userGift.delete({ where: { id: BigInt(giftId) } }),
         ]);
         return res.json({ success: true, message: "Gift deleted successfully" });
     }
@@ -1694,7 +1692,7 @@ async function deleteGift(req, res) {
     }
 }
 // 14) create daily missions
-async function createDailyMission(req, res) {
+export async function createDailyMission(req, res) {
     try {
         const { title, description, conditions, targetValue, reward } = req.body;
         if (!title || !conditions || !reward || !targetValue) {
@@ -1715,7 +1713,7 @@ async function createDailyMission(req, res) {
                 error: "targetValue must be positive integer",
             });
         }
-        const mission = await client_1.default.dailyMissionDefinition.create({
+        const mission = await prisma.dailyMissionDefinition.create({
             data: {
                 title,
                 description,
@@ -1727,7 +1725,7 @@ async function createDailyMission(req, res) {
         return res.json({
             success: true,
             message: "Daily mission created",
-            data: (0, serializeBigInt_1.serializeBigInt)(mission),
+            data: serializeBigInt(mission),
         });
     }
     catch (err) {
@@ -1739,7 +1737,7 @@ async function createDailyMission(req, res) {
     }
 }
 // 15) Pause / Activate Daily Mission
-async function toggleDailyMission(req, res) {
+export async function toggleDailyMission(req, res) {
     try {
         const { id, isActive } = req.body;
         if (!id) {
@@ -1749,7 +1747,7 @@ async function toggleDailyMission(req, res) {
             });
         }
         const missionId = BigInt(id);
-        const existing = await client_1.default.dailyMissionDefinition.findUnique({
+        const existing = await prisma.dailyMissionDefinition.findUnique({
             where: { id: missionId },
             select: { id: true, isActive: true },
         });
@@ -1765,14 +1763,14 @@ async function toggleDailyMission(req, res) {
                 message: `Mission already ${isActive ? "active" : "paused"}`,
             });
         }
-        const updated = await client_1.default.dailyMissionDefinition.update({
+        const updated = await prisma.dailyMissionDefinition.update({
             where: { id: missionId },
             data: { isActive: Boolean(isActive) },
         });
         return res.json({
             success: true,
             message: `Daily mission ${isActive ? "activated" : "paused"} successfully`,
-            data: (0, serializeBigInt_1.serializeBigInt)(updated),
+            data: serializeBigInt(updated),
         });
     }
     catch (err) {
@@ -1784,7 +1782,7 @@ async function toggleDailyMission(req, res) {
     }
 }
 // 16) Delete Daily Mission
-async function deleteDailyMission(req, res) {
+export async function deleteDailyMission(req, res) {
     try {
         const { id } = req.body;
         if (!id) {
@@ -1794,7 +1792,7 @@ async function deleteDailyMission(req, res) {
             });
         }
         const missionId = BigInt(id);
-        const existing = await client_1.default.dailyMissionDefinition.findUnique({
+        const existing = await prisma.dailyMissionDefinition.findUnique({
             where: { id: missionId },
             select: { id: true },
         });
@@ -1804,7 +1802,7 @@ async function deleteDailyMission(req, res) {
                 error: "Daily mission not found",
             });
         }
-        await client_1.default.dailyMissionDefinition.delete({
+        await prisma.dailyMissionDefinition.delete({
             where: { id: missionId },
         });
         return res.json({
@@ -1821,7 +1819,7 @@ async function deleteDailyMission(req, res) {
     }
 }
 // 17) Create One-Time Mission
-async function createOneTimeMission(req, res) {
+export async function createOneTimeMission(req, res) {
     try {
         const { title, description, conditions, targetValue, reward, startAt, expiresAt, } = req.body;
         if (!title || !conditions || !reward || !targetValue) {
@@ -1838,7 +1836,7 @@ async function createOneTimeMission(req, res) {
                 error: "expiresAt must be after startAt",
             });
         }
-        const mission = await client_1.default.oneTimeMissionDefinition.create({
+        const mission = await prisma.oneTimeMissionDefinition.create({
             data: {
                 title,
                 description,
@@ -1852,7 +1850,7 @@ async function createOneTimeMission(req, res) {
         return res.json({
             success: true,
             message: "One-time mission created",
-            data: (0, serializeBigInt_1.serializeBigInt)(mission),
+            data: serializeBigInt(mission),
         });
     }
     catch (err) {
@@ -1864,7 +1862,7 @@ async function createOneTimeMission(req, res) {
     }
 }
 // 18) Pause / Activate One-Time Mission
-async function toggleOneTimeMission(req, res) {
+export async function toggleOneTimeMission(req, res) {
     try {
         const { id, isActive } = req.body;
         if (!id) {
@@ -1874,7 +1872,7 @@ async function toggleOneTimeMission(req, res) {
             });
         }
         const missionId = BigInt(id);
-        const result = await client_1.default.oneTimeMissionDefinition.updateMany({
+        const result = await prisma.oneTimeMissionDefinition.updateMany({
             where: { id: missionId },
             data: { isActive: Boolean(isActive) },
         });
@@ -1898,7 +1896,7 @@ async function toggleOneTimeMission(req, res) {
     }
 }
 // 19) Delete One-Time Mission
-async function deleteOneTimeMission(req, res) {
+export async function deleteOneTimeMission(req, res) {
     try {
         const { id } = req.body;
         if (!id) {
@@ -1908,7 +1906,7 @@ async function deleteOneTimeMission(req, res) {
             });
         }
         const missionId = BigInt(id);
-        const existing = await client_1.default.oneTimeMissionDefinition.findUnique({
+        const existing = await prisma.oneTimeMissionDefinition.findUnique({
             where: { id: missionId },
             select: { id: true },
         });
@@ -1918,7 +1916,7 @@ async function deleteOneTimeMission(req, res) {
                 error: "One-time mission not found",
             });
         }
-        await client_1.default.oneTimeMissionDefinition.delete({
+        await prisma.oneTimeMissionDefinition.delete({
             where: { id: missionId },
         });
         return res.json({
@@ -1934,7 +1932,8 @@ async function deleteOneTimeMission(req, res) {
         });
     }
 }
-const createNotification = async (req, res) => {
+// 20)
+export const createNotification = async (req, res) => {
     try {
         const { title, description, webLink } = req.body;
         if (!title || !description) {
@@ -1943,7 +1942,7 @@ const createNotification = async (req, res) => {
                 error: "Title and description are required",
             });
         }
-        const notification = await client_1.default.notification.create({
+        const notification = await prisma.notification.create({
             data: {
                 title,
                 description,
@@ -1953,7 +1952,7 @@ const createNotification = async (req, res) => {
         return res.status(201).json({
             success: true,
             message: "Notification created successfully",
-            data: (0, serializeBigInt_1.serializeBigInt)(notification),
+            data: serializeBigInt(notification),
         });
     }
     catch (err) {
@@ -1964,8 +1963,8 @@ const createNotification = async (req, res) => {
         });
     }
 };
-exports.createNotification = createNotification;
-const deleteNotification = async (req, res) => {
+// 21)
+export const deleteNotification = async (req, res) => {
     try {
         const { id } = req.body;
         if (!id || isNaN(Number(id))) {
@@ -1976,7 +1975,7 @@ const deleteNotification = async (req, res) => {
         }
         const notificationId = BigInt(id);
         // Check if notification exists
-        const existing = await client_1.default.notification.findUnique({
+        const existing = await prisma.notification.findUnique({
             where: { id: notificationId },
         });
         if (!existing) {
@@ -1986,7 +1985,7 @@ const deleteNotification = async (req, res) => {
             });
         }
         // Delete the notification
-        await client_1.default.notification.delete({
+        await prisma.notification.delete({
             where: { id: notificationId },
         });
         return res.status(200).json({
@@ -2002,5 +2001,4 @@ const deleteNotification = async (req, res) => {
         });
     }
 };
-exports.deleteNotification = deleteNotification;
 //# sourceMappingURL=adminActionController.js.map

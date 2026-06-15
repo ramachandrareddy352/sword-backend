@@ -1,24 +1,26 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = __importDefault(require("express"));
-const userAuth_1 = __importDefault(require("../middleware/userAuth"));
-const userAuthController_1 = require("../controllers/userAuthController");
-const router = express_1.default.Router();
-router.get("/me", userAuth_1.default, (_req, res) => {
+import express from "express";
+import userAuth from "../middleware/userAuth.js";
+import { 
+// sendVerification,
+// verifyRegistration,
+// login,
+// forgotPassword,
+// resetPassword,
+logout, googleLogin, requestCancelMembership, confirmCancelMembership, googleWebLogin, telegramLogin, } from "../controllers/userAuthController.js";
+const router = express.Router();
+router.get("/me", userAuth, (_req, res) => {
     res.json({ success: true });
 });
-router.post("/register/send-code", userAuthController_1.sendVerification);
-router.post("/register/verify", userAuthController_1.verifyRegistration);
-router.post("/login", userAuthController_1.login);
-router.post("/forgot/send-code", userAuthController_1.forgotPassword);
-router.post("/forgot/verify", userAuthController_1.resetPassword);
-router.post("/logout", userAuth_1.default, userAuthController_1.logout);
-router.post("/google-login", userAuthController_1.googleLogin);
-router.post("/google-web-login", userAuthController_1.googleWebLogin);
-router.post("/cancel-membership/request", userAuth_1.default, userAuthController_1.requestCancelMembership);
-router.post("/cancel-membership/confirm", userAuth_1.default, userAuthController_1.confirmCancelMembership);
-exports.default = router;
+// router.post("/register/send-code", sendVerification);
+// router.post("/register/verify", verifyRegistration);
+// router.post("/login", login);
+// router.post("/forgot/send-code", forgotPassword);
+// router.post("/forgot/verify", resetPassword);
+router.post("/logout", userAuth, logout);
+router.post("/google-login", googleLogin);
+router.post("/google-web-login", googleWebLogin);
+router.post("/telegram-login", telegramLogin);
+router.post("/cancel-membership/request", userAuth, requestCancelMembership);
+router.post("/cancel-membership/confirm", userAuth, confirmCancelMembership);
+export default router;
 //# sourceMappingURL=userAuthRoutes.js.map

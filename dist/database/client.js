@@ -1,8 +1,6 @@
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-const client_1 = require("@prisma/client");
+import { PrismaClient } from "@prisma/client";
 const prismaClient = global.prisma ??
-    new client_1.PrismaClient({
+    new PrismaClient({
         log: process.env.NODE_ENV === "development"
             ? ["error", "warn"]
             : ["error"],
@@ -10,5 +8,5 @@ const prismaClient = global.prisma ??
 if (process.env.NODE_ENV !== "production") {
     global.prisma = prismaClient;
 }
-exports.default = prismaClient;
+export default prismaClient;
 //# sourceMappingURL=client.js.map

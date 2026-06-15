@@ -1,389 +1,48 @@
-"use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendVerification = sendVerification;
-exports.verifyRegistration = verifyRegistration;
-exports.login = login;
-exports.forgotPassword = forgotPassword;
-exports.resetPassword = resetPassword;
-exports.logout = logout;
-exports.googleLogin = googleLogin;
-exports.requestCancelMembership = requestCancelMembership;
-exports.confirmCancelMembership = confirmCancelMembership;
-exports.googleWebLogin = googleWebLogin;
-const google_auth_library_1 = require("google-auth-library");
-const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
-const uuid_1 = require("uuid");
-const client_1 = __importDefault(require("../database/client"));
-const redis_1 = __importDefault(require("../config/redis"));
-const bcrypt_1 = __importDefault(require("bcrypt"));
-const generateOTP_1 = require("../services/generateOTP");
-const serializeBigInt_1 = require("../services/serializeBigInt");
-async function sendVerification(req, res) {
-    try {
-        const { email, password, name } = req.body;
-        /* ---------- VALIDATION ---------- */
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        const usernameRegex = /^(?=.*[a-z])[a-z0-9._@#$%&*!-]{3,15}$/;
-        if (!email || !password || !name) {
-            return res.status(400).json({
-                success: false,
-                error: "Email, password and username are required",
-            });
-        }
-        if (!emailRegex.test(email)) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid email format",
-            });
-        }
-        if (password.length < 8) {
-            return res.status(400).json({
-                success: false,
-                error: "Password must be at least 8 characters",
-            });
-        }
-        if (!usernameRegex.test(name)) {
-            return res.status(400).json({
-                success: false,
-                error: "Username must be lowercase, 3–15 chars, no spaces. Special chars allowed.",
-            });
-        }
-        /* ---------- CHECK EXISTING USER ---------- */
-        const existing = await client_1.default.user.findUnique({
-            where: { email },
-        });
-        if (existing) {
-            return res.status(400).json({
-                success: false,
-                error: "Email already registered",
-            });
-        }
-        /* ---------- HASH PASSWORD ---------- */
-        const hashedPassword = await bcrypt_1.default.hash(password, 10);
-        /* ---------- STORE TEMP DATA IN REDIS ---------- */
-        await redis_1.default.set(`verify:data:${email}`, JSON.stringify({ email, name, password: hashedPassword }), { EX: 900 });
-        /* ---------- GENERATE OTP ---------- */
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
-        await redis_1.default.set(`verify:otp:${email}`, code, { EX: 900 });
-        await (0, generateOTP_1.sendEmail)(email, "Account Verification Code", `Your verification code is ${code}. It expires in 15 minutes.`);
-        return res.json({
-            success: true,
-            message: "Verification code sent to email",
-        });
-    }
-    catch (err) {
-        console.error("sendVerification error:", err);
-        return res.status(500).json({
-            success: false,
-            error: "Internal server error",
-        });
-    }
-}
-async function verifyRegistration(req, res) {
-    try {
-        const { email, code } = req.body;
-        if (!email || !code) {
-            return res.status(400).json({
-                success: false,
-                error: "Email and verification code are required",
-            });
-        }
-        const otpKey = `verify:otp:${email}`;
-        const attemptsKey = `verify:otp:attempts:${email}`;
-        const storedOtp = await redis_1.default.get(otpKey);
-        if (!storedOtp) {
-            return res.status(400).json({
-                success: false,
-                error: "Verification code expired. Please request a new one.",
-            });
-        }
-        let attempts = Number(await redis_1.default.get(attemptsKey)) || 0;
-        // Max attempts reached → invalidate OTP
-        if (attempts >= 5) {
-            await redis_1.default.del(otpKey);
-            await redis_1.default.del(attemptsKey);
-            await redis_1.default.del(`verify:data:${email}`);
-            return res.status(429).json({
-                success: false,
-                error: "Too many invalid attempts. Verification code expired. Please request a new code.",
-            });
-        }
-        // Wrong OTP → increment attempts
-        if (storedOtp !== code) {
-            const newAttempts = attempts + 1;
-            await redis_1.default.set(attemptsKey, newAttempts.toString(), { EX: 900 });
-            return res.status(400).json({
-                success: false,
-                error: `Invalid verification code. Attempts left: ${5 - newAttempts}`,
-            });
-        }
-        // Correct OTP → proceed with registration
-        const tempData = await redis_1.default.get(`verify:data:${email}`);
-        if (!tempData) {
-            await redis_1.default.del(otpKey);
-            await redis_1.default.del(attemptsKey);
-            return res.status(400).json({
-                success: false,
-                error: "Registration session expired. Please try again.",
-            });
-        }
-        const { name, password } = JSON.parse(tempData);
-        const config = await client_1.default.adminConfig.findUnique({
-            where: { id: BigInt(1) },
-            select: {
-                defaultGold: true,
-                defaultTrustPoints: true,
-            },
-        });
-        if (!config) {
-            return res.status(500).json({
-                success: false,
-                error: "Admin config not found",
-            });
-        }
-        // Find level 1 sword definition
-        const levelOneSwordDef = await client_1.default.swordLevelDefinition.findFirst({
-            where: { level: 1 },
-            select: { id: true, level: true },
-        });
-        if (!levelOneSwordDef) {
-            return res.status(500).json({
-                success: false,
-                error: "Starter sword definition (level 1) not found",
-            });
-        }
-        const newUser = await client_1.default.$transaction(async (tx) => {
-            // Create the user
-            const createdUser = await tx.user.create({
-                data: {
-                    email,
-                    name,
-                    password,
-                    gold: config.defaultGold,
-                    trustPoints: config.defaultTrustPoints,
-                    lastReviewed: new Date(),
-                    lastLoginAt: new Date(),
-                },
-            });
-            // Directly give starter sword (level 1) with quantity 1
-            await tx.userSword.upsert({
-                where: {
-                    userId_swordId: {
-                        userId: createdUser.id,
-                        swordId: BigInt(levelOneSwordDef.id),
-                    },
-                },
-                update: {
-                    unsoldQuantity: { increment: 1 },
-                },
-                create: {
-                    userId: createdUser.id,
-                    swordId: BigInt(levelOneSwordDef.id),
-                    isOnAnvil: true,
-                    unsoldQuantity: 1,
-                    soldedQuantity: 0,
-                    brokenQuantity: 0,
-                },
-            });
-            // Set as anvil sword
-            await tx.user.update({
-                where: { id: createdUser.id },
-                data: { anvilSwordLevel: BigInt(levelOneSwordDef.id) },
-            });
-            return createdUser;
-        });
-        // Cleanup Redis
-        await redis_1.default.del(`verify:otp:${email}`);
-        await redis_1.default.del(`verify:otp:attempts:${email}`);
-        await redis_1.default.del(`verify:data:${email}`);
-        // Create JWT session
-        const jti = (0, uuid_1.v4)();
-        const token = jsonwebtoken_1.default.sign({ userId: newUser.id.toString(), jti }, process.env.JWT_SECRET, { expiresIn: "2h" });
-        await redis_1.default.set(`session:${jti}`, newUser.id.toString(), {
-            EX: 60 * 60 * 2,
-        });
-        return res.json({
-            success: true,
-            message: "Registration successful! Welcome to the game. You received a starter sword (Level 1) and it has been placed on your anvil.",
-            token,
-            data: (0, serializeBigInt_1.serializeBigInt)(newUser),
-        });
-    }
-    catch (err) {
-        console.error("verifyRegistration error:", err);
-        return res.status(500).json({
-            success: false,
-            error: "Registration failed. Please try again later.",
-        });
-    }
-}
-async function login(req, res) {
-    try {
-        const { email, password } = req.body;
-        if (!email || !password) {
-            return res
-                .status(400)
-                .json({ success: false, error: "Email and password are required" });
-        }
-        const user = await client_1.default.user.findUnique({ where: { email } });
-        if (!user) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid credentials or email not verified",
-            });
-        }
-        const isMatch = await bcrypt_1.default.compare(password, user.password);
-        if (!isMatch) {
-            return res
-                .status(400)
-                .json({ success: false, error: "Invalid credentials" });
-        }
-        const jti = (0, uuid_1.v4)();
-        const token = jsonwebtoken_1.default.sign({ userId: user.id.toString(), jti }, process.env.JWT_SECRET, { expiresIn: "2h" });
-        await redis_1.default.set(`session:${jti}`, user.id.toString(), { EX: 60 * 60 * 2 }); // 120 minutes
-        await client_1.default.user.update({
-            where: { id: user.id },
-            data: { lastLoginAt: new Date() },
-        });
-        return res.json({
-            success: true,
-            message: "User login is successfull",
-            token,
-            data: {
-                id: user.id.toString(),
-                email: user.email,
-                name: user.name,
-            },
-        });
-    }
-    catch (err) {
-        console.error("Error in login:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Internal server error" });
-    }
-}
-async function forgotPassword(req, res) {
-    try {
-        const { email } = req.body;
-        if (!email) {
-            return res
-                .status(400)
-                .json({ success: false, error: "Email is required" });
-        }
-        const user = await client_1.default.user.findUnique({ where: { email } });
-        if (!user) {
-            return res.status(404).json({ success: false, error: "User not found" });
-        }
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
-        await redis_1.default.set(`reset:${email}`, code, { EX: 900 }); // 15 minutes expiry
-        await (0, generateOTP_1.sendEmail)(email, "Password Reset Code", `Your password reset code is: ${code}. It expires in 15 minutes.`);
-        return res.json({
-            success: true,
-            message: "Password reset code sent to your email",
-        });
-    }
-    catch (err) {
-        console.error("Error in forgotPassword:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Internal server error" });
-    }
-}
-async function resetPassword(req, res) {
-    try {
-        const { email, code, newPassword } = req.body;
-        if (!email || !code || !newPassword) {
-            return res.status(400).json({
-                success: false,
-                error: "Email, code, and new password are required",
-            });
-        }
-        const otpKey = `reset:${email}`;
-        const attemptsKey = `reset:attempts:${email}`;
-        const storedCode = await redis_1.default.get(otpKey);
-        if (!storedCode) {
-            return res.status(400).json({
-                success: false,
-                error: "Reset code expired. Please request a new one.",
-            });
-        }
-        let attempts = Number(await redis_1.default.get(attemptsKey)) || 0;
-        // Max attempts → invalidate
-        if (attempts >= 5) {
-            await redis_1.default.del(otpKey);
-            await redis_1.default.del(attemptsKey);
-            return res.status(429).json({
-                success: false,
-                error: "Too many invalid attempts. Reset code expired. Please request a new code.",
-            });
-        }
-        // Wrong code → increment
-        if (storedCode !== code) {
-            const newAttempts = attempts + 1;
-            await redis_1.default.set(attemptsKey, newAttempts.toString(), { EX: 900 });
-            return res.status(400).json({
-                success: false,
-                error: `Invalid reset code. Attempts left: ${5 - newAttempts}`,
-            });
-        }
-        // Correct code → reset password
-        const salt = await bcrypt_1.default.genSalt(10);
-        const hashedPassword = await bcrypt_1.default.hash(newPassword, salt);
-        await client_1.default.user.update({
-            where: { email },
-            data: { password: hashedPassword },
-        });
-        // Cleanup
-        await redis_1.default.del(otpKey);
-        await redis_1.default.del(attemptsKey);
-        return res.json({
-            success: true,
-            message: "Password has been reset successfully. Please login.",
-        });
-    }
-    catch (err) {
-        console.error("resetPassword error:", err);
-        return res.status(500).json({
-            success: false,
-            error: "Failed to reset password. Please try again.",
-        });
-    }
-}
-async function logout(req, res) {
+import { OAuth2Client } from "google-auth-library";
+import jwt from "jsonwebtoken";
+import { v4 as uuidv4 } from "uuid";
+import prisma from "../database/client.js";
+import redis from "../config/redis.js";
+import { sendEmail } from "../services/generateOTP.js";
+import { sendTelegramMessage, verifyTelegramData, } from "../services/tgServices.js";
+export async function logout(req, res) {
     try {
         const auth = req.headers.authorization;
         if (!auth) {
-            return res.json({ success: true, message: "Logged out" });
+            return res.json({
+                success: true,
+                message: req.t("userAuth.success.logout"),
+            });
         }
         const token = auth.split(" ")[1];
-        const payload = jsonwebtoken_1.default.decode(token);
+        const payload = jwt.decode(token);
         if (payload?.jti) {
-            await redis_1.default.del(`session:${payload.jti}`);
+            await redis.del(`session:${payload.jti}`);
         }
-        return res.json({ success: true, message: "Logged out successfully" });
+        return res.json({
+            success: true,
+            message: req.t("userAuth.success.logout"),
+        });
     }
     catch (err) {
         console.error("Error in logout:", err);
-        return res
-            .status(500)
-            .json({ success: false, error: "Internal server error" });
+        return res.status(500).json({
+            success: false,
+            error: req.t("userAuth.error.internalServerError"),
+        });
     }
 }
-async function googleLogin(req, res) {
+export async function googleLogin(req, res) {
     try {
         const { idToken, os, isDev } = req.body;
         const clientId = isDev === "true"
             ? process.env.DEV_GOOGLE_WEB_CLIENT_ID
             : process.env.GOOGLE_WEB_CLIENT_ID;
-        const googleClient = new google_auth_library_1.OAuth2Client(clientId);
+        const googleClient = new OAuth2Client(clientId);
         if (!idToken) {
             return res.status(400).json({
                 success: false,
-                error: "Google ID token is required",
+                error: req.t("userAuth.error.googleIdTokenRequired"),
             });
         }
         // 1️⃣ Verify token with Google
@@ -395,41 +54,45 @@ async function googleLogin(req, res) {
         if (!payload || !payload.email) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid Google token",
+                error: req.t("userAuth.error.invalidGoogleToken"),
             });
         }
-        const { email, name } = payload;
+        const { email, name, profile } = payload;
         // 2️⃣ Check if user exists
-        let user = await client_1.default.user.findUnique({
+        let user = await prisma.user.findUnique({
             where: { email },
         });
         // 3️⃣ If not exists → create user + give starter sword directly
         if (!user) {
-            const config = await client_1.default.adminConfig.findUnique({
+            const config = await prisma.adminConfig.findUnique({
                 where: { id: BigInt(1) },
             });
             if (!config) {
                 return res.status(500).json({
                     success: false,
-                    error: "Admin config not found",
+                    error: req.t("userAuth.error.adminConfigNotFound"),
                 });
             }
-            const levelOneSwordDef = await client_1.default.swordLevelDefinition.findFirst({
+            const levelOneSwordDef = await prisma.swordLevelDefinition.findFirst({
                 where: { level: 1 },
                 select: { id: true, level: true },
             });
             if (!levelOneSwordDef) {
                 return res.status(500).json({
                     success: false,
-                    error: "Starter sword definition (level 1) not found",
+                    error: req.t("userAuth.error.starterSwordNotFound"),
                 });
             }
-            user = await client_1.default.$transaction(async (tx) => {
+            user = await prisma.$transaction(async (tx) => {
                 const newUser = await tx.user.create({
                     data: {
+                        isTelegramLogin: false,
+                        telegramId: null,
+                        telegramUser: null,
                         email,
                         name: name?.toLowerCase().replace(/\s/g, "") || "googleuser",
-                        password: "", // No password for Google
+                        password: "", // No password for Google login
+                        profileLogo: profile,
                         gold: config.defaultGold ?? 0,
                         trustPoints: config.defaultTrustPoints ?? 0,
                         lastReviewed: new Date(),
@@ -464,182 +127,52 @@ async function googleLogin(req, res) {
                 return newUser;
             });
         }
+        // EXISTING USER → update profile only
+        else {
+            await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    name: name || user.name,
+                    profileLogo: profile,
+                },
+            });
+        }
         // 4️⃣ Create JWT session
-        const jti = (0, uuid_1.v4)();
-        const token = jsonwebtoken_1.default.sign({ userId: user.id.toString(), jti }, process.env.JWT_SECRET, { expiresIn: "2h" });
-        await redis_1.default.set(`session:${jti}`, user.id.toString(), { EX: 60 * 60 * 2 });
+        const jti = uuidv4();
+        const token = jwt.sign({ userId: user.id.toString(), jti }, process.env.JWT_SECRET, { expiresIn: "2h" });
+        await redis.set(`session:${jti}`, user.id.toString(), { EX: 60 * 60 * 2 });
         return res.json({
             success: true,
             token,
             data: {
                 id: user.id.toString(),
                 email: user.email,
-                name: user.name,
+                name: name,
             },
             message: user.createdAt.getTime() === user.lastLoginAt?.getTime()
-                ? "Welcome! You received a starter sword (Level 1) placed on your anvil."
-                : "Login successful!",
+                ? req.t("userAuth.success.welcomeStarterSword")
+                : req.t("userAuth.success.googleLogin"),
         });
     }
     catch (err) {
         console.error("Google login error:", err);
         return res.status(400).json({
             success: false,
-            error: "Google authentication failed",
+            error: req.t("userAuth.error.googleAuthFailed"),
         });
     }
 }
-//  Request Cancel Membership → Send OTP to user's email
-async function requestCancelMembership(req, res) {
-    try {
-        const userId = BigInt(req.user.userId); // from JWT via userAuth middleware
-        const user = await client_1.default.user.findUnique({
-            where: { id: userId },
-            select: { email: true, name: true },
-        });
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                error: "User not found",
-            });
-        }
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        // Send email
-        await (0, generateOTP_1.sendEmail)(user.email, "Account Deletion Request - OTP", `Hello ${user.name},\n\nYou requested to delete your account.\n\nYour confirmation OTP is: **${otp}**\n\nThis code expires in 15 minutes.\n\nIf you did not request this, please ignore this email.\n\nFor security, this action cannot be undone.`);
-        const otpKey = `cancel:otp:${user.email}`;
-        const attemptsKey = `cancel:otp:attempts:${user.email}`;
-        // Save OTP (15 min expiry)
-        await redis_1.default.set(otpKey, otp, { EX: 900 });
-        // Reset attempts
-        await redis_1.default.set(attemptsKey, "0", { EX: 900 });
-        return res.json({
-            success: true,
-            message: "OTP sent to your registered email for account deletion confirmation",
-        });
-    }
-    catch (err) {
-        console.error("requestCancelMembership error:", err);
-        return res.status(500).json({
-            success: false,
-            error: "Failed to send OTP. Please try again later.",
-        });
-    }
-}
-//  Confirm Cancel Membership → Verify OTP & Delete Account
-async function confirmCancelMembership(req, res) {
-    try {
-        const userId = BigInt(req.user.userId);
-        const { otp } = req.body;
-        if (!otp) {
-            return res.status(400).json({
-                success: false,
-                error: "OTP code is required",
-            });
-        }
-        const user = await client_1.default.user.findUnique({
-            where: { id: userId },
-            select: { email: true },
-        });
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                error: "User not found",
-            });
-        }
-        const otpKey = `cancel:otp:${user.email}`;
-        const attemptsKey = `cancel:otp:attempts:${user.email}`;
-        const storedOtp = await redis_1.default.get(otpKey);
-        if (!storedOtp) {
-            return res.status(400).json({
-                success: false,
-                error: "OTP expired or invalid. Please request a new one.",
-            });
-        }
-        let attempts = Number(await redis_1.default.get(attemptsKey)) || 0;
-        // Too many failed attempts
-        if (attempts >= 5) {
-            await redis_1.default.del(otpKey);
-            await redis_1.default.del(attemptsKey);
-            return res.status(429).json({
-                success: false,
-                error: "Too many invalid attempts. OTP expired. Please request a new code.",
-            });
-        }
-        // Wrong OTP
-        if (storedOtp !== otp) {
-            const newAttempts = attempts + 1;
-            await redis_1.default.set(attemptsKey, newAttempts.toString(), { EX: 900 });
-            return res.status(400).json({
-                success: false,
-                error: `Invalid OTP. Attempts left: ${5 - newAttempts}`,
-            });
-        }
-        // Correct OTP → Proceed with full account deletion
-        await client_1.default.$transaction(async (tx) => {
-            // Because we set onDelete: Cascade on almost all relations,
-            // deleting the user will automatically delete:
-            // - AdRewardSession
-            // - SwordSynthesisHistory
-            // - SwordUpgradeHistory
-            // - UserSword (including anvil)
-            // - UserVoucher
-            // - UserMaterial
-            // - UserGift (+ UserGiftItem via cascade)
-            // - SwordMarketplacePurchase
-            // - MaterialMarketplacePurchase
-            // - ShieldMarketplacePurchase
-            // - CustomerSupport
-            await tx.user.delete({
-                where: { id: userId },
-            });
-        });
-        // Invalidate current session
-        const authHeader = req.headers.authorization;
-        if (authHeader) {
-            const token = authHeader.split(" ")[1];
-            try {
-                const payload = jsonwebtoken_1.default.decode(token);
-                if (payload?.jti) {
-                    await redis_1.default.del(`session:${payload.jti}`);
-                }
-            }
-            catch (e) {
-                // silent fail
-            }
-        }
-        // Cleanup OTP data
-        await redis_1.default.del(otpKey);
-        await redis_1.default.del(attemptsKey);
-        return res.json({
-            success: true,
-            message: "Your account and all associated data have been permanently deleted. You have been logged out.",
-        });
-    }
-    catch (err) {
-        console.error("confirmCancelMembership error:", err);
-        if (err.code === "P2025") {
-            return res.status(404).json({
-                success: false,
-                error: "Account not found or already deleted",
-            });
-        }
-        return res.status(500).json({
-            success: false,
-            error: "Failed to delete account. Please try again or contact support.",
-        });
-    }
-}
-async function googleWebLogin(req, res) {
+export async function googleWebLogin(req, res) {
     try {
         const { idToken, os, isDev } = req.body;
         const clientId = isDev === "true"
             ? process.env.DEV_GOOGLE_WEB_CLIENT_ID
             : process.env.GOOGLE_WEB_CLIENT_ID;
-        const googleClient = new google_auth_library_1.OAuth2Client(clientId);
+        const googleClient = new OAuth2Client(clientId);
         if (!idToken) {
             return res.status(400).json({
                 success: false,
-                error: "Google ID token is required",
+                error: req.t("userAuth.error.googleIdTokenRequired"),
             });
         }
         // 1️⃣ Verify token with Google
@@ -651,41 +184,337 @@ async function googleWebLogin(req, res) {
         if (!payload || !payload.email) {
             return res.status(400).json({
                 success: false,
-                error: "Invalid Google token",
+                error: req.t("userAuth.error.invalidGoogleToken"),
             });
         }
-        const { email } = payload;
+        const { email, name, profile } = payload;
         // 2️⃣ Check if user exists
-        let user = await client_1.default.user.findUnique({
+        let user = await prisma.user.findUnique({
             where: { email },
         });
         // 3️⃣ If not exists → error
         if (!user) {
             return res.status(400).json({
                 success: false,
-                error: "User account not found",
+                error: req.t("userAuth.error.userAccountNotFound"),
             });
         }
+        // EXISTING USER → update profile only
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                name: name || user.name,
+                profileLogo: profile,
+            },
+        });
         // 4️⃣ Create JWT session
-        const jti = (0, uuid_1.v4)();
-        const token = jsonwebtoken_1.default.sign({ userId: user.id.toString(), jti }, process.env.JWT_SECRET, { expiresIn: "2h" });
-        await redis_1.default.set(`session:${jti}`, user.id.toString(), { EX: 60 * 60 * 2 });
+        const jti = uuidv4();
+        const token = jwt.sign({ userId: user.id.toString(), jti }, process.env.JWT_SECRET, { expiresIn: "2h" });
+        await redis.set(`session:${jti}`, user.id.toString(), { EX: 60 * 60 * 2 });
         return res.json({
             success: true,
             token,
             data: {
                 id: user.id.toString(),
                 email: user.email,
-                name: user.name,
+                name: name,
             },
-            message: "Login successful!",
+            message: req.t("userAuth.success.googleWebLogin"),
         });
     }
     catch (err) {
         console.error("Google web login error:", err);
         return res.status(400).json({
             success: false,
-            error: "Google authentication failed",
+            error: req.t("userAuth.error.googleAuthFailed"),
+        });
+    }
+}
+export async function telegramLogin(req, res) {
+    try {
+        const { initData, istest } = req.body;
+        if (!initData) {
+            return res.status(400).json({
+                success: false,
+                error: req.t("userAuth.error.telegramInitDataRequired"),
+            });
+        }
+        const botToken = istest === "yes"
+            ? process.env.TELEGRAM_TEST_BOT_TOKEN
+            : process.env.TELEGRAM_GAME_BOT_TOKEN;
+        const isValid = verifyTelegramData(initData, botToken);
+        if (!isValid) {
+            return res.status(401).json({
+                success: false,
+                error: req.t("userAuth.error.invalidTelegramAuth"),
+            });
+        }
+        const params = new URLSearchParams(initData);
+        const userData = JSON.parse(params.get("user"));
+        const telegramId = BigInt(userData.id);
+        const username = userData.username || null;
+        const photoUrl = userData.photo_url || null;
+        const firstName = userData.first_name || "";
+        const lastName = userData.last_name || "";
+        const fullName = `${firstName} ${lastName}`.trim();
+        // 2️⃣ Check if user exists
+        let user = await prisma.user.findUnique({
+            where: { telegramId },
+        });
+        // 3️⃣ FIRST LOGIN → CREATE USER
+        if (!user) {
+            const config = await prisma.adminConfig.findUnique({
+                where: { id: BigInt(1) },
+            });
+            if (!config) {
+                return res.status(500).json({
+                    success: false,
+                    error: req.t("userAuth.error.adminConfigNotFound"),
+                });
+            }
+            const levelOneSwordDef = await prisma.swordLevelDefinition.findFirst({
+                where: { level: 1 },
+                select: { id: true },
+            });
+            if (!levelOneSwordDef) {
+                return res.status(500).json({
+                    success: false,
+                    error: req.t("userAuth.error.starterSwordNotFound"),
+                });
+            }
+            user = await prisma.$transaction(async (tx) => {
+                const newUser = await tx.user.create({
+                    data: {
+                        email: null,
+                        password: null,
+                        isTelegramLogin: true,
+                        telegramId: telegramId,
+                        telegramUser: username,
+                        name: fullName || "telegram_user",
+                        profileLogo: photoUrl || null,
+                        gold: config.defaultGold ?? 0,
+                        trustPoints: config.defaultTrustPoints ?? 0,
+                        lastReviewed: new Date(),
+                        lastLoginAt: new Date(),
+                    },
+                });
+                // give starter sword
+                await tx.userSword.create({
+                    data: {
+                        userId: newUser.id,
+                        swordId: BigInt(levelOneSwordDef.id),
+                        isOnAnvil: true,
+                        unsoldQuantity: 1,
+                        soldedQuantity: 0,
+                        brokenQuantity: 0,
+                    },
+                });
+                await tx.user.update({
+                    where: { id: newUser.id },
+                    data: {
+                        anvilSwordLevel: BigInt(levelOneSwordDef.id),
+                    },
+                });
+                return newUser;
+            });
+        } // else update the telegram details on every login
+        else {
+            await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    telegramUser: username,
+                    name: fullName || "telegram_user",
+                    profileLogo: photoUrl,
+                },
+            });
+        }
+        // 4️⃣ CREATE SESSION
+        const jti = uuidv4();
+        const token = jwt.sign({ userId: user.id.toString(), jti }, process.env.JWT_SECRET, { expiresIn: "2h" });
+        await redis.set(`session:${jti}`, user.id.toString(), {
+            EX: 60 * 60 * 2,
+        });
+        return res.json({
+            success: true,
+            token,
+            message: req.t("userAuth.success.telegramLogin"),
+        });
+    }
+    catch (err) {
+        console.error("Telegram login error:", err);
+        return res.status(500).json({
+            success: false,
+            error: req.t("userAuth.error.telegramAuthFailed"),
+        });
+    }
+}
+export async function requestCancelMembership(req, res) {
+    try {
+        const userId = BigInt(req.user.userId);
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                email: true,
+                name: true,
+                telegramId: true,
+                isTelegramLogin: true,
+            },
+        });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: req.t("userAuth.error.userNotFound"),
+            });
+        }
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        // EMAIL USER
+        if (!user.isTelegramLogin && user.email) {
+            await sendEmail(user.email, "⚠️ Account Deletion Request - OTP", `Hello ${user.name},
+
+You requested to delete your account.
+
+Your confirmation OTP is: ${otp}
+
+This code expires in 15 minutes. If you did not request this, please ignore this message.`);
+            const otpKey = `cancel:otp:${user.email}`;
+            const attemptsKey = `cancel:otp:attempts:${user.email}`;
+            await redis.set(otpKey, otp, { EX: 900 });
+            await redis.set(attemptsKey, "0", { EX: 900 });
+            return res.json({
+                success: true,
+                message: req.t("userAuth.success.otpSentEmail"),
+            });
+        }
+        // TELEGRAM USER
+        if (user.isTelegramLogin && user.telegramId) {
+            const telegramId = user.telegramId.toString();
+            await sendTelegramMessage(telegramId, `⚠️ Account Deletion Request
+
+Hello ${user.name}
+
+Your OTP for confirming account deletion is:
+
+${otp}
+
+This OTP will expire in 15 minutes.
+
+If you did not request this, please ignore this message.`);
+            const otpKey = `cancel:otp:tg:${telegramId}`;
+            const attemptsKey = `cancel:otp:tg:attempts:${telegramId}`;
+            await redis.set(otpKey, otp, { EX: 900 });
+            await redis.set(attemptsKey, "0", { EX: 900 });
+            return res.json({
+                success: true,
+                message: req.t("userAuth.success.otpSentTelegram"),
+            });
+        }
+        return res.status(400).json({
+            success: false,
+            error: req.t("userAuth.error.unableToSendOtp"),
+        });
+    }
+    catch (err) {
+        console.error("requestCancelMembership error:", err);
+        return res.status(500).json({
+            success: false,
+            error: req.t("userAuth.error.failedToSendOtp"),
+        });
+    }
+}
+export async function confirmCancelMembership(req, res) {
+    try {
+        const userId = BigInt(req.user.userId);
+        const { otp } = req.body;
+        if (!otp) {
+            return res.status(400).json({
+                success: false,
+                error: req.t("userAuth.error.otpRequired"),
+            });
+        }
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                email: true,
+                telegramId: true,
+                isTelegramLogin: true,
+            },
+        });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: req.t("userAuth.error.userNotFound"),
+            });
+        }
+        let otpKey;
+        let attemptsKey;
+        if (user.isTelegramLogin && user.telegramId) {
+            const tgId = user.telegramId.toString();
+            otpKey = `cancel:otp:tg:${tgId}`;
+            attemptsKey = `cancel:otp:tg:attempts:${tgId}`;
+        }
+        else if (user.email) {
+            otpKey = `cancel:otp:${user.email}`;
+            attemptsKey = `cancel:otp:attempts:${user.email}`;
+        }
+        else {
+            return res.status(400).json({
+                success: false,
+                error: req.t("userAuth.error.userContactInfoMissing"),
+            });
+        }
+        const storedOtp = await redis.get(otpKey);
+        if (!storedOtp) {
+            return res.status(400).json({
+                success: false,
+                error: req.t("userAuth.error.otpExpiredOrInvalid"),
+            });
+        }
+        let attempts = Number(await redis.get(attemptsKey)) || 0;
+        if (attempts >= 5) {
+            await redis.del(otpKey);
+            await redis.del(attemptsKey);
+            return res.status(429).json({
+                success: false,
+                error: req.t("userAuth.error.tooManyAttempts"),
+            });
+        }
+        if (storedOtp !== otp) {
+            const newAttempts = attempts + 1;
+            await redis.set(attemptsKey, newAttempts.toString(), { EX: 900 });
+            return res.status(400).json({
+                success: false,
+                error: req.t("userAuth.error.invalidOtpAttemptsLeft", {
+                    remaining: 5 - newAttempts,
+                }),
+            });
+        }
+        // DELETE ACCOUNT
+        await prisma.$transaction(async (tx) => {
+            await tx.user.delete({
+                where: { id: userId },
+            });
+        });
+        // invalidate session
+        const authHeader = req.headers.authorization;
+        if (authHeader) {
+            const token = authHeader.split(" ")[1];
+            const payload = jwt.decode(token);
+            if (payload?.jti) {
+                await redis.del(`session:${payload.jti}`);
+            }
+        }
+        await redis.del(otpKey);
+        await redis.del(attemptsKey);
+        return res.json({
+            success: true,
+            message: req.t("userAuth.success.accountDeleted"),
+        });
+    }
+    catch (err) {
+        console.error("confirmCancelMembership error:", err);
+        return res.status(500).json({
+            success: false,
+            error: req.t("userAuth.error.failedToDeleteAccount"),
         });
     }
 }
