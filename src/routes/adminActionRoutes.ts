@@ -1,5 +1,5 @@
 import express from "express";
-import adminAuth from "../middleware/adminAuth.js";
+import adminAuth, { requireEditor } from "../middleware/adminAuth.js";
 import { upload } from "../middleware/upload.js";
 
 import {
@@ -28,76 +28,54 @@ import {
 
 const router = express.Router();
 
-router.post("/notifications/create", adminAuth, createNotification);
-router.post("/notifications/delete", adminAuth, deleteNotification);
+// Every route in this file is a write action → authenticate, then require EDITOR (super passes too)
+router.use(adminAuth, requireEditor);
+
+router.post("/notifications/create", createNotification);
+router.post("/notifications/delete", deleteNotification);
 
 /* ───────────────────── ADMIN CONFIG ───────────────────── */
-router.put("/config/update", adminAuth, updateAdminConfig);
+router.put("/config/update", updateAdminConfig);
 
 /* ───────────────────────── SWORDS ─────────────────────── */
 // Create new sword level (with image + synth + upgrade rules)
-router.put(
-  "/sword/create",
-  adminAuth,
-  upload.single("image"),
-  createSwordLevel,
-);
+router.put("/sword/create", upload.single("image"), createSwordLevel);
 
 // Update sword metadata / prices / flags / image
-router.put(
-  "/sword/update/metadata",
-  adminAuth,
-  upload.single("image"),
-  updateSwordLevel,
-);
+router.put("/sword/update/metadata", upload.single("image"), updateSwordLevel);
 
 // Update ONLY synthesize required quantities (no add/remove)
-router.patch(
-  "/sword/update/synthesize",
-  adminAuth,
-  updateSynthesizeRequirements,
-);
+router.patch("/sword/update/synthesize", updateSynthesizeRequirements);
 
 // Update ONLY upgrade drops (percent + min/max) (no add/remove)
-router.patch("/sword/update/upgrades", adminAuth, updateUpgradeDrops);
+router.patch("/sword/update/upgrades", updateUpgradeDrops);
 
 // FULL replace synthesize + upgrade materials (can add/remove)
-router.patch("/sword/update/materials", adminAuth, updateSwordMaterials);
+router.patch("/sword/update/materials", updateSwordMaterials);
 
 /* ─────────────────────── MATERIALS ────────────────────── */
-router.put(
-  "/material/create",
-  adminAuth,
-  upload.single("image"),
-  createMaterial,
-);
-
-router.put(
-  "/material/update",
-  adminAuth,
-  upload.single("image"),
-  updateMaterial,
-);
+router.put("/material/create", upload.single("image"), createMaterial);
+router.put("/material/update", upload.single("image"), updateMaterial);
 
 /* ───────────────────────── GIFTS ──────────────────────── */
-router.post("/gift/create", adminAuth, createGift);
-router.post("/gift/cancel", adminAuth, cancelGift);
-router.delete("/gift/delete", adminAuth, deleteGift);
+router.post("/gift/create", createGift);
+router.post("/gift/cancel", cancelGift);
+router.delete("/gift/delete", deleteGift);
 
 /* ───────────────────── USER MODERATION ────────────────── */
-router.patch("/user/ban-toggle", adminAuth, toggleUserBan);
+router.patch("/user/ban-toggle", toggleUserBan);
 
 /* ───────────────────── SUPPORT SYSTEM ─────────────────── */
-router.post("/support/reply", adminAuth, replyToSupportTicket);
+router.post("/support/reply", replyToSupportTicket);
 
 /* ───────────────────── DAILY MISSIONS ───────────────────── */
-router.post("/mission/daily/create", adminAuth, createDailyMission);
-router.patch("/mission/daily/toggle", adminAuth, toggleDailyMission);
-router.delete("/mission/daily/delete", adminAuth, deleteDailyMission);
+router.post("/mission/daily/create", createDailyMission);
+router.patch("/mission/daily/toggle", toggleDailyMission);
+router.delete("/mission/daily/delete", deleteDailyMission);
 
 /* ─────────────────── ONE-TIME MISSIONS ─────────────────── */
-router.post("/mission/one-time/create", adminAuth, createOneTimeMission);
-router.patch("/mission/one-time/toggle", adminAuth, toggleOneTimeMission);
-router.delete("/mission/one-time/delete", adminAuth, deleteOneTimeMission);
+router.post("/mission/one-time/create", createOneTimeMission);
+router.patch("/mission/one-time/toggle", toggleOneTimeMission);
+router.delete("/mission/one-time/delete", deleteOneTimeMission);
 
 export default router;

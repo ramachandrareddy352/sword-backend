@@ -50,6 +50,23 @@ model AdminConfig {
   @@index([adminEmailId])
 }
 
+model Admin {
+  id       BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  email    String    @unique
+  role     AdminRole @default(VIEWER)
+  isActive Boolean   @default(true) // soft disable instead of hard delete (optional)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+}
+
+enum AdminRole {
+  VIEWER // read-only (getter routes)
+  EDITOR // full update rights (action routes)
+}
+
 model Notification {
   id          BigInt   @id @default(autoincrement())
   title       String

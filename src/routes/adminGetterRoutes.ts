@@ -25,50 +25,44 @@ import { getAllNotifications } from "../controllers/commonGetterController.js";
 
 const router = express.Router();
 
-router.get("/notifications/all", adminAuth, getAllNotifications);
-router.get("/users/total-gold", adminAuth, getTotalUsersGold);
+// All getters only need authentication; both VIEWER and EDITOR can read
+router.use(adminAuth);
+
+router.get("/notifications/all", getAllNotifications);
+router.get("/users/total-gold", getTotalUsersGold);
 
 /* ───────────────────── USER ───────────────────── */
-router.get("/users/check-email", adminAuth, checkUserByEmail);
-router.get("/users/check-telegram", adminAuth, checkUserByTelegramUserName);
-router.get("/users/all", adminAuth, getAllUsers);
-router.get("/user/full-details", adminAuth, getUserFullDetails);
+router.get("/users/check-email", checkUserByEmail);
+router.get("/users/check-telegram", checkUserByTelegramUserName);
+router.get("/users/all", getAllUsers);
+router.get("/user/full-details", getUserFullDetails);
 
 /* ───────────────────── USERS ASSETS ───────────────────────── */
-router.get("/all/users/swords", adminAuth, getAllUsersSwords);
-router.get("/all/users/materials", adminAuth, getAllUsersMaterials);
+router.get("/all/users/swords", getAllUsersSwords);
+router.get("/all/users/materials", getAllUsersMaterials);
 
 /* ───────────────────── USERS GIFTS & VOUCHERS ──────────────── */
-router.get("/all/users/gifts", adminAuth, getAllUsersGifts);
-router.get("/all/users/vouchers", adminAuth, getAllUsersVouchers);
+router.get("/all/users/gifts", getAllUsersGifts);
+router.get("/all/users/vouchers", getAllUsersVouchers);
 
 /* ───────────────────── SUPPORT SYSTEM ─────────────────────── */
-router.get("/all/users/customer-supports", adminAuth, getAllCustomerSupports);
+router.get("/all/users/customer-supports", getAllCustomerSupports);
 
 /* ───────────────────── HISTORY & LOGS ─────────────────────── */
-router.get("/all/users/upgrade-history", adminAuth, getAllUsersUpgradeHistory);
-router.get(
-  "/all/users/synthesis-history",
-  adminAuth,
-  getAllUsersSynthesisHistory,
-);
+router.get("/all/users/upgrade-history", getAllUsersUpgradeHistory);
+router.get("/all/users/synthesis-history", getAllUsersSynthesisHistory);
 
 /* ───────────────────── ADMIN CONFIG ───────────────────────── */
-router.get("/config", adminAuth, getAdminConfig);
+router.get("/config", getAdminConfig);
 
 /* ───────────────────── MISSIONS ───────────────────────── */
-router.get("/missions/daily/all", adminAuth, getAllDailyMissions);
-router.get("/missions/one-time/all", adminAuth, getAllOneTimeMissions);
-router.get(
-  "/missions/daily/users-progress",
-  adminAuth,
-  getAllUsersDailyMissionProgress,
-);
+router.get("/missions/daily/all", getAllDailyMissions);
+router.get("/missions/one-time/all", getAllOneTimeMissions);
+router.get("/missions/daily/users-progress", getAllUsersDailyMissionProgress);
 router.get(
   "/missions/one-time/users-progress",
-  adminAuth,
   getAllUsersOneTimeMissionProgress,
 );
-router.get("/missions/user", adminAuth, getUserMissionsByUserId);
+router.get("/missions/user", getUserMissionsByUserId);
 
 export default router;

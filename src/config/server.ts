@@ -20,6 +20,8 @@ import ExternalActionRouters from "../routes/externalActionRoutes.js";
 import UserActionRouters from "../routes/userActionRoutes.js";
 import UserAuthRouters from "../routes/userAuthRoutes.js";
 import UserGetterRouters from "../routes/userGetterRoutes.js";
+import SuperAdminRouters from "../routes/superAdminRoutes.js";
+
 import rateLimit from "express-rate-limit";
 
 import * as i18nextMiddleware from "i18next-http-middleware";
@@ -223,6 +225,8 @@ app.use("/api/externalActions", ExternalActionRouters);
 app.use("/api/userActions", UserActionRouters);
 app.use("/api/userAuth", UserAuthRouters);
 app.use("/api/userGetters", UserGetterRouters);
+
+app.use("/api/superAdmin", SuperAdminRouters);
 
 const server = createServer(app);
 export default server;
